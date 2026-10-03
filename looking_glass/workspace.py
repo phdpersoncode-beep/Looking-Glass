@@ -221,6 +221,78 @@ class Workspace:
             raise Problem('A comment of 1–50,000 characters is required.')
         return author.strip(), body.strip()
 
+    def query_threads(self, path=None, status='all', q=None, author=None,
+                      anchor_status=None, limit=50, offset=0, summary='true'):
+        """Shared literal, case-insensitive search with stable ID pagination."""
+        if status not in ('all', 'open', 'resolved'):
+            raise Problem('Status must be all, open, or resolved.')
+        if anchor_status not in (None, 'attached', 'needs_reattachment'):
+            raise Problem('Anchor status must be attached or needs_reattachment.')
+        if summary not in ('true', 'false'):
+            raise Problem('Summary must be true or false.')
+        limit = self.query_integer(limit, 'Limit', 1, 1000)
+        offset = self.query_integer(offset, 'Offset', 0)
+        items = []
+        for t in sorted(self.threads(path), key=lambda t: t['id']):
+            if status != 'all' and t['resolved'] != (status == 'resolved'):
+                continue
+            if anchor_status and t['anchor_status'] != anchor_status:
+                continue
+            if author and not any(m['author'].casefold() == author.casefold() for m in t['messages']):
+                continue
+            if q and not any(q.casefold() in text.casefold() for text in
+                             [t['quote'], *[m['body'] for m in t['messages']]]):
+                continue
+            items.append(t)
+        total = len(items)
+        page = items[offset:offset+limit]
+        if summary == 'true':
+            page = [dict(id=t['id'], path=t['path'], quote=t['quote'], resolved=t['resolved'],
+                         anchor_status=t['anchor_status'], anchor_kind=t['anchor_kind'],
+                         created_at=t['created_at'], message_count=len(t['messages']),
+                         last_message={**t['messages'][-1], 'body':t['messages'][-1]['body'][:240]})
+                    for t in page]
+        return dict(threads=page, total=total, limit=limit, offset=offset,
+                    next_offset=offset+limit if offset+limit < total else None)
+
+    @staticmethod
+    def query_integer(value, name, minimum, maximum=None):
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            raise Problem(f'{name} must be an integer.')
+        if number < minimum or (maximum is not None and number > maximum):
+            bounds = f'{minimum}–{maximum}' if maximum is not None else f'at least {minimum}'
+            raise Problem(f'{name} must be {bounds}.')
+        return number
+
+    def thread_context(self, identifier, context_lines=10):
+        context_lines = self.query_integer(context_lines, 'Context lines', 0, 100)
+        with self.lock:
+            t = self.get_thread(identifier)
+            if t['anchor_kind'] == 'rendered':
+                t['context'] = dict(kind='rendered', **t['render_anchor'])
+            elif t['anchor_status'] != 'attached':
+                t['context'] = dict(kind='unavailable', reason='Anchor needs reattachment; source positions are unreliable.')
+            else:
+                content, version = self.text(t['path'])
+                # An external writer can change the file after anchor reconciliation.
+                if content[t['start']:t['end']] != t['quote']:
+                    t['context'] = dict(kind='unavailable', reason='File changed while reading; read the thread again.')
+                    return t
+                # Count only LF boundaries, including CRLF. Unicode separators
+                # inside a line must not change the editor's line numbers.
+                parts = content.split('\n')
+                lines = [part+'\n' for part in parts[:-1]] + ([parts[-1]] if parts[-1] else [])
+                start_line = content.count('\n', 0, t['start']) + 1
+                end_line = content.count('\n', 0, t['end']-1) + 1
+                first = max(1, start_line-context_lines)
+                last = min(len(lines), end_line+context_lines)
+                t['context'] = dict(kind='source', version=version, start_line=start_line,
+                                    end_line=end_line, first_line=first, last_line=last,
+                                    content=''.join(lines[first-1:last]))
+            return t
+
     def create_thread(self, path, start, end, body, author, version):
         author, body = self.message(author, body)
         with self.lock, self.connection() as db:

@@ -14,6 +14,8 @@ looking_glass/
   anchors.py     conservative anchor mapping across edits
   revisions.py   selected-file Git checkpoints with a temporary index
   cli.py         server and agent commands
+  projects.py    user-level project registry and root/address inference
+  instructions.py portable browser/CLI agent instructions
   templates/     application shell and HTMX fragments
   static/        committed local build assets
 frontend/        client source and Tailwind source
@@ -23,8 +25,13 @@ tests/          persistence, conflict, anchors, isolation, Git and browser check
 
 The server opens one directory per invocation. A root-bound database at
 `.looking-glass/state.sqlite3` and a persistent local API token sit inside it.
-Choosing another directory means restarting the server with that directory.
-This keeps permissions and agent routing explicit.
+The browser can switch the running server to another directory. The new workspace
+has its own token and database. A user-level SQLite registry records known roots
+and server addresses without tokens. CLI requests verify the server's root.
+
+Thread search, filters, pagination, summaries, and source context live in
+`workspace.py` and are exposed through the HTTP API. Existing unpaginated calls
+remain available for the browser. The CLI uses the shared query implementation.
 
 Anchors use Unicode character offsets plus quotes and context. Sequence matching
 maps unchanged passages and ordinary edits inside a passage. Removed passages,

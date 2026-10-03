@@ -7,85 +7,187 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from .projects import known_projects, project_root, project_url, register_project
+
+
+def api(root, url, route, method='GET', data=None, timeout=15):
+    token = (root/'.looking-glass'/'token').read_text().strip()
+    req = Request(url + '/api/' + route,
+                  data=json.dumps(data).encode() if data is not None else None,
+                  headers={'Content-Type':'application/json', 'X-Looking-Glass-Token':token}, method=method)
+    with urlopen(req, timeout=timeout) as response:
+        return json.load(response)
+
+
+def check_project(root, url, timeout=15):
+    project = api(root, url, 'project', timeout=timeout)
+    if project['root'] != str(root):
+        raise ValueError(f'Server has a different project open: {project["root"]}. Use projects list to find its address.')
+
+
+def project_status(project):
+    try:
+        root = Path(project['root'])
+        url = project_url(root, project['url'])
+        check_project(root, url, timeout=1)
+        return {**project, 'reachable':True}
+    except (OSError, URLError, ValueError) as e:
+        return {**project, 'reachable':False, 'error':str(e)}
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(
+        prog='looking-glass', description='Open local projects and review anchored discussions with coding agents.',
+        epilog='Start here: looking-glass projects list; looking-glass agent --help. Agent commands require a running server.')
+    sub = parser.add_subparsers(dest='command', required=True)
+
+    def command(parent, name, help, example, description=None):
+        return parent.add_parser(name, help=help, description=description or help,
+                                 epilog='Example: ' + example)
+
+    serve = command(sub, 'serve', 'Serve a local project on loopback and register its address.',
+                    'looking-glass serve ~/project --port 8766')
+    serve.add_argument('directory', type=Path, help='Existing project directory to open.')
+    serve.add_argument('--port', type=int, default=8765, help='Local HTTP port (default: 8765).')
+
+    projects = command(sub, 'projects', 'Discover known local projects and inspect their files.',
+                       'looking-glass projects list')
+    project_ops = projects.add_subparsers(dest='operation', required=True)
+    command(project_ops, 'list', 'Return known roots, server URLs, and reachability as JSON.',
+            'looking-glass projects list',
+            'List projects registered by serve or the browser directory switch. Probe each saved address. Stopped projects remain listed.')
+    show = command(project_ops, 'show', 'Show a running project, its file paths, and thread counts as JSON.',
+                   'looking-glass projects show ~/project',
+                   'Inspect a running project. Omit the directory to infer the nearest project from the current directory.')
+    show.add_argument('directory', nargs='?', type=Path, help='Project directory; defaults to the nearest project ancestor.')
+    show.add_argument('--url', help='Override the registered HTTP loopback server address.')
+
+    agent = command(sub, 'agent', 'Read, search, and update discussions through the local HTTP API.',
+                    'looking-glass agent --root ~/project list --status open',
+                    'Use a running local project. Infer the nearest project from the current directory, or set --root. '
+                    'Use its registered address, or set --url. Put --root and --url before the operation. '
+                    'Results are JSON, except instructions, which prints text. Errors go to stderr with a nonzero exit code.')
+    agent.add_argument('--root', type=Path, help='Project root; defaults to the nearest project ancestor.')
+    agent.add_argument('--url', help='Override the registered address (fallback: http://127.0.0.1:8765).')
+    operations = agent.add_subparsers(dest='operation', required=True)
+    for name in ('list', 'search'):
+        op = command(operations, name,
+                     'List paginated thread summaries.' if name == 'list' else 'Search comment bodies and anchored quotes.',
+                     'looking-glass agent list --status open' if name == 'list' else 'looking-glass agent search "shebang" --status open',
+                     'Return JSON with threads, total, limit, offset, and next_offset, ordered by thread ID. '
+                     'Filters combine. Search uses literal case-insensitive text. Use read for full messages and passage context.')
+        if name == 'search':
+            op.add_argument('query', help='Literal text to find in any comment body or anchored quote.')
+        op.add_argument('--path', help='Exact workspace-relative file path, or a canonical absolute path for an outside file.')
+        op.add_argument('--status', choices=('all', 'open', 'resolved'), default='all', help='Thread status (default: all).')
+        op.add_argument('--author', help='Match a thread with any message by this author; exact, case-insensitive label.')
+        op.add_argument('--anchor-status', choices=('attached', 'needs_reattachment'), help='Filter by anchor attachment status.')
+        op.add_argument('--limit', type=int, default=50, help='Threads per page, 1–1000 (default: 50).')
+        op.add_argument('--offset', type=int, default=0, help='Number of matching threads to skip (default: 0).')
+        op.add_argument('--full', action='store_true', help='Include full thread fields and all messages instead of compact summaries.')
+    read = command(operations, 'read', 'Read a thread, all messages, and current passage context.',
+                   'looking-glass agent read 4 --context-lines 10',
+                   'Return a JSON thread with context. Source context includes one-based line numbers and a current file version. '
+                   'Rendered HTML context contains visible quote, prefix, and suffix. Detached anchors have no source context.')
+    read.add_argument('id', type=int, help='Thread ID from list, search, or create.')
+    read.add_argument('--context-lines', type=int, default=10, help='Source lines before and after the passage, 0–100 (default: 10).')
+    create = command(operations, 'create', 'Create a discussion anchored to an exact source passage.',
+                     'looking-glass agent create notes.md --quote "A passage" --author Agent --body "Please explain."')
+    create.add_argument('path', help='Workspace-relative text file path, or canonical absolute outside path.')
+    create.add_argument('--quote', required=True, help='Exact nonempty source passage; must be unique unless --occurrence is set.')
+    create.add_argument('--occurrence', type=int, help='One-based occurrence to select when the quote repeats.')
+    create.add_argument('--author', default='Agent', help='Comment author label (default: Agent).')
+    create.add_argument('--body', required=True, help='Comment text. Quote it as one shell argument.')
+    reply = command(operations, 'reply', 'Append a comment to an existing thread.',
+                    'looking-glass agent reply 4 --author Agent --body "Here is my explanation."')
+    reply.add_argument('id', type=int, help='Thread ID from list, search, or create.')
+    reply.add_argument('--author', default='Agent', help='Comment author label (default: Agent).')
+    reply.add_argument('--body', required=True, help='Reply text. Quote it as one shell argument.')
+    for name in ('resolve', 'reopen'):
+        op = command(operations, name,
+                     'Mark a completed thread as resolved.' if name == 'resolve' else 'Mark a resolved thread as open again.',
+                     f'looking-glass agent {name} 4')
+        op.add_argument('id', type=int, help='Thread ID from list, search, or create.')
+    delete = command(operations, 'delete', 'Permanently delete a thread or one comment.',
+                     'looking-glass agent delete 4 --message 8',
+                     'Delete the whole thread unless --message is supplied. Deleting its last message also removes the thread.')
+    delete.add_argument('id', type=int, help='Thread ID to delete or modify.')
+    delete.add_argument('--message', type=int, help='Delete only this message ID, obtained from read.')
+    command(operations, 'instructions', 'Print copyable agent instructions for the current workspace.',
+            'looking-glass agent instructions')
+    return parser
+
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(prog='looking-glass')
-    sub = parser.add_subparsers(dest='command',required=True)
-    serve = sub.add_parser('serve',help='Open a project directory on loopback')
-    serve.add_argument('directory',type=Path)
-    serve.add_argument('--port',type=int,default=8765)
-    agent = sub.add_parser('agent',help='Read and update discussions through the local HTTP API')
-    agent.add_argument('--root',type=Path,required=True,help='Project directory opened by the server')
-    agent.add_argument('--url',default='http://127.0.0.1:8765')
-    operations = agent.add_subparsers(dest='operation',required=True)
-    ls = operations.add_parser('list')
-    ls.add_argument('--path')
-    read = operations.add_parser('read')
-    read.add_argument('id',type=int)
-    create = operations.add_parser('create')
-    create.add_argument('path')
-    create.add_argument('--quote',required=True,help='Unique exact passage to anchor')
-    create.add_argument('--occurrence',type=int,help='1-based occurrence when the quote repeats')
-    create.add_argument('--author',default='Codex')
-    create.add_argument('--body',required=True)
-    reply = operations.add_parser('reply')
-    reply.add_argument('id',type=int)
-    reply.add_argument('--author',default='Codex')
-    reply.add_argument('--body',required=True)
-    for command in ('resolve','reopen'):
-        op = operations.add_parser(command)
-        op.add_argument('id',type=int)
-    delete = operations.add_parser('delete',help='Delete a thread or one comment')
-    delete.add_argument('id',type=int)
-    delete.add_argument('--message',type=int,help='Delete this message ID only')
+    parser = build_parser()
     args = parser.parse_args(argv)
-    if args.command == 'serve':
-        from .app import create_app
-        from werkzeug.serving import run_simple
-        app = create_app(args.directory)
-        print(f'Looking Glass · {args.directory.resolve()}\nOpen http://127.0.0.1:{args.port}',flush=True)
-        run_simple('127.0.0.1',args.port,app,threaded=True,use_debugger=False,use_reloader=False)
-        return
-    from .anchors import occurrences
-    if not args.url.startswith(('http://127.0.0.1:', 'http://localhost:', 'http://[::1]:')):
-        parser.error('Agent URL must be a local loopback server.')
     try:
-        token = (args.root.expanduser().resolve()/'.looking-glass'/'token').read_text().strip()
+        if args.command == 'serve':
+            from .app import create_app
+            from werkzeug.serving import run_simple
+            if not 1 <= args.port <= 65535:
+                parser.error('Port must be 1–65535.')
+            app = create_app(args.directory)
+            root = app.extensions['workspace'].root
+            url = f'http://127.0.0.1:{args.port}'
+            app.config['LOCAL_SERVER_URL'] = url
+            register_project(root, url)
+            print(f'Looking Glass · {root}\nOpen {url}', flush=True)
+            run_simple('127.0.0.1', args.port, app, threaded=True, use_debugger=False, use_reloader=False)
+            return
+        if args.command == 'projects' and args.operation == 'list':
+            print(json.dumps([project_status(p) for p in known_projects()], indent=2, ensure_ascii=False))
+            return
+        root = project_root(args.directory if args.command == 'projects' else args.root)
+        url = project_url(root, args.url)
+        check_project(root, url)
 
-        def api(route,method='GET',data=None):
-            req = Request(args.url.rstrip('/') + '/api/' + route,
-                          data=json.dumps(data).encode() if data is not None else None,
-                          headers={'Content-Type':'application/json','X-Looking-Glass-Token':token}, method=method)
-            with urlopen(req,timeout=15) as response:
-                return json.load(response)
+        def call(route, method='GET', data=None):
+            return api(root, url, route, method, data)
 
-        if args.operation == 'list':
-            result = api('threads' + ('?' + urlencode({'path':args.path}) if args.path else ''))
+        if args.command == 'projects':
+            result = call('workspace')
+            result.update(url=url, reachable=True, thread_counts={
+                status:call('threads?' + urlencode({'status':status, 'limit':1}))['total']
+                for status in ('all', 'open', 'resolved')})
+        elif args.operation == 'instructions':
+            print(call('agent-instructions')['instructions'])
+            return
+        elif args.operation in ('list', 'search'):
+            query = dict(status=args.status, limit=args.limit, offset=args.offset,
+                         summary='false' if args.full else 'true')
+            for key, value in (('path', args.path), ('author', args.author),
+                               ('anchor_status', args.anchor_status), ('q', getattr(args, 'query', None))):
+                if value is not None:
+                    query[key] = value
+            result = call('threads?' + urlencode(query))
         elif args.operation == 'read':
-            result = api(f'threads/{args.id}')
+            result = call(f'threads/{args.id}?' + urlencode({'context_lines':args.context_lines}))
         elif args.operation == 'create':
-            file = api('file?' + urlencode({'path':args.path}))
-            hits = occurrences(file['content'],args.quote)
-            if not hits or (len(hits)>1 and args.occurrence is None):
-                parser.error('Quote is missing or ambiguous. Provide --occurrence for a repeated quote.')
-            occurrence = args.occurrence or 1
+            from .anchors import occurrences
+            file = call('file?' + urlencode({'path':args.path}))
+            hits = occurrences(file['content'], args.quote)
+            if not args.quote or not hits or (len(hits) > 1 and args.occurrence is None):
+                parser.error('Quote is empty, missing, or ambiguous. Provide --occurrence for a repeated quote.')
+            occurrence = args.occurrence if args.occurrence is not None else 1
             if not 1 <= occurrence <= len(hits):
                 parser.error('Occurrence is out of range.')
             start = hits[occurrence-1]
-            result = api('threads','POST',dict(path=args.path,start=start,end=start+len(args.quote),version=file['version'],author=args.author,body=args.body))
+            result = call('threads', 'POST', dict(path=args.path, start=start, end=start+len(args.quote),
+                                                 version=file['version'], author=args.author, body=args.body))
         elif args.operation == 'reply':
-            result = api(f'threads/{args.id}/replies','POST',dict(body=args.body,author=args.author))
+            result = call(f'threads/{args.id}/replies', 'POST', dict(body=args.body, author=args.author))
         elif args.operation == 'delete':
             route = f'threads/{args.id}' + (f'/messages/{args.message}' if args.message is not None else '')
-            result = api(route,'DELETE')
+            result = call(route, 'DELETE')
         else:
-            result = api(f'threads/{args.id}','PATCH',dict(resolved=args.operation == 'resolve'))
-        print(json.dumps(result,indent=2,ensure_ascii=False))
+            result = call(f'threads/{args.id}', 'PATCH', dict(resolved=args.operation == 'resolve'))
+        print(json.dumps(result, indent=2, ensure_ascii=False))
     except HTTPError as e:
-        print(e.read().decode(),file=sys.stderr)
+        print(e.read().decode(), file=sys.stderr)
         raise SystemExit(1)
-    except (URLError,OSError) as e:
-        print(f'Cannot reach local project: {e}',file=sys.stderr)
+    except (URLError, OSError, ValueError) as e:
+        print(f'Cannot access local project: {e}', file=sys.stderr)
         raise SystemExit(1)
 
 

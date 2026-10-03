@@ -58,3 +58,8 @@
   file your user can access. Only grant it to agents you trust with that.
 - SQLite snapshots contain last-observed text to map anchors. Disk files remain
   authoritative; snapshots are not a backup or alternate document store.
+- Agent commands require a running server. The project registry keeps the last
+  address for each root; stopped or switched-away projects remain listed as unreachable.
+  Servers started before an upgrade must restart to expose updated API routes.
+  Search covers one selected project per call. It loads threads before filtering;
+  pagination limits output, but does not yet reduce database or reconciliation work.

@@ -1,6 +1,5 @@
 import secrets
 import time
-import shlex
 import json
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -10,6 +9,8 @@ from werkzeug.exceptions import HTTPException
 
 from .revisions import Revisions
 from .workspace import Problem, Workspace, directories
+from .instructions import agent_instructions as instructions_text
+from .projects import register_project
 
 
 def create_app(root):
@@ -80,22 +81,11 @@ def create_app(root):
 
     @app.get('/api/agent-instructions')
     def agent_instructions():
-        project = Path(__file__).resolve().parents[1]
-        command = f'uv run --directory {shlex.quote(str(project))} looking-glass agent --root {shlex.quote(str(ws.root))} --url {shlex.quote(request.host_url.rstrip("/"))}'
-        return jsonify(instructions=f'''Review this workspace through Looking Glass: {ws.root}
-The local server is running. Use these commands from your terminal:
+        return jsonify(instructions=instructions_text(ws.root, request.host_url.rstrip('/')))
 
-{command} list
-{command} read THREAD_ID
-{command} reply THREAD_ID --author "Agent" --body "Your reply"
-{command} create "relative/path.md" --quote "Exact unique passage" --author "Agent" --body "Your comment"
-{command} resolve THREAD_ID
-{command} reopen THREAD_ID
-
-Read each thread and its anchored passage before responding. Use IDs from list.
-Reply in the existing thread. Ask for guidance when an anchor needs reattachment.
-Apply file edits only when requested. Explain your changes in the thread.
-Resolve a thread when its requested work is complete. All commands return JSON.''')
+    @app.get('/api/project')
+    def project():
+        return jsonify(root=str(ws.root))
 
     @app.get('/fragments/threads')
     def discussion():
@@ -117,6 +107,8 @@ Resolve a thread when its requested work is complete. All commands return JSON.'
         git = Revisions(ws)
         previews.clear()
         app.extensions['workspace'] = ws
+        if app.config.get('LOCAL_SERVER_URL'):
+            register_project(ws.root, app.config['LOCAL_SERVER_URL'])
         print(f'Looking Glass · {ws.root}', flush=True)
         return jsonify(root=str(ws.root))
 
@@ -182,6 +174,11 @@ Resolve a thread when its requested work is complete. All commands return JSON.'
 
     @app.get('/api/threads')
     def threads():
+        options = {key: request.args[key] for key in
+                   ('status', 'q', 'author', 'anchor_status', 'limit', 'offset', 'summary')
+                   if key in request.args}
+        if options:
+            return jsonify(ws.query_threads(path=request.args.get('path'), **options))
         return jsonify(ws.threads(request.args.get('path')))
 
     @app.post('/api/threads')
@@ -196,6 +193,8 @@ Resolve a thread when its requested work is complete. All commands return JSON.'
 
     @app.get('/api/threads/<int:identifier>')
     def thread(identifier):
+        if 'context_lines' in request.args:
+            return jsonify(ws.thread_context(identifier, request.args['context_lines']))
         return jsonify(ws.get_thread(identifier))
 
     @app.post('/api/threads/<int:identifier>/replies')

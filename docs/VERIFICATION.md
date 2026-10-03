@@ -1,8 +1,29 @@
 # First milestone verification · 2026-10-03
 
-Latest result: **22 tests passed**, including three browser integration tests.
+Latest CLI update: 23 non-browser tests passed. The browser instruction workflow
+also passed separately. The full default run skipped three opt-in browser tests.
 The frontend was built locally using the committed npm lockfile. No application
 dependency is fetched from a CDN at runtime.
+
+## Agent CLI update · 2026-10-03
+
+Commands run:
+
+```bash
+uv run pytest -q
+LOOKING_GLASS_BROWSER=installed uv run pytest tests/test_browser.py::test_review_workflow_features -q
+git diff --check
+```
+
+- Verified server registration, project reachability, directory switching, and stopped servers.
+- Verified current-directory root inference and registered nondefault server addresses.
+- Verified comment and quote search, Unicode text, combined filters, summaries, and pagination.
+- Verified full messages and source context for multiline, CRLF, and Unicode passages.
+- Verified rendered context and unavailable context for detached source anchors.
+- Verified invalid query rejection, loopback URL validation, and wrong-root rejection even with matching tokens.
+- Verified every CLI command exposes help and an example.
+- Verified portable instructions through the terminal and browser clipboard.
+- Test registries use temporary directories and never update the user's project registry.
 
 ## End-to-end browser workflow
 

@@ -21,6 +21,17 @@ uv run looking-glass serve ./demo_dir
 `uv run` syncs the environment before each command. To use the `looking-glass`
 command without the `uv run` prefix, run `source .venv/bin/activate` first.
 
+To install the CLI (command-line interface) as a user-level tool available from any directory:
+
+```bash
+uv tool install --editable /absolute/path/to/Looking-Glass
+looking-glass --help
+looking-glass serve /absolute/path/to/project
+```
+
+Editable installation follows changes in this checkout. Ensure `~/.local/bin` is
+on your `PATH`; `uv tool update-shell` can configure your shell if needed.
+
 Open http://127.0.0.1:8765. To work on another local directory:
 
 ```bash
@@ -78,37 +89,61 @@ tabs. Unsaved tabs ask before discarding edits. Pinned tabs are protected by
 
 ## Work alongside a coding agent
 
-Keep the server running. Make the `looking-glass` command available in your agent's
-environment. Either run `uv run looking-glass ...` from this repository, or install it
-as a global tool with `uv tool install /path/to/Looking-Glass`.
-The CLI (command-line interface) uses a small local HTTP API, documented in
+Keep the server running. Install the CLI with the user-level command above.
+You can also use `uv run looking-glass ...` from this repository.
+The CLI uses a small local HTTP API, documented in
 [docs/AGENT_API.md](docs/AGENT_API.md).
 
 Click **Agent instructions** beneath the file explorer, then **Copy instructions**.
-Paste the instructions into your coding agent. Commands include the current workspace,
-server address, and this installation's path, so the agent can run them from any directory.
+Paste the instructions into your coding agent. Commands use the installed executable
+and include the current workspace and server address.
 
 ```bash
-uv run looking-glass agent --root ./demo_dir list
-uv run looking-glass agent --root ./demo_dir list --path welcome.md
-uv run looking-glass agent --root ./demo_dir read 1
-uv run looking-glass agent --root ./demo_dir create welcome.md \
+looking-glass projects list
+looking-glass projects show /absolute/path/to/project
+looking-glass agent --root ./demo_dir list --status open
+looking-glass agent --root ./demo_dir search 'example' --status open
+looking-glass agent --root ./demo_dir list --path welcome.md --author Altay
+looking-glass agent --root ./demo_dir read 1 --context-lines 10
+looking-glass agent --root ./demo_dir create welcome.md \
   --quote 'Select this passage' --author Codex \
   --body 'Can we add a concrete example here?'
-uv run looking-glass agent --root ./demo_dir reply 1 --author Codex \
+looking-glass agent --root ./demo_dir reply 1 --author Codex \
   --body 'I suggest explaining the disk-file workflow first.'
-uv run looking-glass agent --root ./demo_dir resolve 1
-uv run looking-glass agent --root ./demo_dir reopen 1
-uv run looking-glass agent --root ./demo_dir delete 1 --message 2
-uv run looking-glass agent --root ./demo_dir delete 1
+looking-glass agent --root ./demo_dir resolve 1
+looking-glass agent --root ./demo_dir reopen 1
+looking-glass agent --root ./demo_dir delete 1 --message 2
+looking-glass agent --root ./demo_dir delete 1
+looking-glass agent --root ./demo_dir instructions
+looking-glass agent search --help
 ```
 
-Pass `--root` as the workspace the server has open now. For a file outside the
-workspace, pass its absolute path, e.g. `create /home/you/notes.md --quote ...`.
-Use `--url http://127.0.0.1:8766` after `--root` if the server uses another port.
+Omit `--root` when your current directory is inside the project. The CLI finds the
+nearest ancestor with Looking Glass metadata or a registered root. Otherwise,
+pass `--root` as the workspace the server has open now. For an outside file,
+pass its absolute path, e.g. `create /home/you/notes.md --quote ...`.
+The CLI uses the registered server address. Override it with `--url http://127.0.0.1:8766`
+before the operation. The CLI verifies the server's project root before accessing threads.
 `create` requires a unique exact quote. For repeated text, provide a one-based
-`--occurrence`. All commands return JSON. Thread IDs come from `list` or `create`.
+`--occurrence`. Commands return JSON; `instructions` prints copyable text.
+Thread IDs come from `list`, `search`, or `create`.
 Comments never automatically apply edits.
+
+`list` and `search` return paginated summaries with `threads`, `total`, `limit`,
+`offset`, and `next_offset`. Use `--limit` and `--offset` to page through results.
+Use `--full` for all messages. Filters include `--status all|open|resolved`,
+`--path`, `--author`, and `--anchor-status attached|needs_reattachment`.
+Search matches literal, case-insensitive text in quotes and all comment bodies.
+`read` returns all messages and current passage context. Rendered HTML returns
+the visible quote and its surrounding anchor text. Detached anchors have no source context.
+
+`serve` registers projects under `~/.config/looking-glass/projects.sqlite3`.
+Browser directory switches also register the new root. `projects list` reports
+known roots, addresses, and reachability, including stopped projects.
+`projects show` lists current disk file paths and thread counts for a running project.
+`XDG_CONFIG_HOME` changes the configuration base; `LOOKING_GLASS_CONFIG_DIR`
+overrides the Looking Glass configuration directory. The registry stores no tokens.
+Append `--help` to any command for options and an example.
 
 ## External edits and anchors
 

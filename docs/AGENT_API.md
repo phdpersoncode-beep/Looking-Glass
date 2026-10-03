@@ -1,7 +1,49 @@
 # Local discussion interface
 
 Base URL: `http://127.0.0.1:8765/api`. The server must already be running on
-the same machine and opened on the same directory as `--root`.
+the same machine and opened on the selected project. Restart servers started
+before a CLI upgrade so their API supports the new commands.
+
+## Installed CLI
+
+```bash
+uv tool install --editable /absolute/path/to/Looking-Glass
+looking-glass projects list
+looking-glass projects show /absolute/path/to/project
+looking-glass agent --root /absolute/path/to/project list --status open
+looking-glass agent search 'shebang' --status open --author Altay
+looking-glass agent read 2 --context-lines 10
+looking-glass agent reply 2 --author OpenCode --body 'My explanation.'
+looking-glass agent instructions
+looking-glass agent --help
+looking-glass agent search --help
+```
+
+Every command provides `--help` with options and an example. Put `--root` and
+`--url` before the agent operation. Without `--root`, the CLI searches current-directory
+ancestors for project metadata or a registered root. Without `--url`, it uses the
+registered address, falling back to `http://127.0.0.1:8765`.
+
+`serve` registers its root and address. Browser directory switches register the
+new root. The registry defaults to `~/.config/looking-glass/projects.sqlite3`.
+`XDG_CONFIG_HOME` changes the configuration base. `LOOKING_GLASS_CONFIG_DIR`
+overrides the configuration directory. The registry stores roots and URLs, never tokens.
+Projects remain listed when stopped; reachability requires an authenticated root match.
+`projects show` returns file paths and all/open/resolved thread counts.
+
+`list` and `search` share `--status`, `--path`, `--author`, `--anchor-status`,
+`--limit`, `--offset`, and `--full`. Search matches literal, case-insensitive text
+in anchored quotes and all comment bodies. Author matching uses an exact,
+case-insensitive label on any message. Filters combine.
+
+Results contain `threads`, `total`, `limit`, `offset`, and `next_offset`.
+Threads are ordered by ID. The default page size is 50; the maximum is 1000.
+Summaries include IDs, paths, quotes, state, message count, and the last message
+with its body limited to 240 characters. Use `--full` for complete messages.
+`read` includes current passage context with 10 surrounding lines by default.
+Commands print JSON; `instructions` prints text. Errors use stderr and a nonzero exit code.
+
+## HTTP API
 
 Each request needs the `X-Looking-Glass-Token` header. Its value is the contents
 of `<project>/.looking-glass/token`. This file is created with owner-only access
@@ -21,8 +63,38 @@ There are no built-in model calls or automatic editing passes.
 | GET | `/file?path=welcome.md` | Read current disk text and version |
 | PUT | `/file` | Save with a required current version hash |
 | GET | `/workspace` | Workspace root and available file paths |
+| GET | `/project` | Workspace root only, for inexpensive identity checks |
 | GET | `/agent-instructions` | Copyable instructions for this workspace and server |
 | GET | `/git/baseline?path=welcome.md` | Last committed text for editor gutter markers |
+
+### Thread queries and context
+
+`GET /threads` without query options retains its full-array response for existing callers.
+An optional `path` alone also retains that response. Supply any option below
+to request a paginated response:
+
+| Parameter | Meaning |
+| --- | --- |
+| `status` | `all` (default), `open`, or `resolved` |
+| `q` | Literal, case-insensitive substring in quotes or message bodies |
+| `author` | Exact, case-insensitive author label on any message |
+| `anchor_status` | `attached` or `needs_reattachment` |
+| `limit` | Page size, 1–1000; default 50 |
+| `offset` | Nonnegative matching-thread count to skip; default 0 |
+| `summary` | `true` (default) for compact summaries; `false` for complete threads |
+
+```json
+{"threads": [], "total": 0, "limit": 50, "offset": 0, "next_offset": null}
+```
+
+`GET /threads/1?context_lines=10` adds a `context` object. The allowed range is 0–100.
+Source context contains the current `version`, one-based `start_line` and `end_line`,
+one-based `first_line` and `last_line`, and unmodified `content` for those lines.
+Rendered context contains `kind: "rendered"`, `quote`, `prefix`, and `suffix`.
+Unreliable source anchors return `kind: "unavailable"` with a `reason`.
+Without `context_lines`, the original thread response remains unchanged.
+
+### Creating and updating discussions
 
 Create body:
 

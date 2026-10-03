@@ -196,3 +196,53 @@ def test_rendered_html_anchors_persist_and_require_current_version(ws):
     assert client.patch(f"/api/threads/{t['id']}",headers=headers,json=dict(render_anchor=new_anchor,version=saved['version'])).json['anchor_status']=='attached'
     assert client.patch(f"/api/threads/{t['id']}",headers=headers,json=dict(start=0,end=3,version=saved['version'])).status_code==400
     assert client.post('/api/threads',headers=headers,json=dict(path='notes.md',render_anchor=anchor,body='No.',author='Altay',version=ws.read('notes.md')['version'])).status_code==400
+
+
+def test_thread_query_api_validation_and_context(ws):
+    t=thread(ws)
+    ws.reply(t['id'],'Use 100% of 🪞 examples.','Agent')
+    other=thread(ws)
+    ws.update_thread(other['id'],resolved=True)
+    client=create_app(ws.root).test_client()
+    headers={'X-Looking-Glass-Token':ws.token}
+    assert client.get('/api/project',headers=headers).json=={'root':str(ws.root)}
+    # Legacy browser/API callers still receive the original full array.
+    assert len(client.get('/api/threads',headers=headers).json)==2
+    found=client.get('/api/threads?'+urlencode(dict(q='100%',status='open',author='agent',summary='false')),headers=headers).json
+    assert found['total']==1 and len(found['threads'][0]['messages'])==2
+    assert ws.query_threads(q='useful')['total']==2
+    assert ws.query_threads(q='%')['total']==1
+    assert ws.query_threads(offset=99)['next_offset'] is None
+    for query in ('status=invalid','anchor_status=invalid','limit=0','limit=1001','limit=x','offset=-1','summary=maybe'):
+        assert client.get('/api/threads?'+query,headers=headers).status_code==400
+    context=client.get(f"/api/threads/{t['id']}?context_lines=1",headers=headers).json['context']
+    assert context['start_line']==3 and context['content']=='\nA useful passage for review.\n\n'
+    for value in ('-1','101','no'):
+        assert client.get(f"/api/threads/{t['id']}?context_lines={value}",headers=headers).status_code==400
+    (ws.root/'notes.md').unlink()
+    detached=ws.thread_context(t['id'])
+    assert detached['context']['kind']=='unavailable'
+    assert ws.query_threads(anchor_status='needs_reattachment')['total']==2
+
+
+def test_context_unicode_crlf_multiline_and_rendered(ws):
+    (ws.root/'lines.txt').write_bytes('First\r\n🪞 Quote\r\nSecond\r\nLast'.encode())
+    file=ws.read('lines.txt')
+    quote='🪞 Quote\r\nSecond\r\n'
+    start=file['content'].index(quote)
+    t=ws.create_thread('lines.txt',start,start+len(quote),'Question','Altay',file['version'])
+    context=ws.thread_context(t['id'],0)['context']
+    assert context['start_line']==2 and context['end_line']==3
+    assert context['content']==quote
+    (ws.root/'unicode.txt').write_text('Before\nA\u2028passage\nAfter')
+    file=ws.read('unicode.txt')
+    quote='A\u2028passage'
+    t=ws.create_thread('unicode.txt',7,7+len(quote),'Question','Altay',file['version'])
+    context=ws.thread_context(t['id'],0)['context']
+    assert context['start_line']==context['end_line']==2
+    assert context['content']==quote+'\n'
+    (ws.root/'report.html').write_text('<p>Hello world</p>')
+    file=ws.read('report.html')
+    anchor=dict(quote='Hello world',prefix='',suffix='')
+    t=ws.create_rendered_thread('report.html',anchor,'Question','Altay',file['version'])
+    assert ws.thread_context(t['id'])['context']==dict(kind='rendered',**anchor)
