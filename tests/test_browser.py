@@ -4,6 +4,7 @@ LOOKING_GLASS_BROWSER=/path/to/chromium pytest tests/test_browser.py -v
 Or LOOKING_GLASS_BROWSER=installed after `playwright install chromium`.
 """
 import json
+import base64
 import os
 import shutil
 import subprocess
@@ -24,6 +25,9 @@ def test_end_to_end(tmp_path):
     root = tmp_path/'demo_dir'
     shutil.copytree(project/'demo_dir',root,ignore=shutil.ignore_patterns('.looking-glass'))
     (root/'_crlf.txt').write_bytes('First line\r\n🪞 München\r\n'.encode())
+    (root/'_broken.stl').write_text('not an STL')
+    for name,scale in [('tiny',1e-9),('huge',1e9)]:
+        (root/f'_{name}.stl').write_text((root/'tetrahedron-ascii.stl').read_text().replace('30.0',str(30*scale)))
     subprocess.run(['git','init',str(root)],check=True,capture_output=True)
     for key,value in [('user.name','Looking Glass Test'),('user.email','test@example.invalid')]:
         subprocess.run(['git','-C',str(root),'config',key,value],check=True)
@@ -149,13 +153,50 @@ def test_end_to_end(tmp_path):
         assert 'MALFORMED' in page.locator('.jsonl-detail .viewer-heading').inner_text()
         page.locator('.jsonl-row[data-row="1"]').click()
         assert 'check boundary' in page.locator('.json-detail-editor').inner_text()
-        for name in ('tetrahedron-ascii.stl','tetrahedron-binary.stl'):
+        def visible_model(canvas):
+            # Inspect the screenshot, not just successful parsing or a canvas node.
+            png=base64.b64encode(canvas.screenshot()).decode()
+            colored=page.evaluate('''async png => {
+                const image = new Image(); image.src = 'data:image/png;base64,' + png;
+                await image.decode(); const canvas = document.createElement('canvas');
+                canvas.width=image.width; canvas.height=image.height;
+                const ctx=canvas.getContext('2d'); ctx.drawImage(image,0,0);
+                const pixels=ctx.getImageData(0,0,canvas.width,canvas.height).data;
+                let count=0;
+                for(let i=0;i<pixels.length;i+=4) if(pixels[i+2]-pixels[i+1]>20 && pixels[i]-pixels[i+1]>10) count++;
+                return count;
+            }''',png)
+            assert colored>500, 'STL geometry is not visible'
+
+        for name in ('tetrahedron-ascii.stl','tetrahedron-binary.stl','_tiny.stl','_huge.stl'):
             open_file(name)
             page.get_by_text('4 triangles',exact=True).wait_for()
             page.locator('.stl-tools button').click()
+            visible_model(page.locator('.stl-view canvas'))
             box=page.locator('.stl-view canvas').bounding_box()
             page.mouse.move(box['x']+box['width']/2,box['y']+box['height']/2)
             page.mouse.down();page.mouse.move(box['x']+box['width']/2+60,box['y']+box['height']/2+20);page.mouse.up();page.mouse.wheel(0,100)
+
+        open_file('_broken.stl')
+        expect(page.locator('.stl-status')).to_contain_text('Unable to display this STL')
+        fallback=browser.new_page(viewport={'width':1100,'height':850})
+        fallback.add_init_script('''const original=HTMLCanvasElement.prototype.getContext;
+            HTMLCanvasElement.prototype.getContext=function(type,...args){
+                return type.startsWith('webgl') ? null : original.call(this,type,...args);
+            };''')
+        fallback.goto(url)
+        for name in ('tetrahedron-ascii.stl','tetrahedron-binary.stl'):
+            fallback.locator(f'.file-entry[data-path="{name}"]').click()
+            expect(fallback.locator('.stl-stats')).to_contain_text('Software preview')
+            expect(fallback.locator('.stl-view svg path').first).to_be_visible()
+            svg=fallback.locator('.stl-view svg')
+            before=svg.inner_html()
+            box=svg.bounding_box()
+            fallback.mouse.move(box['x']+box['width']/2,box['y']+box['height']/2)
+            fallback.mouse.down();fallback.mouse.move(box['x']+box['width']/2+60,box['y']+box['height']/2+20);fallback.mouse.up()
+            assert svg.inner_html()!=before
+            fallback.locator('.stl-tools button').click()
+        fallback.close()
 
         open_file('report.html')
         frame=page.frame_locator('#html-preview')

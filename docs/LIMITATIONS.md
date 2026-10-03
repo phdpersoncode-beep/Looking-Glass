@@ -13,7 +13,10 @@
   a first inline Markdown editor, not feature parity with Obsidian.
 - JSONL and STL are viewers without editing or annotations. The JSONL left side
   is a raw row list; basic JSON syntax highlighting is on the formatted right.
-  STL requires WebGL. Unsupported/broken STL shows an error instead of geometry.
+  STL uses WebGL with an SVG software fallback when WebGL is unavailable.
+  Large software previews sample up to 12,000 triangles, which can omit small
+  features; use WebGL for full detail. Unsupported/broken STL shows an error
+  inside the viewer instead of geometry.
 - Text files must be UTF-8 and at most 8 MiB. Uniform CRLF/LF line endings and
   executable mode are preserved. Mixed line endings are normalized to the first
   detected style during editing. STL files are limited to 64 MiB. The file list

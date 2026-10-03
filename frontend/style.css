@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @source "../looking_glass/templates";
 @source "./app.js";
+.stl-view svg{display:block;touch-action:none}
+.stl-status{position:absolute;inset:70px 24px auto;padding:16px;border:1px solid var(--border);border-radius:7px;background:var(--paper);color:var(--text);font-size:13px;overflow-wrap:anywhere}
 .prose-editor .cm-scroller {font-family:"Times New Roman",Times,serif;font-size:18px;}
 @theme {--font-sans: Inter, ui-sans-serif, system-ui, sans-serif;}
 :root {--paper:#fefdfb;--panel:#f6f5f2;--text:#302d35;--muted:#96909d;--border:#e7e4e9;--purple:#9935ee;--selection:#a84dff30;--active-line:#f6f2f9;--mono:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;--highlight:#ae55ff24;}

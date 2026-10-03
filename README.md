@@ -7,7 +7,8 @@ is a separate, explicit action.
 
 ## Install and run
 
-Requires Python 3.10+, Git, and a browser with WebGL for STL viewing.
+Requires Python 3.10+, Git, and a modern browser. WebGL accelerates STL viewing;
+a software preview is available when it is unavailable.
 The local frontend build is included, so Node is needed only to change the frontend.
 
 ```bash
@@ -109,7 +110,10 @@ them in your terminal first. Checkpoints do not push. Saving never commits.
 - **JSONL:** all raw lines on the left, selected JSON value formatted on the right.
   Malformed and empty lines are marked individually; other rows still work.
 - **STL:** ASCII (text) and binary STL; drag to orbit, right-drag to pan, scroll
-  to zoom, and use **Fit to view**. Needs browser WebGL support.
+  to zoom, and use **Fit to view**. Uses WebGL when available, with an SVG
+  software fallback. Software previews of large models reduce detail to 12,000
+  sampled triangles and are labeled accordingly. Invalid files show an error
+  inside the viewer.
 - **HTML:** rendered interactive report or raw editable source. The iframe has
   an opaque sandbox origin, no application API token and no access to parent
   state. Inline scripts and HTTPS report resources are allowed. Use self-contained

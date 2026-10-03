@@ -15,6 +15,7 @@ import DOMPurify from 'dompurify';
 import * as THREE from 'three';
 import {STLLoader} from 'three/addons/loaders/STLLoader.js';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {SVGRenderer} from 'three/addons/renderers/SVGRenderer.js';
 
 const $ = selector => document.querySelector(selector);
 const token = $('meta[name=looking-glass-token]').content;
@@ -240,17 +241,57 @@ function mountJSONL(e){
 }
 async function mountSTL(e){
   const host=document.createElement('div');host.className='stl-view';const tools=document.createElement('div');tools.className='stl-tools';const fit=document.createElement('button');fit.textContent='Fit to view';const info=document.createElement('span');info.textContent='Orbit: drag · Pan: right drag · Zoom: scroll';tools.append(fit,info);host.append(tools);$('#surface').append(host);
+  const status=document.createElement('div');status.className='stl-status';status.setAttribute('role','status');status.textContent='Loading model…';host.append(status);fit.disabled=true;
+  let geometry, material, renderer, controls, observer;
+  cleanup=()=>{observer?.disconnect();renderer?.setAnimationLoop?.(null);controls?.dispose();geometry?.dispose();material?.dispose();renderer?.dispose?.();};
+  try{
   e.version=(await api('stat?'+new URLSearchParams({path:e.path}))).version;
-  const buffer=await binary(e.path);const geometry=new STLLoader().parse(buffer);if(!geometry.attributes.position?.count)throw new Error('No triangles found in STL.');geometry.computeBoundingBox();geometry.center();geometry.computeVertexNormals();geometry.computeBoundingSphere();
-  const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));host.append(renderer.domElement);
-  const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(45,1,0.01,10000),controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;
-  const material=new THREE.MeshStandardMaterial({color:0xb290db,metalness:0.13,roughness:0.5,side:THREE.DoubleSide});scene.add(new THREE.Mesh(geometry,material));scene.add(new THREE.HemisphereLight(0xffffff,0x554766,2.5));const light=new THREE.DirectionalLight(0xffffff,3);light.position.set(4,7,8);scene.add(light);
-  const radius=geometry.boundingSphere.radius||1;
-  function fitView(){camera.position.set(radius*2.5,radius*1.7,radius*2.5);camera.near=radius/1000;camera.far=radius*1000;camera.updateProjectionMatrix();controls.target.set(0,0,0);controls.update();}
-  fit.onclick=fitView;fitView();
-  const observer=new ResizeObserver(()=>{const w=host.clientWidth,h=host.clientHeight;renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();});observer.observe(host);renderer.setAnimationLoop(()=>{controls.update();renderer.render(scene,camera);});
-  const stats=document.createElement('span');stats.className='stl-stats';stats.textContent=(geometry.attributes.position.count/3).toLocaleString()+' triangles';host.append(stats);
-  cleanup=()=>{observer.disconnect();renderer.setAnimationLoop(null);controls.dispose();geometry.dispose();material.dispose();renderer.dispose();};
+  const buffer=await binary(e.path);geometry=new STLLoader().parse(buffer);
+  const count=geometry.attributes.position?.count;
+  if(!count||count%3)throw new Error('No complete triangles found in STL.');
+  geometry.computeBoundingBox();
+  const bounds=geometry.boundingBox;
+  if(![...bounds.min.toArray(),...bounds.max.toArray()].every(Number.isFinite))throw new Error('STL contains invalid vertex coordinates.');
+  geometry.center();geometry.computeBoundingSphere();
+  const radius=geometry.boundingSphere.radius;
+  if(!Number.isFinite(radius)||radius<=0)throw new Error('STL has no visible surface.');
+  // Keep the scene in a predictable range, even for microscopic or huge models.
+  geometry.scale(1/radius,1/radius,1/radius);geometry.computeVertexNormals();geometry.computeBoundingSphere();
+  const canvas=document.createElement('canvas');let context=null;
+  try{context=canvas.getContext('webgl2',{antialias:true,alpha:true});}catch{}
+  if(context){
+    try{renderer=new THREE.WebGLRenderer({canvas,context,antialias:true,alpha:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));}catch{context=null;}
+  }
+  const software=!context;
+  if(software){
+    renderer=new SVGRenderer();
+    // Bound software-rendering work so large files do not freeze the editor.
+    const limit=12000,triangles=count/3;
+    if(triangles>limit){
+      const source=geometry.attributes.position.array,positions=new Float32Array(limit*9);
+      for(let i=0;i<limit;i++)positions.set(source.subarray(Math.floor(i*triangles/limit)*9,Math.floor(i*triangles/limit)*9+9),i*9);
+      geometry.dispose();geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.BufferAttribute(positions,3));geometry.computeVertexNormals();
+    }
+  }
+  host.dataset.renderer=software?'software':'webgl';host.append(renderer.domElement);
+  const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(45,1,0.01,1000);
+  controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=!software;controls.minDistance=0.05;controls.maxDistance=100;
+  material=new THREE.MeshStandardMaterial({color:0x9470c2,metalness:0.08,roughness:0.75,side:THREE.DoubleSide});scene.add(new THREE.Mesh(geometry,material));scene.add(new THREE.AmbientLight(0xffffff,0.65));scene.add(new THREE.HemisphereLight(0xffffff,0x554766,1.25));const light=new THREE.DirectionalLight(0xffffff,2);light.position.set(4,7,8);scene.add(light);
+  const render=()=>renderer.render(scene,camera);
+  function fitView(){const halfFov=Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov/2))*Math.min(camera.aspect,1));const distance=1.2/Math.sin(halfFov);camera.position.copy(new THREE.Vector3(2.5,1.7,2.5).normalize().multiplyScalar(distance));controls.target.set(0,0,0);controls.update();render();}
+  function resize(){const w=Math.max(host.clientWidth,1),h=Math.max(host.clientHeight,1);renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();render();}
+  fit.onclick=fitView;resize();fitView();fit.disabled=false;status.remove();
+  observer=new ResizeObserver(resize);observer.observe(host);
+  if(software)controls.addEventListener('change',render);
+  else{
+    renderer.setAnimationLoop(()=>{controls.update();render();});
+    renderer.domElement.addEventListener('webglcontextlost',()=>{status.textContent='The graphics context was lost. Reopen this file to reload the viewer.';host.append(status);});
+    renderer.domElement.addEventListener('webglcontextrestored',()=>status.remove());
+  }
+  const stats=document.createElement('span');stats.className='stl-stats';stats.textContent=(count/3).toLocaleString()+' triangles';
+  if(software)stats.textContent+=' · Software preview'+(count/3>12000?' · detail reduced to 12,000 triangles':'');
+  host.append(stats);
+  }catch(error){cleanup();status.textContent='Unable to display this STL: '+error.message;fit.disabled=true;notify(error.message,true);}
 }
 
 async function poll(){
