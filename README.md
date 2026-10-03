@@ -94,6 +94,25 @@ You can also use `uv run looking-glass ...` from this repository.
 The CLI uses a small local HTTP API, documented in
 [docs/AGENT_API.md](docs/AGENT_API.md).
 
+You can use the following concise instructions for your coding agent as user level settings:
+```
+Use the looking-glass CLI if it is installed to collaborate with me. It is for reviewing project discussions. The local server must be running. Discover projects with `looking-glass projects list` and inspect files with `looking-glass projects show PATH`. From inside a project:
+- Find open threads: `looking-glass agent list --status open`.
+- Search comments: `looking-glass agent search "TEXT" --status open`.
+- Read messages and passage context: `looking-glass agent read ID --context-lines 10`.
+- Reply: `looking-glass agent reply ID --author "Agent" --body "REPLY"`.
+- Resolve completed work: `looking-glass agent resolve ID`.
+
+Read context before replying. Ask for guidance on detached anchors.
+
+Use `looking-glass agent --root PATH ...` from another directory.
+
+Follow `next_offset` with `--offset` for additional pages.
+
+Append `--help` when you need help with a command. Run `looking-glass agent instructions` for the full guide.
+altay@dinm5CD51053RK:~/.claude$ vim CLAUDE.md
+```
+
 Click **Agent instructions** beneath the file explorer, then **Copy instructions**.
 Paste the instructions into your coding agent. Commands use the installed executable
 and include the current workspace and server address.
