@@ -7,4 +7,4 @@
   <form class="reply-form"><label class="sr-only" for="reply-{{ thread.id }}">Reply to thread {{ thread.id }}</label><textarea id="reply-{{ thread.id }}" rows="2" placeholder="Reply to this thread…" required></textarea><button type="submit">Reply ↗</button></form>
 </article>
 {% endfor %}
-{% if not threads %}<div class="empty-discussions">No discussions yet.<p>Select a passage and choose “Discuss selection”.</p></div>{% endif %}
+{% if not threads %}<div class="empty-discussions">No discussions yet.<p>Select a passage and choose “Add comment”.</p></div>{% endif %}

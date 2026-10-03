@@ -23,7 +23,9 @@ const root = $('.root-label').textContent;
 const tabs = new Map();
 let active = null, view = null, cleanup = () => {}, currentThreads = [], activeThread = null, pending = null;
 let polling = false, saving = false, switching = false, refreshNumber = 0, queuedFile = null;
+let selectingText = false, selectionFrame = 0, postingComment = false;
 const themeSlot = new Compartment(), liveSlot = new Compartment();
+const selectionSettled = StateEffect.define();
 const spansEffect = StateEffect.define();
 const spanField = StateField.define({
   create: () => [],
@@ -54,9 +56,9 @@ const theme = () => EditorView.theme({
 },{dark:document.documentElement.dataset.theme === 'dark'});
 
 class Bullet extends WidgetType {toDOM(){const el=document.createElement('span');el.textContent='• ';return el;}}
-function liveDecorations(v) {
-  const ranges=[], doc=v.state.doc, selected=v.state.selection.main;
-  const activeFrom=doc.lineAt(selected.from).from, activeTo=doc.lineAt(selected.to).to;
+function liveDecorations(v, activeRange) {
+  const ranges=[], doc=v.state.doc;
+  const {from:activeFrom,to:activeTo}=activeRange;
   syntaxTree(v.state).iterate({
     enter(node){
       const name=node.name, a=node.from, b=node.to;
@@ -78,8 +80,15 @@ function liveDecorations(v) {
   return Decoration.set(ranges,true);
 }
 const liveMarkdown = ViewPlugin.fromClass(class {
-  constructor(v){this.decorations=liveDecorations(v);}
-  update(u){if(u.docChanged||u.selectionSet||u.viewportChanged)this.decorations=liveDecorations(u.view);}
+  constructor(v){const line=v.state.doc.lineAt(v.state.selection.main.head);this.activeRange={from:line.from,to:line.to};this.decorations=liveDecorations(v,this.activeRange);}
+  update(u){
+    if(u.docChanged)this.activeRange={from:u.changes.mapPos(this.activeRange.from),to:u.changes.mapPos(this.activeRange.to)};
+    // Revealing syntax during a drag moves the text under the pointer. Only
+    // expose a new active line once a collapsed caret has settled.
+    const expose=!selectingText&&u.state.selection.main.empty&&(u.selectionSet||u.transactions.some(t=>t.effects.some(e=>e.is(selectionSettled))));
+    if(expose){const line=u.state.doc.lineAt(u.state.selection.main.head);this.activeRange={from:line.from,to:line.to};}
+    if(u.docChanged||expose||u.viewportChanged)this.decorations=liveDecorations(u.view,this.activeRange);
+  }
 },{decorations:v=>v.decorations});
 
 function notify(message,error=false) {$('#notice').textContent=message;$('#notice').classList.toggle('error',error);}
@@ -98,6 +107,35 @@ function entry(){return active?tabs.get(active):null;}
 function remember(){localStorage.setItem('looking-glass-tabs:'+root,JSON.stringify({active,tabs:[...tabs.values()].map(e=>({path:e.path,pinned:e.pinned,mode:e.mode}))}));}
 function syncState(){const e=entry();if(e&&view){e.state=view.state;e.content=view.state.sliceDoc();}}
 function spansFor(threads,text){return threads.filter(t=>t.anchor_status==='attached'&&!t.resolved).map(t=>({id:t.id,from:toUnits(text,t.start),to:toUnits(text,t.end)})).filter(s=>s.from<s.to&&s.to<=text.length);}
+
+function selectionLocation(){
+  if(!view||view.state.selection.main.empty)return null;
+  const {head,from,to}=view.state.selection.main;
+  const coords=view.coordsAtPos(head,head===to?-1:1),bounds=view.scrollDOM.getBoundingClientRect();
+  if(!coords||coords.bottom<bounds.top||coords.top>bounds.bottom||coords.left<bounds.left||coords.left>bounds.right)return null;
+  return {coords,bounds,from,to};
+}
+function placeNearSelection(element,location){
+  const {coords,bounds}=location,width=element.offsetWidth,height=element.offsetHeight;
+  const left=Math.max(8,Math.min(coords.left,Math.min(bounds.right,innerWidth)-width-8));
+  let top=coords.bottom+8;
+  if(top+height>Math.min(bounds.bottom,innerHeight)-8)top=coords.top-height-8;
+  element.style.left=left+'px';element.style.top=Math.max(8,Math.min(top,innerHeight-height-8))+'px';
+}
+function scheduleSelectionTools(){
+  cancelAnimationFrame(selectionFrame);
+  selectionFrame=requestAnimationFrame(()=>{
+    const button=$('#selection-tools');
+    const location=selectionLocation();
+    button.hidden=!location||selectingText||$('#comment-dialog').open;
+    if(!button.hidden){
+      const span=view.state.field(spanField).find(s=>s.from<location.to&&s.to>location.from);
+      const show=$('#selection-thread');show.hidden=!span;show.dataset.thread=span?.id||'';
+      placeNearSelection(button,location);
+    }
+  });
+}
+function closeComment(){if($('#comment-dialog').open)$('#comment-dialog').close();}
 
 function renderTabs(){
   $('#tabs').replaceChildren();
@@ -119,7 +157,7 @@ function showTabMenu(e,x,y){
 }
 async function closeTab(path){
   const e=tabs.get(path);if(e.dirty&&!confirm('Discard unsaved edits in '+path+'?'))return;
-  if(path===active){syncState();view?.destroy();view=null;cleanup();cleanup=()=>{};active=null;}
+  if(path===active){closeComment();syncState();view?.destroy();view=null;cleanup();cleanup=()=>{};active=null;}
   tabs.delete(path);remember();renderTabs();
   if(!active&&tabs.size)await openFile([...tabs.keys()].at(-1));
   else if(!active){$('#surface').innerHTML='<div class="welcome"><h1>Open a file to begin.</h1></div>';$('#threads').replaceChildren();currentThreads=[];$('#thread-count').textContent='0';updateToolbar();}
@@ -132,8 +170,8 @@ function makeState(e){
     themeSlot.of(theme()),liveSlot.of(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?liveMarkdown:[]),
     ...(prose?[EditorView.lineWrapping,EditorView.theme({'.cm-scroller':{fontFamily:'"Times New Roman", Times, serif',fontSize:'18px'},'.cm-content':{maxWidth:'850px',margin:'0 auto',width:'100%'},'.cm-gutters':{display:'none'}})]:[]),
     keymap.of([{key:'Mod-s',run:()=>{guard(saveActive)();return true;}},{key:'Mod-Enter',run:()=>{guard(startComment)();return true;}},{key:'Mod-f',run:openSearchPanel},{key:'Mod-h',run:openSearchPanel},indentWithTab]),
-    EditorView.updateListener.of(u=>{if(u.docChanged){e.content=u.state.sliceDoc();e.dirty=e.content!==e.diskContent;e.state=u.state;updateToolbar();renderTabs();}if(u.selectionSet)updateToolbar();}),
-    EditorView.domEventHandlers({click:event=>{const mark=event.target.closest?.('[data-anchor]');if(mark){guard(()=>jump(Number(mark.dataset.anchor)))();return true;}return false;}})
+    EditorView.updateListener.of(u=>{if(u.docChanged){e.content=u.state.sliceDoc();e.dirty=e.content!==e.diskContent;e.state=u.state;updateToolbar();renderTabs();}if(u.selectionSet)updateToolbar();if(u.selectionSet||u.docChanged||u.viewportChanged||u.geometryChanged)scheduleSelectionTools();}),
+    EditorView.domEventHandlers({click:event=>{const mark=event.target.closest?.('[data-anchor]');if(mark&&view?.state.selection.main.empty&&event.detail===1){showThread(Number(mark.dataset.anchor));return true;}return false;}})
   ]});
 }
 
@@ -141,6 +179,7 @@ async function openFile(path){
   if(switching){queuedFile=path;return;}switching=true;
   try{
     if(active===path)return;
+    closeComment();
     syncState();
     let e=tabs.get(path);
     if(!e){
@@ -158,6 +197,7 @@ async function openFile(path){
   }finally{switching=false;if(queuedFile){const next=queuedFile;queuedFile=null;queueMicrotask(()=>guard(()=>openFile(next))());}}
 }
 function mountDocument(e){
+  closeComment();
   $('#surface').replaceChildren();
   if(e.mode==='rendered'){
     const frame=document.createElement('iframe');frame.id='html-preview';frame.title='Isolated HTML report';frame.setAttribute('sandbox','allow-scripts allow-forms allow-modals');
@@ -183,6 +223,7 @@ function updateToolbar(){
   $('#file-info').textContent=e?(viewer?type.toUpperCase()+' viewer':Array.from(e.content).length.toLocaleString()+' characters · UTF-8'):'Choose a file from the sidebar';
   $('#conflict').hidden=!e?.conflict;
   if(e?.conflict)$('#conflict span').textContent=e.conflict.deleted?'This file was deleted or became unavailable on disk. Copy your draft before closing it.':'Changed on disk. Your unsaved edits are preserved. Compare and merge before saving.';
+  scheduleSelectionTools();
 }
 async function saveActive(){
   const e=entry();if(!e||!e.dirty)return e;if(e.conflict)throw new Error('Resolve the external change before saving.');syncState();saving=true;updateToolbar();
@@ -204,9 +245,14 @@ async function refreshThreads(){
   await window.htmx.ajax('GET','/fragments/threads?'+new URLSearchParams({path,active:activeThread||''}),{target:'#threads',swap:'innerHTML'});
   filterThreads();
 }
-function filterThreads(){$$('.thread').forEach(t=>{t.hidden=t.dataset.resolved==='true'&&!$('#show-resolved').checked;t.classList.toggle('active',Number(t.dataset.thread)===activeThread);});}
+function filterThreads(){$$('.thread').forEach(t=>{t.hidden=t.dataset.resolved==='true'&&!$('#show-resolved').checked;t.classList.toggle('active',Number(t.dataset.thread)===activeThread);const reply=t.querySelector('.reply-form');if(reply)reply.hidden=Number(t.dataset.thread)!==activeThread;});}
+function showThread(id){
+  activeThread=id;filterThreads();
+  if(view)view.dispatch({effects:spansEffect.of(view.state.field(spanField))});
+  $('.thread[data-thread="'+id+'"]')?.scrollIntoView({block:'nearest'});
+}
 async function jump(id){
-  const t=currentThreads.find(t=>t.id===id);if(!t)return;activeThread=id;filterThreads();
+  const t=currentThreads.find(t=>t.id===id);if(!t)return;showThread(id);
   if(t.anchor_status!=='attached'){notify('This passage needs reattachment. Select the new passage and click “Attach to selection”.');return;}
   if(!view){entry().mode='source';mountDocument(entry());view.dispatch({effects:spansEffect.of(spansFor(currentThreads,entry().content))});}
   const span=view.state.field(spanField).find(s=>s.id===id);
@@ -219,13 +265,24 @@ async function navigate(direction){const threads=currentThreads.filter(t=>!t.res
 async function startComment(){
   const e=entry();if(!view||!e||view.state.selection.main.empty)return;
   const {from,to}=view.state.selection.main;
-  pending={path:e.path,start:selectionPoints(view.state,from),end:selectionPoints(view.state,to),quote:view.state.sliceDoc(from,to)};
-  $('#selected-quote').textContent=pending.quote;$('#comment-body').value='';$('#comment-dialog').showModal();$('#comment-body').focus();
+  pending={path:e.path,start:selectionPoints(view.state,from),end:selectionPoints(view.state,to),quote:view.state.sliceDoc(from,to),content:view.state.sliceDoc()};
+  const location=selectionLocation();
+  $('#selected-quote').textContent=pending.quote;$('#comment-body').value='';$('#comment-error').textContent='';$('#comment-dialog').show();
+  if(location)placeNearSelection($('#comment-dialog'),location);
+  else {$('#comment-dialog').style.left='calc(50% - 160px)';$('#comment-dialog').style.top='30%';}
+  scheduleSelectionTools();$('#comment-body').focus();
 }
 async function submitComment(event){
-  event.preventDefault();if(!pending)return;await saveActive();const e=entry();if(pending.path!==active)throw new Error('The selected file changed. Select the passage again.');
-  const result=await api('threads','POST',{path:pending.path,start:pending.start,end:pending.end,version:e.version,body:$('#comment-body').value,author:$('#author').value});
-  $('#comment-dialog').close();pending=null;activeThread=result.id;await refreshThreads();await jump(result.id);notify('Discussion created');
+  event.preventDefault();if(!pending||postingComment)return;
+  const selection=pending,body=$('#comment-body').value,author=$('#author').value;
+  if(selection.path!==active||!view||selection.content!==view.state.sliceDoc())throw new Error('The document changed. Select the passage again before commenting.');
+  postingComment=true;$('#comment-submit').disabled=true;
+  try{
+    await saveActive();const e=entry();if(selection!==pending||selection.path!==active||selection.content!==view?.state.sliceDoc())throw new Error('The selected passage changed. Select it again.');
+    const result=await api('threads','POST',{path:selection.path,start:selection.start,end:selection.end,version:e.version,body,author});
+    if(active===selection.path){closeComment();activeThread=result.id;await refreshThreads();showThread(result.id);view?.focus();}
+    notify('Discussion created');
+  }finally{postingComment=false;$('#comment-submit').disabled=false;}
 }
 
 function mountJSONL(e){
@@ -243,7 +300,8 @@ async function mountSTL(e){
   const host=document.createElement('div');host.className='stl-view';const tools=document.createElement('div');tools.className='stl-tools';const fit=document.createElement('button');fit.textContent='Fit to view';const info=document.createElement('span');info.textContent='Orbit: drag · Pan: right drag · Zoom: scroll';tools.append(fit,info);host.append(tools);$('#surface').append(host);
   const status=document.createElement('div');status.className='stl-status';status.setAttribute('role','status');status.textContent='Loading model…';host.append(status);fit.disabled=true;
   let geometry, material, renderer, controls, observer;
-  cleanup=()=>{observer?.disconnect();renderer?.setAnimationLoop?.(null);controls?.dispose();geometry?.dispose();material?.dispose();renderer?.dispose?.();};
+  const dispose=()=>{observer?.disconnect();renderer?.setAnimationLoop?.(null);controls?.dispose();geometry?.dispose();material?.dispose();renderer?.dispose?.();};
+  cleanup=dispose;
   try{
   e.version=(await api('stat?'+new URLSearchParams({path:e.path}))).version;
   const buffer=await binary(e.path);geometry=new STLLoader().parse(buffer);
@@ -291,7 +349,7 @@ async function mountSTL(e){
   const stats=document.createElement('span');stats.className='stl-stats';stats.textContent=(count/3).toLocaleString()+' triangles';
   if(software)stats.textContent+=' · Software preview'+(count/3>12000?' · detail reduced to 12,000 triangles':'');
   host.append(stats);
-  }catch(error){cleanup();status.textContent='Unable to display this STL: '+error.message;fit.disabled=true;notify(error.message,true);}
+  }catch(error){dispose();status.textContent='Unable to display this STL: '+error.message;fit.disabled=true;notify(error.message,true);}
 }
 
 async function poll(){
@@ -332,6 +390,21 @@ document.addEventListener('htmx:configRequest',event=>event.detail.headers['X-Lo
 document.addEventListener('htmx:beforeSwap',event=>{if(event.detail.target.id==='threads'&&new URL(event.detail.xhr.responseURL,location.href).searchParams.get('path')!==active)event.detail.shouldSwap=false;});
 document.addEventListener('htmx:afterSwap',event=>{if(event.detail.target.id==='file-tree'){filterFiles();renderTabs();}if(event.detail.target.id==='threads')filterThreads();});
 document.addEventListener('htmx:responseError',event=>notify('Sidebar request failed: '+event.detail.xhr.status,true));
+document.addEventListener('pointerdown',event=>{
+  if(event.target.closest?.('#editor')){selectingText=true;scheduleSelectionTools();}
+},true);
+function settleSelection(){
+  if(!selectingText)return;selectingText=false;
+  requestAnimationFrame(()=>{if(view)view.dispatch({effects:selectionSettled.of(null)});scheduleSelectionTools();});
+}
+document.addEventListener('pointerup',settleSelection);
+document.addEventListener('pointercancel',settleSelection);
+window.addEventListener('blur',settleSelection);
+document.addEventListener('scroll',scheduleSelectionTools,true);
+window.addEventListener('resize',()=>{scheduleSelectionTools();if($('#comment-dialog').open){const location=selectionLocation();if(location)placeNearSelection($('#comment-dialog'),location);}});
+document.addEventListener('keydown',event=>{
+  if(event.key==='Escape'&&$('#comment-dialog').open){event.preventDefault();closeComment();view?.focus();}
+});
 document.addEventListener('click',guard(async event=>{
   const file=event.target.closest('.file-entry');if(file)await openFile(file.dataset.path);
   const close=event.target.closest('[data-close]');if(close)close.closest('dialog').close();
@@ -346,7 +419,13 @@ document.addEventListener('click',guard(async event=>{
 document.addEventListener('submit',event=>{
   if(event.target.matches('.reply-form')){event.preventDefault();guard(async()=>{const id=Number(event.target.closest('.thread').dataset.thread);await api('threads/'+id+'/replies','POST',{author:$('#author').value,body:event.target.querySelector('textarea').value});await refreshThreads();notify('Reply added');})();}
 });
-$('#comment-form').onsubmit=guard(submitComment);
+$('#comment-form').onsubmit=event=>{submitComment(event).catch(error=>{$('#comment-error').textContent=error.message;notify(error.message,true);});};
+$('#comment-dialog').addEventListener('close',()=>{if(!$('#comment-dialog').open&&pending?.path)pending=null;scheduleSelectionTools();});
+$('#comment-cancel').onclick=()=>{closeComment();view?.focus();};
+$('#comment-body').addEventListener('keydown',event=>{if((event.ctrlKey||event.metaKey)&&event.key==='Enter'){event.preventDefault();$('#comment-form').requestSubmit();}});
+$('#selection-tools').onmousedown=event=>event.preventDefault();
+$('#selection-comment').onclick=guard(startComment);
+$('#selection-thread').onclick=()=>showThread(Number($('#selection-thread').dataset.thread));
 $('#save').onclick=guard(saveActive);$('#annotate').onclick=guard(startComment);
 $('#previous').onclick=guard(()=>navigate(-1));$('#next').onclick=guard(()=>navigate(1));$('#show-resolved').onchange=filterThreads;
 $('#mode').onchange=guard(async()=>{const e=entry();syncState();e.mode=$('#mode').value;view?.destroy();view=null;mountDocument(e);await refreshThreads();remember();});

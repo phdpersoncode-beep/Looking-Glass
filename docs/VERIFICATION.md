@@ -10,6 +10,12 @@ Run with headless Chromium 153 against a disposable copy of `demo_dir`:
 
 - Opened Markdown in live mode; switched to raw source; edited, undid/redid and
   saved with keyboard shortcuts; confirmed the actual disk file changed.
+- Selected live Markdown with forward/backward mouse drags and across styled
+  passages, without changing the layout during selection. Selected multiline
+  plain text and text inside an existing anchored highlight with the mouse.
+- Used the floating add-comment button and compact, nonmodal composer near the
+  selection. Checked its position, size, focus, Escape cancellation, Ctrl+Enter
+  posting, and visible selection tint after focus moved into the composer.
 - Searched a passage and created an anchored discussion in the interface.
 - Replied through the terminal CLI and through the sidebar; read both replies
   back through the CLI. Resolved/reopened and navigated between passages.
@@ -22,7 +28,10 @@ Run with headless Chromium 153 against a disposable copy of `demo_dir`:
 - Opened JSONL, selected a malformed line without disrupting the viewer, then
   selected and inspected a valid formatted row.
 - Opened both ASCII and binary STL fixtures, checked their four triangles,
-  orbited/zoomed, and used fit-to-view.
+  orbited/zoomed, and used fit-to-view. Checked screenshot pixels for visible
+  geometry, including tiny and huge coordinate scales. Disabled WebGL and
+  verified visible ASCII/binary software previews and working orbit/fit controls.
+  Confirmed that malformed STL shows an error inside the viewer.
 - Ran an interactive HTML report button; its own script confirmed that access
   to the parent application's document was blocked. Switched to HTML source
   and created an anchored comment there.
@@ -33,6 +42,8 @@ Run with headless Chromium 153 against a disposable copy of `demo_dir`:
   New Roman prose styling, light/dark modes, and no uncaught browser errors.
 
 Screenshots: [light](screenshots/light.png), [dark](screenshots/dark.png).
+Updated comment composer: [light](screenshots/comment-light.png),
+[dark](screenshots/comment-dark.png).
 
 ## Backend and process checks
 

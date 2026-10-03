@@ -33,9 +33,15 @@ are excluded. Symlinks are not opened. No project code is executed.
 
 1. Open Markdown, text or code from the left sidebar.
 2. Edit directly. Markdown has inline live formatting, raw source and reading preview.
-3. Select a passage and click **Discuss selection** (or Ctrl+Enter in the editor).
-4. Write a comment. A dirty file is saved before its new thread is anchored.
-5. Reply in the sidebar, resolve/reopen, or use its ↑/↓ buttons to move between passages.
+3. Select a passage and click the floating **＋ Add comment** button beside it
+   (or the toolbar button, or Ctrl+Enter in the editor). Markdown stays stable
+   while you drag across formatted passages.
+4. Write in the compact composer next to your selection. Click **Start thread**
+   or press Ctrl+Enter to post; Escape cancels. A dirty file is saved before its
+   new thread is anchored.
+5. Click a highlight or **View thread** beside a selected highlight to open its
+   discussion in the sidebar. Reply, resolve/reopen, or use ↑/↓ to move between
+   passages. Reply fields appear for the active thread.
 6. Save with Ctrl+S. The dot on a tab marks an unsaved draft.
 
 Ctrl+A selects the active editor document. Ctrl+F and Ctrl+H open CodeMirror's

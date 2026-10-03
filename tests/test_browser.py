@@ -68,8 +68,63 @@ def test_end_to_end(tmp_path):
             page.get_by_role('button',name='next',exact=True).click()
             page.keyboard.press('Escape')
 
+        def drag_passage(start,end=None,reverse=False):
+            # Find caret coordinates in visible text, including across inline
+            # Markdown spans. Exercise real pointer selection, not search.
+            points=page.locator('.cm-content').evaluate('''(el,quotes)=>{
+                function caret(quote,end){
+                    const line=[...el.querySelectorAll('.cm-line')].find(line=>line.textContent.includes(quote));
+                    let offset=line.textContent.indexOf(quote)+(end?quote.length:0);
+                    const walker=document.createTreeWalker(line,NodeFilter.SHOW_TEXT);
+                    while(walker.nextNode()){
+                        const node=walker.currentNode;
+                        if(offset<=node.length){const range=document.createRange();range.setStart(node,offset);range.collapse(true);
+                            const rect=range.getBoundingClientRect();return {x:rect.x+0.2,y:rect.y+rect.height/2};}
+                        offset-=node.length;
+                    }
+                    throw new Error('Caret not found');
+                }
+                return [caret(quotes[0],false),caret(quotes[1],true)];
+            }''',[start,end or start])
+            if reverse: points.reverse()
+            page.mouse.move(**points[0]);page.mouse.down()
+            page.mouse.move(**points[1],steps=20);page.mouse.up()
+            expect(page.locator('#selection-tools')).to_be_visible()
+
+        def expect_compact_comment(quote):
+            page.locator('#selection-comment').click()
+            expect(page.locator('#selected-quote')).to_have_text(quote)
+            expect(page.locator('#comment-body')).to_be_focused()
+            composer=page.locator('#comment-dialog').bounding_box()
+            assert composer['width']<=340 and composer['height']<300
+            selection=page.locator('.cm-selectionBackground').first.bounding_box()
+            assert abs(composer['y']-selection['y'])<300
+            assert 0<=composer['x'] and composer['x']+composer['width']<=1440
+            assert page.locator('#comment-dialog').evaluate('(el)=>!el.matches(":modal")')
+            # Selection remains visible behind the active line after focus moves
+            # to the composer. The opaque active-line background used to hide it.
+            png=base64.b64encode(page.locator('.cm-selectionBackground').first.screenshot()).decode()
+            tint=page.evaluate('''async png=>{
+                const image=new Image();image.src='data:image/png;base64,'+png;await image.decode();
+                const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;
+                const ctx=canvas.getContext('2d');ctx.drawImage(image,0,0);
+                const pixels=ctx.getImageData(0,0,canvas.width,canvas.height).data;
+                let tinted=0;for(let i=0;i<pixels.length;i+=4)if(pixels[i+2]-pixels[i+1]>15)tinted++;
+                return tinted/(canvas.width*canvas.height);
+            }''',png)
+            assert tint>0.2, 'Active-line background obscures the selected text'
+
         open_file('welcome.md')
         assert page.locator('.md-heading').count()>0
+        for reverse in (False,True):
+            drag_passage('ordinary Markdown file',reverse=reverse)
+            expect_compact_comment('ordinary Markdown file')
+            page.keyboard.press('Escape')
+            expect(page.locator('#comment-dialog')).not_to_be_visible()
+        # Crossing styled Markdown must not reveal syntax under the pointer.
+        drag_passage('This is an','Review together')
+        expect_compact_comment('This is an **ordinary Markdown file**. Edit it here or from your terminal.\n\n## Review together')
+        page.locator('#comment-cancel').click()
         page.locator('#mode').select_option('source')
         original=(root/'welcome.md').read_text()
         page.locator('.cm-content').click()
@@ -96,6 +151,11 @@ def test_end_to_end(tmp_path):
         page.locator('.reply-form button').click()
         page.get_by_text('Add the example in the next editing pass.',exact=True).wait_for()
         assert len(agent('read',str(id))['messages'])==3
+        drag_passage('Select this passage',reverse=True)
+        expect(page.locator('#selection-thread')).to_be_visible()
+        page.locator('#selection-thread').click()
+        expect_compact_comment('Select this passage')
+        page.locator('#comment-cancel').click()
         page.locator('#next').click()
         page.locator('#previous').click()
         page.locator('.thread [data-action=resolve]').click()
@@ -133,6 +193,11 @@ def test_end_to_end(tmp_path):
 
         # A clean external edit reloads; a dirty external edit enters a conflict.
         open_file('notes.txt')
+        drag_passage('No formatting syntax is interpreted here.','Discuss this sentence with your agent.')
+        expect_compact_comment('No formatting syntax is interpreted here.\nDiscuss this sentence with your agent.')
+        page.locator('#comment-body').fill('A plain-text discussion selected with the mouse.')
+        page.keyboard.press('Control+Enter')
+        page.get_by_text('A plain-text discussion selected with the mouse.',exact=True).wait_for()
         (root/'notes.txt').write_text('External clean update.\n')
         page.get_by_text('External clean update.',exact=False).wait_for()
         page.locator('.cm-content').click()
@@ -190,6 +255,7 @@ def test_end_to_end(tmp_path):
             expect(fallback.locator('.stl-stats')).to_contain_text('Software preview')
             expect(fallback.locator('.stl-view svg path').first).to_be_visible()
             svg=fallback.locator('.stl-view svg')
+            visible_model(svg)
             before=svg.inner_html()
             box=svg.bounding_box()
             fallback.mouse.move(box['x']+box['width']/2,box['y']+box['height']/2)
