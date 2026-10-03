@@ -8,7 +8,7 @@
   Report navigation, nested frames, form submission and application-origin
   requests are restricted. HTML is not a general unrestricted browser.
 - Live Markdown supports heading styling, emphasis, inline code, links, quote
-  styling, list markers and syntax exposure at the active line. Complex tables,
+  styling, list markers, interactive task checkboxes, and syntax exposure at the active line. Complex tables,
   images and full block rendering are best viewed in the reading preview. It is
   a first inline Markdown editor, not feature parity with Obsidian.
 - JSONL and STL are viewers without editing or annotations. The JSONL left side
@@ -34,6 +34,10 @@
   Thread history is durable in SQLite. It is not yet exported into Git commits.
 - Tab pinning and author/theme preferences are local browser metadata. Close
   other tabs preserves pinned tabs. The UI is desktop-focused.
+- Git gutter indicators compare the current draft with HEAD. Diff computation has
+  a time limit for large rewrites, which can reduce marker detail. Reading previews
+  and JSONL/STL viewers have no Git gutter. Font controls apply to editor documents,
+  Markdown reading previews, and JSONL; isolated HTML reports keep their own styling.
 - Checkpoints preserve unrelated changes, but selected pre-staged files and
   in-progress merges/cherry-picks/reverts must be handled in the terminal. No
   Git history viewer, amend, branch management, push or automatic commit exists.

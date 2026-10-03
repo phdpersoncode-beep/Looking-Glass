@@ -16,9 +16,13 @@ There are no built-in model calls or automatic editing passes.
 | POST | `/threads` | Create an anchored thread |
 | POST | `/threads/1/replies` | Append a reply |
 | PATCH | `/threads/1` | Resolve/reopen or reattach |
+| DELETE | `/threads/1` | Delete a thread and all its comments |
+| DELETE | `/threads/1/messages/2` | Delete one comment; remove an empty thread |
 | GET | `/file?path=welcome.md` | Read current disk text and version |
 | PUT | `/file` | Save with a required current version hash |
 | GET | `/workspace` | Workspace root and available file paths |
+| GET | `/agent-instructions` | Copyable instructions for this workspace and server |
+| GET | `/git/baseline?path=welcome.md` | Last committed text for editor gutter markers |
 
 Create body:
 
@@ -41,6 +45,10 @@ CLI's exact `--quote` option to avoid manual offsets.
 Reply body: `{"author":"Codex","body":"A proposed explanation."}`.
 Resolve body: `{"resolved":true}`. Reopen: `{"resolved":false}`.
 Reattach body: `{"start":12,"end":30,"version":"<current file version>"}`.
+
+Deletion returns `{"deleted":true}`. Message IDs come from a thread's `messages` array.
+The CLI supports `delete THREAD_ID` and `delete THREAD_ID --message MESSAGE_ID`.
+Deleting the last message removes the thread and its anchor. Deletion is permanent.
 
 A response thread includes `id`, `path`, `start`, `end`, `quote`, `anchor_status`,
 `resolved`, timestamps, and a `messages` array. `anchor_status` is either

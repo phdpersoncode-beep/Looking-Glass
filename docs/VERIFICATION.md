@@ -1,10 +1,22 @@
 # First milestone verification · 2026-10-03
 
-Final result: **15 tests passed**, including the browser integration test.
+Latest result: **20 tests passed**, including two browser integration tests.
 The frontend was built locally using the committed npm lockfile. No application
 dependency is fetched from a CDN at runtime.
 
 ## End-to-end browser workflow
+
+The October 3 workflow update also verified:
+
+- Collapsible nested folders, expansion across refreshes, and collapse-all.
+- Ctrl+P fuzzy search, keyboard opening, and Escape dismissal.
+- Document font adjustment with fixed control sizes and persistence after reload.
+- Clickable live Markdown task checkboxes and checked reading-preview rendering.
+- Individual comment and whole-thread deletion, including durable removal.
+- Ctrl+F JSONL search across valid and malformed rows, with forward/backward navigation.
+- Copyable agent commands containing the current workspace and server port.
+- Added, changed, and removed Git gutter markers for drafts and saved files.
+- HEAD baselines in nested workspaces and preservation of staged Git content.
 
 Run with headless Chromium 153 against a disposable copy of `demo_dir`:
 

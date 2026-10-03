@@ -35,6 +35,9 @@ def main(argv=None):
     for command in ('resolve','reopen'):
         op = operations.add_parser(command)
         op.add_argument('id',type=int)
+    delete = operations.add_parser('delete',help='Delete a thread or one comment')
+    delete.add_argument('id',type=int)
+    delete.add_argument('--message',type=int,help='Delete this message ID only')
     args = parser.parse_args(argv)
     if args.command == 'serve':
         from .app import create_app
@@ -72,6 +75,9 @@ def main(argv=None):
             result = api('threads','POST',dict(path=args.path,start=start,end=start+len(args.quote),version=file['version'],author=args.author,body=args.body))
         elif args.operation == 'reply':
             result = api(f'threads/{args.id}/replies','POST',dict(body=args.body,author=args.author))
+        elif args.operation == 'delete':
+            route = f'threads/{args.id}' + (f'/messages/{args.message}' if args.message is not None else '')
+            result = api(route,'DELETE')
         else:
             result = api(f'threads/{args.id}','PATCH',dict(resolved=args.operation == 'resolve'))
         print(json.dumps(result,indent=2,ensure_ascii=False))

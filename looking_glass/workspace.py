@@ -257,3 +257,20 @@ class Workspace:
                     raise Problem('Select a nonempty passage.')
                 db.execute("UPDATE threads SET start=?,end=?,quote=?,anchor_status='attached' WHERE id=?", (start,end,content[start:end],identifier))
         return self.get_thread(identifier)
+
+    def delete_thread(self, identifier):
+        with self.lock, self.connection() as db:
+            if not db.execute('SELECT id FROM threads WHERE id=?', (identifier,)).fetchone():
+                raise Problem('Thread not found.', 404)
+            db.execute('DELETE FROM messages WHERE thread_id=?', (identifier,))
+            db.execute('DELETE FROM threads WHERE id=?', (identifier,))
+        return dict(deleted=True)
+
+    def delete_message(self, identifier, message_id):
+        with self.lock, self.connection() as db:
+            if not db.execute('SELECT id FROM messages WHERE id=? AND thread_id=?', (message_id,identifier)).fetchone():
+                raise Problem('Comment not found.', 404)
+            db.execute('DELETE FROM messages WHERE id=?', (message_id,))
+            if not db.execute('SELECT id FROM messages WHERE thread_id=?', (identifier,)).fetchone():
+                db.execute('DELETE FROM threads WHERE id=?', (identifier,))
+        return dict(deleted=True)

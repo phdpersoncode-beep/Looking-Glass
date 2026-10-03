@@ -1,2 +1,10 @@
-{% for path in files %}<button class="file-entry" data-path="{{ path }}" title="{{ path }}"><span class="file-type">{% if path.endswith('.md') %}M↓{% elif path.endswith('.py') %}Py{% elif path.endswith('.stl') %}△{% elif path.endswith('.html') %}◇{% elif path.endswith('.jsonl') %}{ }{% else %}≡{% endif %}</span><span>{{ path }}</span></button>{% endfor %}
-{% if not files %}<p class="muted p-4">No files in this directory.</p>{% endif %}
+{% macro entries(branch, prefix='') %}
+{% for name, item in branch.items()|sort %}{% if item is mapping %}
+<details class="file-folder" data-directory="{{ prefix }}{{ name }}"><summary>{{ name }}</summary><div class="folder-children">{{ entries(item, prefix ~ name ~ '/') }}</div></details>
+{% endif %}{% endfor %}
+{% for name, path in branch.items()|sort %}{% if path is string %}
+<button class="file-entry" data-path="{{ path }}" title="{{ path }}"><span class="file-type">{% if path.endswith('.md') %}M↓{% elif path.endswith('.py') %}Py{% elif path.endswith('.stl') %}△{% elif path.endswith('.html') %}◇{% elif path.endswith('.jsonl') %}{ }{% else %}≡{% endif %}</span><span>{{ name }}</span></button>
+{% endif %}{% endfor %}
+{% endmacro %}
+{{ entries(tree) }}
+{% if not tree %}<p class="muted p-4">No files in this directory.</p>{% endif %}

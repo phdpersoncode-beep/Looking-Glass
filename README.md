@@ -34,7 +34,8 @@ The terminal prints the new root, and the API token changes with it.
 `/home/you/.claude/projects/<project>/<session>.jsonl`. Files outside the
 workspace are keyed by their resolved absolute path. Their discussions are stored
 in the current workspace. The file sidebar lists files recursively
-and supports filtering. Common dependency, Git and application metadata folders
+as a collapsible tree and supports filtering. Use **Collapse all folders** to fold
+the tree. Folder expansion persists across refreshes. Common dependency, Git and application metadata folders
 are excluded. Symlinks are not opened. No project code is executed.
 
 ## Review a file
@@ -51,6 +52,18 @@ are excluded. Symlinks are not opened. No project code is executed.
    discussion in the sidebar. Reply, resolve/reopen, or use ↑/↓ to move between
    passages. Reply fields appear for the active thread.
 6. Save with Ctrl+S. The dot on a tab marks an unsaved draft.
+
+Use **×** beside a comment to delete that comment. **Delete thread** removes the
+whole discussion and its highlight. Deleting the last comment also removes its thread.
+The application asks for confirmation before deletion.
+
+Ctrl+P opens fuzzy file search throughout the application and overrides browser printing.
+Type parts of a filename or path, use ↑/↓ to select, and press Enter to open.
+Escape closes the picker. The picker includes workspace files and open outside files.
+Use **A− / A+** in the document toolbar to adjust document text size.
+The setting persists. Toolbar, sidebar, and search controls keep their size.
+Live Markdown task lists display clickable checkboxes. The active line exposes
+ordinary Markdown syntax. Checkbox clicks update the Markdown draft; save to write it.
 
 Ctrl+A selects the active editor document. Ctrl+F and Ctrl+H open CodeMirror's
 document search/replace panel. Ctrl+Z and Ctrl+Shift+Z undo/redo. On macOS, use
@@ -71,6 +84,10 @@ as a global tool with `uv tool install /path/to/Looking-Glass`.
 The CLI (command-line interface) uses a small local HTTP API, documented in
 [docs/AGENT_API.md](docs/AGENT_API.md).
 
+Click **Agent instructions** beneath the file explorer, then **Copy instructions**.
+Paste the instructions into your coding agent. Commands include the current workspace,
+server address, and this installation's path, so the agent can run them from any directory.
+
 ```bash
 uv run looking-glass agent --root ./demo_dir list
 uv run looking-glass agent --root ./demo_dir list --path welcome.md
@@ -82,6 +99,8 @@ uv run looking-glass agent --root ./demo_dir reply 1 --author Codex \
   --body 'I suggest explaining the disk-file workflow first.'
 uv run looking-glass agent --root ./demo_dir resolve 1
 uv run looking-glass agent --root ./demo_dir reopen 1
+uv run looking-glass agent --root ./demo_dir delete 1 --message 2
+uv run looking-glass agent --root ./demo_dir delete 1
 ```
 
 Pass `--root` as the workspace the server has open now. For a file outside the
@@ -109,6 +128,11 @@ your project's `.gitignore`; the included repository already does this.
 
 ## Git checkpoints
 
+Code, Markdown, and text editors show changes against the last Git commit in their
+left gutter. Green bars mark added lines. Blue bars mark changed lines.
+Red horizontal triangles mark removed lines. Markers include unsaved drafts and remain
+after saving. They reset after a checkpoint. Files outside Git have no markers.
+
 Choose **Changes & checkpoints**, select saved files, inspect their changes,
 and give the checkpoint a name. Looking Glass reuses the enclosing repository.
 When there is none, it offers an explicit **Initialize Git** button. Configure
@@ -127,6 +151,8 @@ them in your terminal first. Checkpoints do not push. Saving never commits.
 
 - **JSONL:** all raw lines on the left, selected JSON value formatted on the right.
   Malformed and empty lines are marked individually; other rows still work.
+  Ctrl+F searches all raw rows, including malformed rows. Enter and Shift+Enter
+  move between matching rows. Escape closes search.
 - **STL:** ASCII (text) and binary STL; drag to orbit, right-drag to pan, scroll
   to zoom, and use **Fit to view**. Uses WebGL when available, with an SVG
   software fallback. Software previews of large models reduce detail to 12,000

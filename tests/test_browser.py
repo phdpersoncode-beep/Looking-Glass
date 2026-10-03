@@ -15,8 +15,106 @@ from pathlib import Path
 import pytest
 from werkzeug.serving import make_server
 from looking_glass.app import create_app
+from looking_glass.workspace import Workspace
 
 pytestmark = pytest.mark.skipif(not os.environ.get('LOOKING_GLASS_BROWSER'), reason='Set LOOKING_GLASS_BROWSER to run the browser workflow')
+
+
+def test_review_workflow_features(tmp_path):
+    from playwright.sync_api import sync_playwright, expect
+    root=tmp_path/'workspace';root.mkdir()
+    (root/'src'/'nested').mkdir(parents=True)
+    (root/'src'/'nested'/'example.py').write_text('first = 1\nsecond = 2\nthird = 3\n')
+    (root/'tasks.md').write_text('# Tasks\n\n- [ ] Pending task\n- [x] Complete task\n')
+    (root/'rows.jsonl').write_text('{"name":"alpha"}\ninvalid needle\n{"name":"needle"}\n')
+    subprocess.run(['git','init',str(root)],check=True,capture_output=True)
+    subprocess.run(['git','-C',str(root),'add','.'],check=True)
+    subprocess.run(['git','-C',str(root),'-c','user.name=Test','-c','user.email=test@example.invalid','commit','-m','baseline'],check=True,capture_output=True)
+    server=make_server('127.0.0.1',0,create_app(root),threaded=True)
+    thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+    try:
+        with sync_playwright() as pw:
+            executable=os.environ['LOOKING_GLASS_BROWSER']
+            browser=pw.chromium.launch(executable_path=None if executable=='installed' else executable,headless=True,args=['--no-sandbox'])
+            page=browser.new_page(viewport={'width':1440,'height':960},permissions=['clipboard-read','clipboard-write'])
+            errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
+            page.goto(f'http://127.0.0.1:{server.server_port}')
+            folder=page.locator('.file-folder[data-directory="src"]')
+            expect(folder).to_be_visible()
+            expect(page.locator('.file-entry[data-path="src/nested/example.py"]')).not_to_be_visible()
+            folder.locator('summary').first.click()
+            page.locator('.file-folder[data-directory="src/nested"] summary').click()
+            page.locator('#refresh-files').click()
+            expect(page.locator('.file-entry[data-path="src/nested/example.py"]')).to_be_visible()
+            page.locator('#collapse-files').click()
+            expect(page.locator('.file-entry[data-path="src/nested/example.py"]')).not_to_be_visible()
+            page.keyboard.press('Control+p')
+            page.locator('#quick-query').fill('snepy')
+            expect(page.locator('#quick-results button')).to_have_count(1)
+            page.keyboard.press('Enter')
+            expect(page.locator('#document-name')).to_have_text('src/nested/example.py')
+            expect(page.locator('.file-entry[data-path="src/nested/example.py"]')).to_be_visible()
+            page.locator('.cm-content').click();page.keyboard.press('Control+a')
+            page.keyboard.insert_text('first = 9\nsecond = 2\nthird = 3\nfourth = 4\n')
+            expect(page.locator('.git-marker.changed').first).to_be_visible()
+            expect(page.locator('.git-marker.added').first).to_be_visible()
+            page.keyboard.press('Control+a');page.keyboard.insert_text('second = 2\nthird = 3\n')
+            expect(page.locator('.git-marker.removed').first).to_be_visible()
+            page.keyboard.press('Control+s')
+            expect(page.locator('#dirty')).to_have_text('')
+            expect(page.locator('.git-marker.removed').first).to_be_visible()
+            ui_size=page.locator('#save').evaluate('el=>getComputedStyle(el).fontSize')
+            old_size=page.locator('.cm-scroller').evaluate('el=>parseFloat(getComputedStyle(el).fontSize)')
+            page.locator('#font-larger').click()
+            assert page.locator('.cm-scroller').evaluate('el=>parseFloat(getComputedStyle(el).fontSize)')==old_size+1
+            assert page.locator('#save').evaluate('el=>getComputedStyle(el).fontSize')==ui_size
+            page.locator('.file-entry[data-path="tasks.md"]').click()
+            expect(page.locator('.md-task-checkbox')).to_have_count(2)
+            expect(page.locator('.cm-lineNumbers')).not_to_be_visible()
+            page.locator('.md-task-checkbox').first.check()
+            page.keyboard.press('Control+s');expect(page.locator('#dirty')).to_have_text('')
+            assert '- [x] Pending task' in (root/'tasks.md').read_text()
+            page.locator('#mode').select_option('preview')
+            expect(page.locator('.markdown-preview input:checked')).to_have_count(2)
+            page.locator('#mode').select_option('source')
+            ws=server.app.extensions['workspace'];file=ws.read('tasks.md')
+            discussion=ws.create_thread('tasks.md',2,7,'Delete me.','Altay',file['version'])
+            ws.reply(discussion['id'],'Keep me.','Agent')
+            page.get_by_text('Keep me.',exact=True).wait_for()
+            page.on('dialog',lambda dialog:dialog.accept())
+            page.locator('.delete-comment').first.click()
+            expect(page.get_by_text('Delete me.',exact=True)).to_have_count(0)
+            expect(page.get_by_text('Keep me.',exact=True)).to_be_visible()
+            page.locator('.delete-thread').click()
+            expect(page.locator('.thread')).to_have_count(0)
+            assert Workspace(root).threads()==[]
+            page.locator('.file-entry[data-path="rows.jsonl"]').click()
+            expect(page.locator('.jsonl-row')).to_have_count(3)
+            page.keyboard.press('Control+f')
+            page.get_by_role('textbox',name='Find in JSONL',exact=True).fill('needle')
+            expect(page.locator('.jsonl-row.selected')).to_have_attribute('data-row','1')
+            expect(page.locator('.jsonl-detail .viewer-heading')).to_contain_text('MALFORMED')
+            page.keyboard.press('Enter')
+            expect(page.locator('.jsonl-row.selected')).to_have_attribute('data-row','2')
+            page.keyboard.press('Shift+Enter')
+            expect(page.locator('.jsonl-row.selected')).to_have_attribute('data-row','1')
+            page.keyboard.press('Escape');expect(page.locator('.jsonl-search')).not_to_be_visible()
+            page.keyboard.press('Control+p');page.locator('#quick-query').fill('tasks');page.keyboard.press('Escape')
+            expect(page.locator('#quick-dialog')).not_to_be_visible()
+            page.locator('#agent-open').click()
+            expect(page.locator('#agent-dialog')).to_be_visible()
+            instructions=page.locator('#agent-instructions').input_value()
+            assert str(root) in instructions and f'--url http://127.0.0.1:{server.server_port}' in instructions
+            page.locator('#agent-copy').click()
+            assert page.evaluate('navigator.clipboard.readText()')==instructions
+            page.reload()
+            page.keyboard.press('Control+p');page.locator('#quick-query').fill('example.py');page.keyboard.press('Enter')
+            expect(page.locator('#document-name')).to_have_text('src/nested/example.py')
+            assert page.locator('.cm-scroller').evaluate('el=>parseFloat(getComputedStyle(el).fontSize)')==old_size+1
+            assert not errors,errors
+            browser.close()
+    finally:
+        server.shutdown();thread.join();server.server_close()
 
 
 def test_end_to_end(tmp_path):
@@ -69,6 +167,9 @@ def test_end_to_end(tmp_path):
             page.keyboard.press('Escape')
 
         def drag_passage(start,end=None,reverse=False):
+            page.keyboard.press('ArrowRight')
+            # Separate drags must not become a browser double-click selection.
+            page.wait_for_timeout(550)
             # Find caret coordinates in visible text, including across inline
             # Markdown spans. Exercise real pointer selection, not search.
             points=page.locator('.cm-content').evaluate('''(el,quotes)=>{
@@ -78,8 +179,8 @@ def test_end_to_end(tmp_path):
                     const walker=document.createTreeWalker(line,NodeFilter.SHOW_TEXT);
                     while(walker.nextNode()){
                         const node=walker.currentNode;
-                        if(offset<=node.length){const range=document.createRange();range.setStart(node,offset);range.collapse(true);
-                            const rect=range.getBoundingClientRect();return {x:rect.x+0.2,y:rect.y+rect.height/2};}
+                        if(offset<node.length || (end && offset===node.length)){const range=document.createRange();range.setStart(node,offset);range.collapse(true);
+                                const rect=range.getBoundingClientRect();return {x:rect.x+(end?-1:1),y:rect.y+rect.height/2};}
                         offset-=node.length;
                     }
                     throw new Error('Caret not found');

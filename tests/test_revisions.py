@@ -81,3 +81,19 @@ def test_literal_path_names_do_not_select_unrelated_files(repo):
     revisions.checkpoint(['[ab].md'],'literal selection')
     assert git(repo,'show','--pretty=','--name-only','HEAD')=='[ab].md'
     assert 'a.md' in git(repo,'ls-files','--others','--exclude-standard').splitlines()
+
+
+def test_baseline_uses_head_and_preserves_index(repo,tmp_path_factory):
+    (repo/'one.md').write_text('staged\n')
+    git(repo,'add','one.md')
+    (repo/'one.md').write_text('unstaged\n')
+    revisions=Revisions(Workspace(repo))
+    assert revisions.baseline('one.md')==dict(content='original\n')
+    assert git(repo,'show',':one.md')=='staged'
+    child=repo/'child';child.mkdir()
+    (child/'new.md').write_text('new\n')
+    assert Revisions(Workspace(child)).baseline('new.md')==dict(content='')
+    assert Revisions(Workspace(child)).baseline(str(repo/'one.md'))==dict(content='original\n')
+    outside=tmp_path_factory.mktemp('no-git')
+    (outside/'file.txt').write_text('text')
+    assert Revisions(Workspace(outside)).baseline('file.txt')==dict(content=None)

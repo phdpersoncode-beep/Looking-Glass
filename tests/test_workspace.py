@@ -154,3 +154,24 @@ def test_line_endings_and_mode_preserved(ws):
     ws.save('crlf.sh',file['content'].replace('hi','hello'),file['version'])
     assert b'\r\n' in path.read_bytes()
     assert path.stat().st_mode & 0o777 == 0o755
+
+
+def test_delete_comments_and_threads(ws):
+    t=thread(ws)
+    t=ws.reply(t['id'],'Keep this reply.','Agent')
+    other=thread(ws)
+    client=create_app(ws.root).test_client()
+    headers={'X-Looking-Glass-Token':ws.token}
+    route=f"/api/threads/{t['id']}/messages/{t['messages'][0]['id']}"
+    assert client.delete(route).status_code==401
+    assert client.delete(f"/api/threads/{other['id']}/messages/{t['messages'][0]['id']}",headers=headers).status_code==404
+    assert client.delete(route,headers=headers).json=={'deleted':True}
+    restarted=Workspace(ws.root)
+    assert [m['body'] for m in restarted.get_thread(t['id'])['messages']]==['Keep this reply.']
+    assert client.delete(f"/api/threads/{t['id']}/messages/{t['messages'][1]['id']}",headers=headers).status_code==200
+    with pytest.raises(Problem,match='Thread not found'):
+        restarted.get_thread(t['id'])
+    assert client.delete(f"/api/threads/{other['id']}",headers=headers).status_code==200
+    assert restarted.threads()==[]
+    with restarted.connection() as db:
+        assert db.execute('SELECT count(*) FROM messages').fetchone()[0]==0

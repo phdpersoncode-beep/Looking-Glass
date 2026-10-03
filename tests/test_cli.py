@@ -45,5 +45,9 @@ def test_agent_threads_survive_a_real_process_restart(tmp_path):
         assert agent('resolve',str(thread['id']))['resolved']
         assert not agent('reopen',str(thread['id']))['resolved']
         assert len(agent('list'))==1
+        assert agent('delete',str(thread['id']),'--message',str(persisted['messages'][1]['id']))=={'deleted':True}
+        assert len(agent('read',str(thread['id']))['messages'])==1
+        assert agent('delete',str(thread['id']))=={'deleted':True}
+        assert agent('list')==[]
     finally:
         process.terminate();process.wait(timeout=5)

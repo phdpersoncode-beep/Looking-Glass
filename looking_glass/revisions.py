@@ -3,7 +3,7 @@ import os
 import subprocess
 import tempfile
 from pathlib import Path
-from .workspace import Problem
+from .workspace import Problem, MAX_TEXT
 
 
 class Revisions:
@@ -49,6 +49,24 @@ class Revisions:
             raise Problem('This directory already belongs to a Git repository.')
         self.git('init')
         return self.status()
+
+    def baseline(self, path):
+        """Read HEAD without touching the index, including outside open files."""
+        file = self.ws.path(path)
+        repository = self.git('-C',str(file.parent),'rev-parse','--show-toplevel',check=False)
+        if repository.returncode:
+            return dict(content=None)
+        root = Path(repository.stdout.decode().strip())
+        name = file.relative_to(root).as_posix()
+        committed = self.git('-C',str(root),'show',f'HEAD:{name}',check=False)
+        if committed.returncode:
+            return dict(content='')
+        if len(committed.stdout) > MAX_TEXT or b'\x00' in committed.stdout:
+            return dict(content=None)
+        try:
+            return dict(content=committed.stdout.decode('utf-8'))
+        except UnicodeDecodeError:
+            return dict(content=None)
 
     def validate_paths(self, paths):
         if not isinstance(paths, list) or not paths or any(not isinstance(p,str) for p in paths):

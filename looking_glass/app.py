@@ -1,5 +1,6 @@
 import secrets
 import time
+import shlex
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -66,7 +67,34 @@ def create_app(root):
 
     @app.get('/fragments/files')
     def tree():
-        return render_template('files.html', files=ws.files())
+        files = ws.files()
+        tree = {}
+        for path in files:
+            branch = tree
+            parts = path.split('/')
+            for part in parts[:-1]:
+                branch = branch.setdefault(part, {})
+            branch[parts[-1]] = path
+        return render_template('files.html', tree=tree)
+
+    @app.get('/api/agent-instructions')
+    def agent_instructions():
+        project = Path(__file__).resolve().parents[1]
+        command = f'uv run --directory {shlex.quote(str(project))} looking-glass agent --root {shlex.quote(str(ws.root))} --url {shlex.quote(request.host_url.rstrip("/"))}'
+        return jsonify(instructions=f'''Review this workspace through Looking Glass: {ws.root}
+The local server is running. Use these commands from your terminal:
+
+{command} list
+{command} read THREAD_ID
+{command} reply THREAD_ID --author "Agent" --body "Your reply"
+{command} create "relative/path.md" --quote "Exact unique passage" --author "Agent" --body "Your comment"
+{command} resolve THREAD_ID
+{command} reopen THREAD_ID
+
+Read each thread and its anchored passage before responding. Use IDs from list.
+Reply in the existing thread. Ask for guidance when an anchor needs reattachment.
+Apply file edits only when requested. Explain your changes in the thread.
+Resolve a thread when its requested work is complete. All commands return JSON.''')
 
     @app.get('/fragments/threads')
     def discussion():
@@ -178,6 +206,18 @@ def create_app(root):
     @app.get('/api/git')
     def git_status():
         return jsonify(git.status())
+
+    @app.get('/api/git/baseline')
+    def git_baseline():
+        return jsonify(git.baseline(request.args.get('path')))
+
+    @app.delete('/api/threads/<int:identifier>')
+    def delete_thread(identifier):
+        return jsonify(ws.delete_thread(identifier))
+
+    @app.delete('/api/threads/<int:identifier>/messages/<int:message_id>')
+    def delete_message(identifier, message_id):
+        return jsonify(ws.delete_message(identifier,message_id))
 
     @app.post('/api/git/init')
     def git_init():
