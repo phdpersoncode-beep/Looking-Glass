@@ -7,21 +7,24 @@ is a separate, explicit action.
 
 ## Install and run
 
-Requires Python 3.10+, Git, and a modern browser. WebGL accelerates STL viewing;
+Requires [uv](https://docs.astral.sh/uv/), Git, and a modern browser. uv installs
+Python 3.10+ for you when none is available. WebGL accelerates STL viewing;
 a software preview is available when it is unavailable.
 The local frontend build is included, so Node is needed only to change the frontend.
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .
-looking-glass serve ./demo_dir
+uv sync --no-dev
+uv run looking-glass serve ./demo_dir
 ```
+
+`uv sync` creates `.venv/` and installs the locked dependencies from `uv.lock`.
+`uv run` syncs the environment before each command. To use the `looking-glass`
+command without the `uv run` prefix, run `source .venv/bin/activate` first.
 
 Open http://127.0.0.1:8765. To work on another local directory:
 
 ```bash
-looking-glass serve /absolute/path/to/project --port 8765
+uv run looking-glass serve /absolute/path/to/project --port 8765
 ```
 
 The server binds to loopback and serves one directory per invocation. Restart it
@@ -57,21 +60,23 @@ tabs. Unsaved tabs ask before discarding edits. Pinned tabs are protected by
 
 ## Work alongside a coding agent
 
-Keep the server running and install this package in your agent's environment.
+Keep the server running. Make the `looking-glass` command available in your agent's
+environment. Either run `uv run looking-glass ...` from this repository, or install it
+as a global tool with `uv tool install /path/to/Looking-Glass`.
 The CLI (command-line interface) uses a small local HTTP API, documented in
 [docs/AGENT_API.md](docs/AGENT_API.md).
 
 ```bash
-looking-glass agent --root ./demo_dir list
-looking-glass agent --root ./demo_dir list --path welcome.md
-looking-glass agent --root ./demo_dir read 1
-looking-glass agent --root ./demo_dir create welcome.md \
+uv run looking-glass agent --root ./demo_dir list
+uv run looking-glass agent --root ./demo_dir list --path welcome.md
+uv run looking-glass agent --root ./demo_dir read 1
+uv run looking-glass agent --root ./demo_dir create welcome.md \
   --quote 'Select this passage' --author Codex \
   --body 'Can we add a concrete example here?'
-looking-glass agent --root ./demo_dir reply 1 --author Codex \
+uv run looking-glass agent --root ./demo_dir reply 1 --author Codex \
   --body 'I suggest explaining the disk-file workflow first.'
-looking-glass agent --root ./demo_dir resolve 1
-looking-glass agent --root ./demo_dir reopen 1
+uv run looking-glass agent --root ./demo_dir resolve 1
+uv run looking-glass agent --root ./demo_dir reopen 1
 ```
 
 Use `--url http://127.0.0.1:8766` after `--root` if the server uses another port.
@@ -134,10 +139,10 @@ is used for application dependencies.
 ```bash
 npm ci
 npm run build
-pip install -e '.[dev]'
-pytest -q
-playwright install chromium
-LOOKING_GLASS_BROWSER=installed pytest tests/test_browser.py -v
+uv sync   # includes the dev dependency group
+uv run pytest -q
+uv run playwright install chromium
+LOOKING_GLASS_BROWSER=installed uv run pytest tests/test_browser.py -v
 ```
 
 For an already-installed Chromium, set `LOOKING_GLASS_BROWSER` to its executable

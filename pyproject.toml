@@ -9,7 +9,7 @@ description = "A local file editor with anchored discussions for people and codi
 requires-python = ">=3.10"
 dependencies = ["Flask>=3.1,<4"]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = ["pytest>=8,<10", "playwright>=1.50,<2"]
 
 [project.scripts]
