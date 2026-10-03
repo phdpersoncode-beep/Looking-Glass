@@ -24,6 +24,19 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def directories(typed):
+    """List the subdirectories of a directory for the workspace picker."""
+    p = Path(typed or '~').expanduser().resolve()
+    if not p.is_dir():
+        raise Problem('Choose an existing directory.', 404)
+    try:
+        names = [e.name for e in os.scandir(p) if e.is_dir()]
+    except PermissionError:
+        raise Problem('Permission denied for this directory.', 403)
+    names.sort(key=lambda n: (n.startswith('.'), n.lower()))
+    return dict(path=str(p), parent=str(p.parent) if p.parent != p else None, directories=names[:2000])
+
+
 class Workspace:
     def __init__(self, root):
         self.root = Path(root).expanduser().resolve(strict=True)
@@ -62,24 +75,43 @@ class Workspace:
             db.execute('PRAGMA foreign_keys=ON')
             yield db
 
-    def path(self, relative):
-        if not isinstance(relative, str) or not relative or '\\' in relative:
+    def path(self, name):
+        if not isinstance(name, str) or not name or '\\' in name:
             raise Problem('Invalid file path.')
-        p = Path(relative)
-        if p.is_absolute() or '..' in p.parts or any(part in EXCLUDED for part in p.parts):
+        p = Path(name)
+        if '..' in p.parts or any(part in EXCLUDED for part in p.parts):
             raise Problem('Path is outside the workspace.', 403)
-        full = self.root / p
-        # Symlinks are deliberately not editable, even when they point inside.
-        for ancestor in [full, *full.parents]:
-            if ancestor == self.root:
-                break
-            if ancestor.is_symlink():
-                raise Problem('Symlink files and directories are not supported.', 403)
-        if not full.resolve().is_relative_to(self.root):
-            raise Problem('Path is outside the workspace.', 403)
+        if p.is_absolute():
+            # Files outside the workspace are keyed by their canonical absolute
+            # path, so one file never has two thread histories.
+            if p.is_relative_to(self.root) or Path(os.path.realpath(p)) != p:
+                raise Problem('Open this file by its resolved path.', 403)
+            full = p
+        else:
+            full = self.root / p
+            # Symlinks are deliberately not editable, even when they point inside.
+            for ancestor in [full, *full.parents]:
+                if ancestor == self.root:
+                    break
+                if ancestor.is_symlink():
+                    raise Problem('Symlink files and directories are not supported.', 403)
+            if not full.resolve().is_relative_to(self.root):
+                raise Problem('Path is outside the workspace.', 403)
         if not full.is_file():
             raise Problem('File no longer exists.', 404)
         return full
+
+    def locate(self, typed):
+        """Map a typed path to its key: relative inside the root, absolute outside."""
+        if not isinstance(typed, str) or not typed.strip():
+            raise Problem('Enter a file path.')
+        p = Path(typed.strip()).expanduser()
+        p = (p if p.is_absolute() else self.root / p).resolve()
+        if not p.is_file():
+            raise Problem('No file exists at this path.', 404)
+        key = p.relative_to(self.root).as_posix() if p.is_relative_to(self.root) else str(p)
+        self.path(key)
+        return key
 
     def files(self):
         found = []

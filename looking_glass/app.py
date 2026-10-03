@@ -7,7 +7,7 @@ from flask import Flask, Response, jsonify, render_template, request, send_file
 from werkzeug.exceptions import HTTPException
 
 from .revisions import Revisions
-from .workspace import Problem, Workspace
+from .workspace import Problem, Workspace, directories
 
 
 def create_app(root):
@@ -30,7 +30,8 @@ def create_app(root):
     @app.after_request
     def security(response):
         response.headers['X-Content-Type-Options'] = 'nosniff'
-        response.headers['Cache-Control'] = 'no-store' if not request.path.startswith('/static/') else 'public, max-age=3600'
+        # Static assets revalidate on each load, so a rebuild shows after a refresh.
+        response.headers['Cache-Control'] = 'no-cache' if request.path.startswith('/static/') else 'no-store'
         response.headers['Referrer-Policy'] = 'no-referrer'
         if request.path.startswith('/preview/'):
             response.headers['Content-Security-Policy'] = "sandbox allow-scripts allow-forms allow-modals; default-src https: data: blob:; script-src https: 'unsafe-inline' 'unsafe-eval' blob:; style-src https: 'unsafe-inline'; connect-src https:; img-src https: data: blob:; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'"
@@ -59,7 +60,9 @@ def create_app(root):
 
     @app.get('/')
     def index():
-        return render_template('index.html', root=str(ws.root), token=ws.token)
+        # Versioned asset URLs bypass copies cached before a rebuild.
+        version = max(int((Path(app.static_folder)/name).stat().st_mtime) for name in ('app.js', 'style.css'))
+        return render_template('index.html', root=str(ws.root), token=ws.token, version=version)
 
     @app.get('/fragments/files')
     def tree():
@@ -72,6 +75,29 @@ def create_app(root):
     @app.get('/api/workspace')
     def workspace():
         return jsonify(root=str(ws.root), files=ws.files())
+
+    @app.post('/api/workspace')
+    def switch_workspace():
+        nonlocal ws, git
+        # Every route reads ws and git at call time, so this swap acts like a
+        # restart in the new directory. The client reloads to get the new token.
+        path = body().get('path')
+        if not isinstance(path, str) or not path:
+            raise Problem('Choose a directory.')
+        ws = Workspace(directories(path)['path'])
+        git = Revisions(ws)
+        previews.clear()
+        app.extensions['workspace'] = ws
+        print(f'Looking Glass · {ws.root}', flush=True)
+        return jsonify(root=str(ws.root))
+
+    @app.get('/api/directories')
+    def list_directories():
+        return jsonify(directories(request.args.get('path') or str(ws.root)))
+
+    @app.get('/api/locate')
+    def locate():
+        return jsonify(path=ws.locate(request.args.get('path')))
 
     @app.get('/api/file')
     def read_file():

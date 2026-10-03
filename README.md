@@ -27,8 +27,13 @@ Open http://127.0.0.1:8765. To work on another local directory:
 uv run looking-glass serve /absolute/path/to/project --port 8765
 ```
 
-The server binds to loopback and serves one directory per invocation. Restart it
-with a different path to switch workspaces. The file sidebar lists files recursively
+The server binds to loopback and serves one directory at a time. **Open directory**
+browses the filesystem and switches the running server to another workspace.
+The terminal prints the new root, and the API token changes with it.
+**Open file** opens any readable file by path, e.g. `~/notes.md` or
+`/home/you/.claude/projects/<project>/<session>.jsonl`. Files outside the
+workspace are keyed by their resolved absolute path. Their discussions are stored
+in the current workspace. The file sidebar lists files recursively
 and supports filtering. Common dependency, Git and application metadata folders
 are excluded. Symlinks are not opened. No project code is executed.
 
@@ -79,6 +84,8 @@ uv run looking-glass agent --root ./demo_dir resolve 1
 uv run looking-glass agent --root ./demo_dir reopen 1
 ```
 
+Pass `--root` as the workspace the server has open now. For a file outside the
+workspace, pass its absolute path, e.g. `create /home/you/notes.md --quote ...`.
 Use `--url http://127.0.0.1:8766` after `--root` if the server uses another port.
 `create` requires a unique exact quote. For repeated text, provide a one-based
 `--occurrence`. All commands return JSON. Thread IDs come from `list` or `create`.

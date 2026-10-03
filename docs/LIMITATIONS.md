@@ -1,7 +1,7 @@
 # Milestone boundaries
 
-- One local workspace per server invocation; no in-browser directory picker,
-  multi-user collaboration, built-in model calls, or editing-pass orchestration.
+- One open workspace at a time per server. Switching workspaces reloads the page
+  and drops tabs from the previous workspace. No multi-user collaboration, built-in model calls, or editing-pass orchestration.
 - Rendered HTML cannot yet receive anchored annotations. Its source can. HTML
   reports should be self-contained: no local relative CSS, JavaScript or image
   resources. External HTTPS resources may still be loaded by report scripts.
@@ -43,7 +43,8 @@
 - The server is for trusted local use on loopback, without remote account auth
   or TLS. It runs the lightweight Werkzeug server with no debugger. Filesystem
   confinement blocks ordinary traversal and symlinks, not hostile local processes
-  replacing directories in the middle of a request. Only grant the API token to
-  agents you allow to read/write this workspace.
+  replacing directories in the middle of a request. The API also opens files outside
+  the workspace by absolute path, so the token grants read/write access to every
+  file your user can access. Only grant it to agents you trust with that.
 - SQLite snapshots contain last-observed text to map anchors. Disk files remain
   authoritative; snapshots are not a backup or alternate document store.

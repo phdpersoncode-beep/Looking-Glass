@@ -272,7 +272,8 @@ def test_end_to_end(tmp_path):
         frame.get_by_role('button',name='Run check').click()
         assert frame.locator('#result').inner_text()=='Checks run: 1'
         assert frame.locator('#isolation').inner_text()=='Parent application state is isolated.'
-        page.locator('#mode').select_option('source')
+        page.locator('#html-toggle').click()
+        expect(page.locator('#html-toggle span.active')).to_have_text('Source')
         select_passage('A report with a working interaction.')
         page.locator('#annotate').click()
         page.locator('#comment-body').fill('HTML source is commentable.')

@@ -1,4 +1,5 @@
 from pathlib import Path
+from urllib.parse import urlencode
 import pytest
 from looking_glass.app import create_app
 from looking_glass.workspace import Workspace, Problem
@@ -77,11 +78,44 @@ def test_unicode_and_stale_anchor(ws):
 
 def test_traversal_symlinks_and_metadata_blocked(ws,tmp_path):
     (ws.root/'link.md').symlink_to(ws.root/'notes.md')
-    for path in ('../outside','.looking-glass/token','link.md','/etc/passwd'):
+    for path in ('../outside','.looking-glass/token','link.md',str(ws.root/'notes.md'),'/tmp/../etc/passwd'):
         with pytest.raises(Problem):
             ws.read(path)
     assert 'link.md' not in ws.files()
     assert not any('.looking-glass' in f for f in ws.files())
+
+
+def test_outside_files_use_canonical_absolute_keys(ws,tmp_path_factory):
+    outside=tmp_path_factory.mktemp('outside')/'session.jsonl'
+    outside.write_text('{"a": 1}\n')
+    (outside.parent/'alias.jsonl').symlink_to(outside)
+    assert ws.locate(str(outside.parent/'alias.jsonl'))==str(outside)
+    assert ws.locate(str(ws.root/'notes.md'))=='notes.md'
+    assert ws.locate('notes.md')=='notes.md'
+    with pytest.raises(Problem):
+        ws.read(str(outside.parent/'alias.jsonl'))
+    with pytest.raises(Problem):
+        ws.locate(str(outside.parent/'missing.md'))
+    file=ws.read(str(outside))
+    t=ws.create_thread(str(outside),1,4,'Outside comment.','Altay',file['version'])
+    assert Workspace(ws.root).get_thread(t['id'])['quote']=='"a"'
+    assert str(outside) not in ws.files()
+
+
+def test_switch_workspace_and_list_directories(ws,tmp_path_factory):
+    other=tmp_path_factory.mktemp('other')
+    (other/'b').mkdir();(other/'.hidden').mkdir();(other/'A').mkdir();(other/'file.md').write_text('Other.\n')
+    app=create_app(ws.root)
+    client=app.test_client()
+    headers={'X-Looking-Glass-Token':ws.token}
+    listing=client.get('/api/directories?'+urlencode({'path':str(other)}),headers=headers).json
+    assert listing['directories']==['A','b','.hidden'] and listing['parent']==str(other.parent)
+    assert client.get('/api/directories?path=/no/such/dir',headers=headers).status_code==404
+    assert client.post('/api/workspace',headers=headers,json={'path':''}).status_code==400
+    assert client.post('/api/workspace',headers=headers,json={'path':str(other)}).json['root']==str(other)
+    assert client.get('/api/workspace',headers=headers).status_code==401
+    token=(other/'.looking-glass'/'token').read_text().strip()
+    assert client.get('/api/workspace',headers={'X-Looking-Glass-Token':token}).json['files']==['file.md']
 
 
 def test_http_auth_preview_and_replies(ws):

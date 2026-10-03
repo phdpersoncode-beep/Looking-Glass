@@ -219,7 +219,9 @@ function updateToolbar(){
   $('#save').disabled=!e||viewer||!e.dirty||saving;$('#annotate').disabled=!view||!e||viewer||view.state.selection.main.empty;
   const mode=$('#mode');const modes=type==='md'||type==='markdown'?[['live','Live Markdown'],['source','Raw source'],['preview','Reading preview']]:type==='html'||type==='htm'?[['rendered','Rendered HTML'],['source','HTML source']]:[['source',viewer?'Viewer':'Source']];
   if(mode.dataset.path!==active){mode.replaceChildren(...modes.map(([value,label])=>{const opt=document.createElement('option');opt.value=value;opt.textContent=label;return opt;}));mode.dataset.path=active||'';}
-  mode.hidden=!e||modes.length===1;if(e)mode.value=e.mode;
+  const html=type==='html'||type==='htm', toggle=$('#html-toggle');
+  mode.hidden=!e||modes.length===1||html;if(e)mode.value=e.mode;
+  toggle.hidden=!e||!html;toggle.querySelectorAll('span').forEach(s=>s.classList.toggle('active',s.dataset.mode===e?.mode));
   $('#file-info').textContent=e?(viewer?type.toUpperCase()+' viewer':Array.from(e.content).length.toLocaleString()+' characters · UTF-8'):'Choose a file from the sidebar';
   $('#conflict').hidden=!e?.conflict;
   if(e?.conflict)$('#conflict span').textContent=e.conflict.deleted?'This file was deleted or became unavailable on disk. Copy your draft before closing it.':'Changed on disk. Your unsaved edits are preserved. Compare and merge before saving.';
@@ -428,7 +430,9 @@ $('#selection-comment').onclick=guard(startComment);
 $('#selection-thread').onclick=()=>showThread(Number($('#selection-thread').dataset.thread));
 $('#save').onclick=guard(saveActive);$('#annotate').onclick=guard(startComment);
 $('#previous').onclick=guard(()=>navigate(-1));$('#next').onclick=guard(()=>navigate(1));$('#show-resolved').onchange=filterThreads;
-$('#mode').onchange=guard(async()=>{const e=entry();syncState();e.mode=$('#mode').value;view?.destroy();view=null;mountDocument(e);await refreshThreads();remember();});
+async function setMode(value){const e=entry();syncState();e.mode=value;view?.destroy();view=null;mountDocument(e);await refreshThreads();remember();}
+$('#mode').onchange=guard(()=>setMode($('#mode').value));
+$('#html-toggle').onclick=guard(()=>setMode(entry().mode==='rendered'?'source':'rendered'));
 $('#theme').onclick=()=>{const value=document.documentElement.dataset.theme==='light'?'dark':'light';document.documentElement.dataset.theme=value;localStorage.setItem('looking-glass-theme',value);$('#theme').textContent=value==='dark'?'Light mode':'Dark mode';if(view)view.dispatch({effects:themeSlot.reconfigure(theme())});};
 function filterFiles(){const query=$('#file-filter').value.toLowerCase();$$('.file-entry').forEach(b=>b.hidden=!b.dataset.path.toLowerCase().includes(query));}
 $('#file-filter').oninput=filterFiles;$('#refresh-files').onclick=()=>window.htmx.trigger('#file-tree','refresh');
@@ -441,6 +445,22 @@ $('#merge-disk').onclick=guard(async()=>{const e=entry();const disk=await api('f
 $('#accept-merge').onclick=guard(async()=>{const e=entry();if(pending?.mergePath!==e.path)throw new Error('Open the original file to finish merging.');e.version=pending.disk.version;e.diskContent=pending.disk.content;e.content=$('#merge-text').value;e.dirty=e.content!==e.diskContent;e.conflict=null;e.state=null;view?.destroy();view=null;mountDocument(e);$('#merge-dialog').close();pending=null;renderTabs();updateToolbar();notify('Merged draft ready. Save to write it to disk.');});
 $('#git-open').onclick=guard(showGit);$('#inspect-diff').onclick=guard(async()=>{const result=await api('git/diff','POST',{paths:selectedGit()});$('#git-diff').textContent=result.diff;});
 $('#checkpoint').onclick=guard(async()=>{const paths=selectedGit();if(paths.some(p=>tabs.get(p)?.dirty))throw new Error('Save your edits in the selected files before checkpointing.');const result=await api('git/checkpoint','POST',{paths,message:$('#checkpoint-name').value});$('#git-dialog').close();notify('Checkpoint '+result.commit.slice(0,8)+' created');});
+// Dialog errors stay inside the dialog, next to the path the user typed.
+const dialogGuard=(error,fn)=>(...args)=>Promise.resolve().then(()=>{$(error).textContent='';return fn(...args);}).catch(e=>{$(error).textContent=e.message;});
+$('#file-open').onclick=()=>{$('#file-error').textContent='';$('#file-dialog').showModal();$('#file-path').select();};
+$('#file-form').onsubmit=event=>{event.preventDefault();dialogGuard('#file-error',async()=>{const {path}=await api('locate?'+new URLSearchParams({path:$('#file-path').value}));await openFile(path);$('#file-dialog').close();})();};
+async function browse(path){
+  const listing=await api('directories?'+new URLSearchParams({path}));$('#directory-path').value=listing.path;
+  const entries=[...(listing.parent?[['..',listing.parent]]:[]),...listing.directories.map(name=>[name+'/',listing.path.replace(/\/$/,'')+'/'+name])];
+  $('#directory-list').replaceChildren(...entries.map(([label,target])=>{const b=document.createElement('button');b.type='button';b.className='directory-entry'+(label.startsWith('.')&&label!=='..'?' hidden-dir':'');b.textContent=label;b.onclick=dialogGuard('#directory-error',()=>browse(target));return b;}));
+  $('#directory-list').scrollTop=0;
+}
+$('#directory-open').onclick=dialogGuard('#directory-error',async()=>{$('#directory-dialog').showModal();await browse(root);});
+$('#directory-form').onsubmit=event=>{event.preventDefault();dialogGuard('#directory-error',()=>browse($('#directory-path').value))();};
+$('#directory-choose').onclick=dialogGuard('#directory-error',async()=>{
+  if([...tabs.values()].some(e=>e.dirty))throw new Error('Save or close unsaved tabs before you switch directories.');
+  await api('workspace','POST',{path:$('#directory-path').value});location.reload();
+});
 window.addEventListener('beforeunload',event=>{if([...tabs.values()].some(e=>e.dirty)){event.preventDefault();event.returnValue='';}});
 document.documentElement.dataset.theme=localStorage.getItem('looking-glass-theme')||'light';$('#theme').textContent=document.documentElement.dataset.theme==='dark'?'Light mode':'Dark mode';
 // Restore tab metadata only; unsaved text is never silently persisted over disk.
