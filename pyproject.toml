@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "looking-glass"
+version = "0.1.0"
+description = "A local file editor with anchored discussions for people and coding agents"
+requires-python = ">=3.10"
+dependencies = ["Flask>=3.1,<4"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10", "playwright>=1.50,<2"]
+
+[project.scripts]
+looking-glass = "looking_glass.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["looking_glass*"]
+
+[tool.setuptools.package-data]
+looking_glass = ["templates/*.html", "static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

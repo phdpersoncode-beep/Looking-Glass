@@ -1,0 +1,30 @@
+{
+  "name": "looking-glass-client",
+  "private": true,
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.10.0",
+    "@codemirror/lang-html": "^6.4.9",
+    "@codemirror/lang-json": "^6.0.2",
+    "@codemirror/lang-markdown": "^6.3.4",
+    "@codemirror/lang-python": "^6.2.1",
+    "@codemirror/language": "^6.11.3",
+    "@codemirror/legacy-modes": "^6.5.1",
+    "@codemirror/search": "^6.5.11",
+    "@codemirror/state": "^6.5.2",
+    "@codemirror/view": "^6.38.6",
+    "@lezer/highlight": "^1.2.3",
+    "codemirror": "^6.0.2",
+    "dompurify": "^3.2.7",
+    "htmx.org": "^2.0.7",
+    "marked": "^16.3.0",
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.1.14",
+    "esbuild": "^0.25.10",
+    "tailwindcss": "^4.1.14"
+  }
+}

@@ -1,0 +1,2 @@
+{% for path in files %}<button class="file-entry" data-path="{{ path }}" title="{{ path }}"><span class="file-type">{% if path.endswith('.md') %}M↓{% elif path.endswith('.py') %}Py{% elif path.endswith('.stl') %}△{% elif path.endswith('.html') %}◇{% elif path.endswith('.jsonl') %}{ }{% else %}≡{% endif %}</span><span>{{ path }}</span></button>{% endfor %}
+{% if not files %}<p class="muted p-4">No files in this directory.</p>{% endif %}

@@ -1,0 +1,122 @@
+from pathlib import Path
+import pytest
+from looking_glass.app import create_app
+from looking_glass.workspace import Workspace, Problem
+from looking_glass.anchors import relocate
+
+
+@pytest.fixture
+def ws(tmp_path):
+    (tmp_path/'notes.md').write_text('Before\n\nA useful passage for review.\n\nAfter\n')
+    return Workspace(tmp_path)
+
+
+def thread(ws):
+    file = ws.read('notes.md')
+    quote = 'A useful passage for review.'
+    start = file['content'].index(quote)
+    return ws.create_thread('notes.md',start,start+len(quote),'Explain this.','Altay',file['version'])
+
+
+def test_save_conflicts_and_persistence(ws):
+    t = thread(ws)
+    old = ws.read('notes.md')
+    ws.save('notes.md','New heading\n'+old['content'],old['version'])
+    assert ws.get_thread(t['id'])['start'] == t['start']+len('New heading\n')
+    ws.reply(t['id'],'Here is why.','Codex')
+    restarted = Workspace(ws.root)
+    assert len(restarted.get_thread(t['id'])['messages']) == 2
+    assert restarted.token == ws.token
+    version = restarted.read('notes.md')['version']
+    (ws.root/'notes.md').write_text('external edit')
+    with pytest.raises(Problem,match='changed on disk'):
+        restarted.save('notes.md','my draft',version)
+    assert (ws.root/'notes.md').read_text() == 'external edit'
+    assert restarted.get_thread(t['id'])['anchor_status'] == 'needs_reattachment'
+
+
+def test_anchor_edits_inside_and_deletion(ws):
+    t=thread(ws)
+    f=ws.read('notes.md')
+    changed=f['content'].replace('useful','very useful')
+    ws.save('notes.md',changed,f['version'])
+    assert ws.get_thread(t['id'])['quote']=='A very useful passage for review.'
+    f=ws.read('notes.md')
+    ws.save('notes.md',f['content'].replace('A very useful passage for review.',''),f['version'])
+    assert ws.get_thread(t['id'])['anchor_status']=='needs_reattachment'
+    f=ws.read('notes.md')
+    attached=ws.update_thread(t['id'],start=0,end=6,version=f['version'])
+    assert attached['quote']=='Before'
+    assert attached['anchor_status']=='attached'
+
+
+def test_ambiguous_move_is_orphaned():
+    assert relocate('left abc right','abc\nabc',5,8) is None
+
+
+def test_ordinary_boundary_edits_stay_attached():
+    old='before\nA useful passage for review.\nafter'
+    start=old.index('A useful')
+    end=old.index('\nafter')
+    new=old.replace('A useful','This useful').replace('review.','discussion.')
+    positions=relocate(old,new,start,end)
+    assert positions is not None
+    assert new[slice(*positions)]=='This useful passage for discussion.'
+
+
+def test_unicode_and_stale_anchor(ws):
+    f=ws.read('notes.md')
+    ws.save('notes.md','🪞 München passage',f['version'])
+    f=ws.read('notes.md')
+    t=ws.create_thread('notes.md',2,9,'Unicode','Altay',f['version'])
+    assert t['quote']=='München'
+    (ws.root/'notes.md').write_text('changed')
+    with pytest.raises(Problem):
+        ws.create_thread('notes.md',2,9,'stale','Codex',f['version'])
+
+
+def test_traversal_symlinks_and_metadata_blocked(ws,tmp_path):
+    (ws.root/'link.md').symlink_to(ws.root/'notes.md')
+    for path in ('../outside','.looking-glass/token','link.md','/etc/passwd'):
+        with pytest.raises(Problem):
+            ws.read(path)
+    assert 'link.md' not in ws.files()
+    assert not any('.looking-glass' in f for f in ws.files())
+
+
+def test_http_auth_preview_and_replies(ws):
+    app=create_app(ws.root)
+    client=app.test_client()
+    headers={'X-Looking-Glass-Token':ws.token}
+    assert client.get('/api/threads').status_code==401
+    assert client.get('/api/threads',headers={**headers,'Origin':'null'}).status_code==403
+    assert client.get('/api/threads',headers={**headers,'Host':'evil.example'}).status_code==400
+    f=client.get('/api/file?path=notes.md',headers=headers).json
+    response=client.post('/api/threads',headers=headers,json=dict(path='notes.md',start=0,end=6,body='<script>evil</script>',author='Codex',version=f['version']))
+    assert response.status_code==201
+    id=response.json['id']
+    assert client.post(f'/api/threads/{id}/replies',headers=headers,json=dict(body='reply',author='Altay')).status_code==201
+    assert client.patch(f'/api/threads/{id}',headers=headers,json={'resolved':True}).json['resolved']
+    assert not client.patch(f'/api/threads/{id}',headers=headers,json={'resolved':False}).json['resolved']
+    fragment=client.get('/fragments/threads?path=notes.md',headers=headers).text
+    assert '&lt;script&gt;' in fragment and '<script>evil' not in fragment
+    (ws.root/'report.html').write_text('<button>Interactive</button><script>parent.document</script>')
+    cap=client.post('/api/preview',headers=headers,json={'path':'report.html','content':(ws.root/'report.html').read_text()}).json['url']
+    assert ws.token not in cap
+    preview=client.get(cap)
+    assert preview.status_code==200
+    assert 'sandbox allow-scripts' in preview.headers['Content-Security-Policy']
+    assert 'allow-same-origin' not in preview.headers['Content-Security-Policy']
+    assert client.post('/api/preview',json={'path':'report.html','content':'x'}).status_code==401
+    assert client.put('/api/file',headers=headers,json=[]).status_code==400
+
+
+def test_line_endings_and_mode_preserved(ws):
+    path=ws.root/'crlf.sh'
+    path.write_bytes(b'#!/bin/bash\r\necho hi\r\n')
+    path.chmod(0o755)
+    file=ws.read('crlf.sh')
+    assert '\r\n' in file['content']
+    ws.save('crlf.sh',file['content'].replace('hi','hello'),file['version'])
+    assert b'\r\n' in path.read_bytes()
+    assert path.stat().st_mode & 0o777 == 0o755

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="looking-glass-token" content="{{ token }}">
+  <meta name="htmx-config" content='{"allowEval":false,"includeIndicatorStyles":false}'>
+  <title>Looking Glass</title>
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/htmx.min.js" defer></script>
+  <script src="/static/app.js" type="module"></script>
+</head>
+<body>
+<header class="flex items-center justify-between gap-4 px-5">
+  <div class="flex items-center gap-3"><span class="brand-mark">◈</span><strong>Looking Glass</strong><span class="milestone">LOCAL WORKSPACE</span></div>
+  <div class="flex items-center gap-2"><button id="git-open" title="Inspect changes and create a Git checkpoint">Changes & checkpoints</button><button id="theme" title="Switch light/dark theme">Dark mode</button></div>
+</header>
+<main class="workspace">
+  <aside class="file-sidebar">
+    <div class="panel-heading"><span>FILES</span><button id="refresh-files" aria-label="Refresh files">↻</button></div>
+    <div class="root-label" title="{{ root }}">{{ root }}</div>
+    <label class="sr-only" for="file-filter">Filter files</label><input id="file-filter" class="file-filter" placeholder="Find a file…">
+    <div id="file-tree" hx-get="/fragments/files" hx-trigger="load, refresh" hx-swap="innerHTML"></div>
+    <div class="sidebar-foot">Files stay on disk.<br>Discussions stay attached.</div>
+  </aside>
+  <section class="document-panel">
+    <nav id="tabs" aria-label="Open documents"></nav>
+    <div class="document-toolbar">
+      <div><span id="document-name">Open a file</span><span id="dirty" aria-live="polite"></span></div>
+      <div class="flex items-center gap-2"><select id="mode" aria-label="Document mode"></select><button id="annotate" disabled>＋ Discuss selection</button><button id="save" disabled>Save <kbd>Ctrl S</kbd></button></div>
+    </div>
+    <div id="conflict" class="conflict" hidden><span></span><div class="flex gap-2"><button id="reload-disk">Discard local edits & reload</button><button id="merge-disk">Compare & merge</button><button id="copy-draft">Copy draft</button></div></div>
+    <div id="surface"><div class="welcome"><span class="welcome-mark">◈</span><h1>A place to read closely.</h1><p>Open a file, select a passage, and start a discussion.<br>Your coding agent can join from the terminal.</p><div class="welcome-shortcuts"><span><kbd>Ctrl F</kbd> Find</span><span><kbd>Ctrl H</kbd> Replace</span><span><kbd>Ctrl Enter</kbd> Discuss</span></div></div></div>
+    <footer><span id="file-info">Choose a file from the sidebar</span><span id="notice" role="status" aria-live="polite"></span></footer>
+  </section>
+  <aside class="discussion-sidebar">
+    <div class="panel-heading"><span>DISCUSSIONS <span id="thread-count">0</span></span><div class="flex gap-1"><button id="previous" title="Previous passage" aria-label="Previous passage">↑</button><button id="next" title="Next passage" aria-label="Next passage">↓</button></div></div>
+    <label class="author-label">Your author label<input id="author" value="Altay" maxlength="120"></label>
+    <label class="resolved-toggle"><input type="checkbox" id="show-resolved"> Show resolved threads</label>
+    <div id="threads"><div class="empty-discussions">Select text or code to leave a comment.<p>Feedback opens a conversation. Edits stay yours to make.</p></div></div>
+  </aside>
+</main>
+<dialog id="comment-dialog"><form id="comment-form"><h2>Discuss this passage</h2><blockquote id="selected-quote"></blockquote><label for="comment-body">Comment</label><textarea id="comment-body" rows="5" required placeholder="What should we look at here?"></textarea><div class="dialog-actions"><button type="button" data-close>Cancel</button><button class="primary" type="submit">Start thread</button></div></form></dialog>
+<dialog id="git-dialog"><h2>Changes & checkpoints</h2><p class="muted">Save documents first. A checkpoint commits only the files you select.</p><div id="git-files"></div><button id="inspect-diff">Inspect selected changes</button><pre id="git-diff"></pre><label for="checkpoint-name">Checkpoint name</label><input id="checkpoint-name" placeholder="Clarify introduction and review notes"><div class="dialog-actions"><button data-close>Close</button><button class="primary" id="checkpoint">Create checkpoint</button></div></dialog>
+<dialog id="merge-dialog"><h2>Resolve the external change</h2><p class="muted">Use the current disk version as a reference. Edit your draft below, then accept the merged draft and save.</p><div class="merge-columns"><div><h3>Current disk file</h3><pre id="disk-text"></pre></div><div><h3>Your editable draft</h3><textarea id="merge-text" spellcheck="false"></textarea></div></div><div class="dialog-actions"><button data-close>Cancel</button><button class="primary" id="accept-merge">Accept merged draft</button></div></dialog>
+</body></html>

@@ -1,0 +1,10 @@
+.venv/
+node_modules/
+looking_glass/static/dist/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+.looking-glass/
+test-results/
+playwright-report/

@@ -1,0 +1,4 @@
+Plain text stays plain text.
+
+No formatting syntax is interpreted here.
+Discuss this sentence with your agent.

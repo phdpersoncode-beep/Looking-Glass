@@ -1,0 +1,6 @@
+{"id": 1, "status": "ok", "metrics": {"volume": 42.5}}
+{"id": 2, "notes": ["check boundary", "review mesh"]}
+{"id": 3, broken json}
+[1, 2, 3]
+null
+"a JSON string is also valid"

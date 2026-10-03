@@ -1,0 +1,10 @@
+{% for thread in threads %}
+<article class="thread {% if thread.resolved %}resolved{% endif %} {% if thread.id == active %}active{% endif %}" data-thread="{{ thread.id }}" data-resolved="{{ 'true' if thread.resolved else 'false' }}">
+  <div class="thread-heading"><button class="jump" data-action="jump">#{{ thread.id }} · {{ 'Resolved' if thread.resolved else 'Open' }}</button><button data-action="resolve" title="{{ 'Reopen' if thread.resolved else 'Resolve' }} thread">{{ 'Reopen' if thread.resolved else 'Resolve ✓' }}</button></div>
+  <blockquote data-action="jump">{{ thread.quote }}</blockquote>
+  {% if thread.anchor_status != 'attached' %}<p class="anchor-warning">Passage needs reattachment.<button data-action="reattach">Attach to selection</button></p>{% endif %}
+  {% for message in thread.messages %}<div class="message"><div><strong>{{ message.author }}</strong><time>{{ message.created_at }}</time></div><p>{{ message.body }}</p></div>{% endfor %}
+  <form class="reply-form"><label class="sr-only" for="reply-{{ thread.id }}">Reply to thread {{ thread.id }}</label><textarea id="reply-{{ thread.id }}" rows="2" placeholder="Reply to this thread…" required></textarea><button type="submit">Reply ↗</button></form>
+</article>
+{% endfor %}
+{% if not threads %}<div class="empty-discussions">No discussions yet.<p>Select a passage and choose “Discuss selection”.</p></div>{% endif %}
