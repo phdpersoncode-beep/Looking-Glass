@@ -1,6 +1,6 @@
 # Looking Glass
 
-Below is the project description and what we want to build for the first iteration:
+Below is the first ever prompt we sent and what we want to build. 
 ```
 We’re going to build a **Code review and editing tool with support for viewing 3D STL files, JSONL files, and HTMLs.** The project is called **Looking Glass**.
 
