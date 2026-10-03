@@ -1,6 +1,7 @@
 import secrets
 import time
 import shlex
+import json
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -173,7 +174,11 @@ Resolve a thread when its requested work is complete. All commands return JSON.'
         item = previews.get(key)
         if not item or item[1] < time.monotonic():
             raise Problem('Preview expired. Switch to source and back to render again.',404)
-        return Response(item[0],mimetype='text/html')
+        bridge = (Path(app.static_folder)/'html-preview.js').read_text()
+        # The bridge has no API token. It only sends selections and receives
+        # highlight/navigation commands through the parent window.
+        config = json.dumps(dict(channel=key,parentOrigin=request.host_url.rstrip('/')))
+        return Response(item[0]+'\n<script>\n(()=>{const config='+config+';\n'+bridge+'\n})();\n</script>',mimetype='text/html')
 
     @app.get('/api/threads')
     def threads():
@@ -185,6 +190,8 @@ Resolve a thread when its requested work is complete. All commands return JSON.'
         ws.path(data.get('path'))
         if Path(data['path']).suffix.lower() in ('.stl','.jsonl'):
             raise Problem('This viewer does not support annotations.')
+        if 'render_anchor' in data:
+            return jsonify(ws.create_rendered_thread(data.get('path'),data['render_anchor'],data.get('body'),data.get('author'),data.get('version'))),201
         return jsonify(ws.create_thread(data.get('path'),data.get('start'),data.get('end'),data.get('body'),data.get('author'),data.get('version'))),201
 
     @app.get('/api/threads/<int:identifier>')
@@ -199,7 +206,7 @@ Resolve a thread when its requested work is complete. All commands return JSON.'
     @app.patch('/api/threads/<int:identifier>')
     def update_thread(identifier):
         data = body()
-        if not set(data).issubset({'resolved','start','end','version'}):
+        if not set(data).issubset({'resolved','start','end','version','render_anchor','render_attached'}):
             raise Problem('Unknown thread update fields.')
         return jsonify(ws.update_thread(identifier,**data))
 

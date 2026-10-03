@@ -1,6 +1,6 @@
 # First milestone verification · 2026-10-03
 
-Latest result: **20 tests passed**, including two browser integration tests.
+Latest result: **22 tests passed**, including three browser integration tests.
 The frontend was built locally using the committed npm lockfile. No application
 dependency is fetched from a CDN at runtime.
 
@@ -17,6 +17,9 @@ The October 3 workflow update also verified:
 - Copyable agent commands containing the current workspace and server port.
 - Added, changed, and removed Git gutter markers for drafts and saved files.
 - HEAD baselines in nested workspaces and preservation of staged Git content.
+- Rendered HTML selection across inline elements and entities, persistent highlights,
+  replies, navigation between modes, DOM formatting changes, and missing/ambiguous
+  passage reattachment. Interactive report controls and opaque-origin isolation remain active.
 
 Run with headless Chromium 153 against a disposable copy of `demo_dir`:
 

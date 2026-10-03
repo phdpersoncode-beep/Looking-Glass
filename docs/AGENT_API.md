@@ -55,6 +55,22 @@ A response thread includes `id`, `path`, `start`, `end`, `quote`, `anchor_status
 `attached` or `needs_reattachment`. Treat an orphan as a question for a human,
 not permission to guess another passage.
 
+Threads also include `anchor_kind`: `source` or `rendered`. A rendered thread has
+`render_anchor` containing `quote`, `prefix`, and `suffix`. Its `start` and `end`
+are placeholders, not HTML-source positions. Agents can list, read, reply, resolve,
+reopen, and delete rendered threads through the existing CLI.
+
+To create a rendered thread through the API, replace `start` and `end` with:
+
+```json
+{"render_anchor":{"quote":"Visible report text","prefix":"","suffix":""}}
+```
+
+The quote must match rendered text. Prefix and suffix each allow up to 48 characters.
+The browser checks attachment while the report is open. Reattach with a PATCH body
+containing `render_anchor` and the current file `version`. Source-offset reattachment
+is rejected for rendered threads.
+
 ```bash
 token="$(cat ./demo_dir/.looking-glass/token)"
 curl -H "X-Looking-Glass-Token: $token" \

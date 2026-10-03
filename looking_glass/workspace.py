@@ -1,4 +1,5 @@
 import hashlib
+import json
 import os
 import secrets
 import sqlite3
@@ -67,6 +68,11 @@ class Workspace:
                     id INTEGER PRIMARY KEY, thread_id INTEGER NOT NULL REFERENCES threads(id),
                     author TEXT NOT NULL, body TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
             ''')
+            columns = {row['name'] for row in db.execute('PRAGMA table_info(threads)')}
+            if 'anchor_kind' not in columns:
+                db.execute("ALTER TABLE threads ADD COLUMN anchor_kind TEXT NOT NULL DEFAULT 'source'")
+            if 'render_anchor' not in columns:
+                db.execute('ALTER TABLE threads ADD COLUMN render_anchor TEXT')
 
     @contextmanager
     def connection(self):
@@ -143,7 +149,7 @@ class Workspace:
     def reconcile(self, db, path, content):
         row = db.execute('SELECT content FROM snapshots WHERE path=?', (path,)).fetchone()
         if row and row['content'] != content:
-            for t in db.execute("SELECT * FROM threads WHERE path=? AND anchor_status='attached'", (path,)).fetchall():
+            for t in db.execute("SELECT * FROM threads WHERE path=? AND anchor_status='attached' AND anchor_kind='source'", (path,)).fetchall():
                 mapped = relocate(row['content'], content, t['start'], t['end'])
                 if mapped:
                     start, end = mapped
@@ -201,6 +207,7 @@ class Workspace:
             result = []
             for row in rows:
                 t = dict(row)
+                t['render_anchor'] = json.loads(t['render_anchor']) if t['render_anchor'] else None
                 t['resolved'] = bool(t['resolved'])
                 t['messages'] = [dict(m) for m in db.execute('SELECT * FROM messages WHERE thread_id=? ORDER BY id', (t['id'],))]
                 result.append(t)
@@ -235,6 +242,31 @@ class Workspace:
             raise Problem('Thread not found.', 404)
         return next(t for t in self.threads(t['path']) if t['id'] == identifier)
 
+    @staticmethod
+    def rendered_anchor(anchor):
+        if not isinstance(anchor,dict) or set(anchor) != {'quote','prefix','suffix'}:
+            raise Problem('Provide a rendered quote, prefix, and suffix.')
+        if any(not isinstance(value,str) for value in anchor.values()):
+            raise Problem('Rendered anchor fields must be text.')
+        if not anchor['quote'].strip() or len(anchor['quote']) > 50000 or any(len(anchor[key]) > 48 for key in ('prefix','suffix')):
+            raise Problem('Invalid or oversized rendered passage.')
+        return anchor
+
+    def create_rendered_thread(self, path, anchor, body, author, version):
+        anchor = self.rendered_anchor(anchor)
+        author, body = self.message(author,body)
+        with self.lock, self.connection() as db:
+            if self.path(path).suffix.lower() not in ('.html','.htm'):
+                raise Problem('Rendered anchors require an HTML file.')
+            content, current = self.text(path)
+            if current != version:
+                raise Problem('Selection is stale. Reload the report before anchoring.',409)
+            self.reconcile(db,path,content)
+            cursor = db.execute("INSERT INTO threads(path,start,end,quote,anchor_kind,render_anchor) VALUES(?,0,0,?,'rendered',?)", (path,anchor['quote'],json.dumps(anchor)))
+            identifier = cursor.lastrowid
+            db.execute('INSERT INTO messages(thread_id,author,body) VALUES(?,?,?)', (identifier,author,body))
+        return self.get_thread(identifier)
+
     def reply(self, identifier, body, author):
         author, body = self.message(author, body)
         self.get_thread(identifier)
@@ -242,14 +274,29 @@ class Workspace:
             db.execute('INSERT INTO messages(thread_id,author,body) VALUES(?,?,?)', (identifier,author,body))
         return self.get_thread(identifier)
 
-    def update_thread(self, identifier, resolved=None, start=None, end=None, version=None):
+    def update_thread(self, identifier, resolved=None, start=None, end=None, version=None, render_anchor=None, render_attached=None):
         t = self.get_thread(identifier)
         with self.lock, self.connection() as db:
+            if render_anchor is not None or render_attached is not None:
+                if t['anchor_kind'] != 'rendered':
+                    raise Problem('This thread has a source anchor.')
+                _, current = self.text(t['path'])
+                if current != version:
+                    raise Problem('Report changed on disk. Reload before updating its anchor.',409)
+            if render_anchor is not None:
+                anchor = self.rendered_anchor(render_anchor)
+                db.execute("UPDATE threads SET quote=?,render_anchor=?,anchor_status='attached' WHERE id=?", (anchor['quote'],json.dumps(anchor),identifier))
+            if render_attached is not None:
+                if type(render_attached) is not bool:
+                    raise Problem('render_attached must be a boolean.')
+                db.execute('UPDATE threads SET anchor_status=? WHERE id=?', ('attached' if render_attached else 'needs_reattachment',identifier))
             if resolved is not None:
                 if type(resolved) is not bool:
                     raise Problem('resolved must be a boolean.')
                 db.execute('UPDATE threads SET resolved=? WHERE id=?', (resolved,identifier))
             if start is not None or end is not None:
+                if t['anchor_kind'] != 'source':
+                    raise Problem('Select the passage in the rendered report to reattach this thread.')
                 content, current = self.text(t['path'])
                 if current != version:
                     raise Problem('Selection is stale.', 409)

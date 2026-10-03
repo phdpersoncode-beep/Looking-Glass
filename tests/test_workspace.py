@@ -175,3 +175,24 @@ def test_delete_comments_and_threads(ws):
     assert restarted.threads()==[]
     with restarted.connection() as db:
         assert db.execute('SELECT count(*) FROM messages').fetchone()[0]==0
+
+
+def test_rendered_html_anchors_persist_and_require_current_version(ws):
+    (ws.root/'report.html').write_text('<p>Hello <strong>world</strong> &amp; friends.</p>')
+    client=create_app(ws.root).test_client()
+    headers={'X-Looking-Glass-Token':ws.token}
+    file=ws.read('report.html')
+    anchor=dict(quote='Hello world & friends.',prefix='',suffix='')
+    response=client.post('/api/threads',headers=headers,json=dict(path='report.html',render_anchor=anchor,body='Clarify this.',author='Altay',version=file['version']))
+    assert response.status_code==201
+    t=response.json
+    assert t['anchor_kind']=='rendered' and t['render_anchor']==anchor
+    assert Workspace(ws.root).get_thread(t['id'])['quote']==anchor['quote']
+    saved=ws.save('report.html','<article><p>Hello <em>world</em> &amp; friends.</p></article>',file['version'])
+    assert ws.get_thread(t['id'])['render_anchor']==anchor
+    assert client.patch(f"/api/threads/{t['id']}",headers=headers,json=dict(render_attached=False,version=file['version'])).status_code==409
+    assert client.patch(f"/api/threads/{t['id']}",headers=headers,json=dict(render_attached=False,version=saved['version'])).json['anchor_status']=='needs_reattachment'
+    new_anchor=dict(quote='Hello world',prefix='',suffix=' & friends.')
+    assert client.patch(f"/api/threads/{t['id']}",headers=headers,json=dict(render_anchor=new_anchor,version=saved['version'])).json['anchor_status']=='attached'
+    assert client.patch(f"/api/threads/{t['id']}",headers=headers,json=dict(start=0,end=3,version=saved['version'])).status_code==400
+    assert client.post('/api/threads',headers=headers,json=dict(path='notes.md',render_anchor=anchor,body='No.',author='Altay',version=ws.read('notes.md')['version'])).status_code==400

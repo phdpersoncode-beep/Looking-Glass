@@ -117,6 +117,91 @@ def test_review_workflow_features(tmp_path):
         server.shutdown();thread.join();server.server_close()
 
 
+def test_rendered_html_discussions(tmp_path):
+    from playwright.sync_api import sync_playwright, expect
+    report=tmp_path/'report.html'
+    report.write_text('''<!doctype html><html><body><h1>Report</h1>
+<p id="passage">Hello <strong>world</strong> &amp; friends.</p>
+<button id="interactive" onclick="document.querySelector('#result').textContent='Clicked'">Run</button><p id="result"></p>
+<div style="height:1800px"></div><p id="later">A later passage.</p>
+</body></html>''')
+    app=create_app(tmp_path);server=make_server('127.0.0.1',0,app,threaded=True)
+    worker=threading.Thread(target=server.serve_forever,daemon=True);worker.start()
+    try:
+        with sync_playwright() as pw:
+            executable=os.environ['LOOKING_GLASS_BROWSER']
+            browser=pw.chromium.launch(executable_path=None if executable=='installed' else executable,headless=True,args=['--no-sandbox'])
+            page=browser.new_page(viewport={'width':1440,'height':960})
+            errors=[];page.on('pageerror',lambda error:errors.append(str(error)))
+            page.goto(f'http://127.0.0.1:{server.server_port}')
+            page.locator('.file-entry[data-path="report.html"]').click()
+            frame=page.frame_locator('#html-preview')
+            expect(frame.locator('#passage')).to_be_visible()
+
+            def select(selector):
+                frame.locator(selector).evaluate('el=>{window.focus();el.scrollIntoView();const range=document.createRange();range.selectNodeContents(el);const selection=getSelection();selection.removeAllRanges();selection.addRange(range);}')
+                expect(page.locator('#annotate')).to_be_enabled()
+
+            select('#passage')
+            page.locator('#selection-comment').click()
+            expect(page.locator('#selected-quote')).to_have_text('Hello world & friends.')
+            page.locator('#comment-body').fill('A rendered discussion.')
+            page.locator('#comment-submit').click()
+            expect(page.get_by_text('A rendered discussion.',exact=True)).to_be_visible()
+            ws=app.extensions['workspace'];t=ws.threads()[0]
+            assert t['anchor_kind']=='rendered' and t['quote']=='Hello world & friends.'
+            assert frame.locator('body').evaluate("()=>CSS.highlights.get('looking-glass-passages').size")==1
+            page.locator('.reply-form textarea').fill('A sidebar reply.')
+            page.locator('.reply-form button').click()
+            expect(page.get_by_text('A sidebar reply.',exact=True)).to_be_visible()
+            select('#later')
+            page.keyboard.press('Control+Enter')
+            expect(page.locator('#selected-quote')).to_have_text('A later passage.')
+            page.locator('#comment-body').fill('A later discussion.')
+            page.locator('#comment-submit').click()
+            expect(page.get_by_text('A later discussion.',exact=True)).to_be_visible()
+            page.locator('#previous').click()
+            expect(frame.locator('#passage')).to_be_in_viewport()
+            later=next(thread for thread in ws.threads() if thread['quote']=='A later passage.')
+            ws.delete_thread(later['id'])
+            expect(page.get_by_text('A later discussion.',exact=True)).to_have_count(0)
+            page.reload()
+            expect(frame.locator('#passage')).to_be_visible()
+            expect(page.get_by_text('A sidebar reply.',exact=True)).to_be_visible()
+            assert frame.locator('body').evaluate("()=>{try{return !!parent.document}catch{return false}}") is False
+            frame.locator('#interactive').click();expect(frame.locator('#result')).to_have_text('Clicked')
+            # Runtime DOM edits keep the quote anchored through formatting changes.
+            frame.locator('#passage').evaluate("el=>el.innerHTML='Hello <em>world</em> &amp; friends.'")
+            page.wait_for_timeout(300)
+            assert frame.locator('body').evaluate("()=>CSS.highlights.get('looking-glass-passages').size")==1
+            page.locator('.thread .jump').click()
+            expect(page.locator('#html-toggle span.active')).to_have_text('Rendered')
+            # Disappearing text must request reattachment, including in SQLite.
+            frame.locator('#passage').evaluate("el=>el.textContent='Replacement passage.'")
+            expect(page.locator('.anchor-warning')).to_be_visible()
+            assert ws.get_thread(t['id'])['anchor_status']=='needs_reattachment'
+            select('#passage')
+            page.locator('[data-action=reattach]').click()
+            expect(page.locator('.anchor-warning')).to_have_count(0)
+            assert ws.get_thread(t['id'])['quote']=='Replacement passage.'
+            # Source mode retains the rendered thread; navigation opens its report.
+            page.locator('#html-toggle').click()
+            expect(page.locator('#editor')).to_be_visible()
+            assert page.locator('.passage-highlight').count()==0
+            page.locator('.thread .jump').click()
+            expect(frame.locator('#passage')).to_be_visible()
+            expect(page.locator('.anchor-warning')).to_be_visible()
+            # Return the disk report to its original passage and reattach.
+            select('#passage');page.locator('[data-action=reattach]').click()
+            expect(page.locator('.anchor-warning')).to_have_count(0)
+            frame.locator('#passage').evaluate("el=>{el.textContent='Unrelated.';const first=document.createElement('p'),second=document.createElement('p');first.textContent=second.textContent='Hello world & friends.';document.body.replaceChildren(first,second)}")
+            expect(page.locator('.anchor-warning')).to_be_visible()
+            assert not errors,errors
+            browser.close()
+    finally:
+        server.shutdown();worker.join();server.server_close()
+
+
 def test_end_to_end(tmp_path):
     from playwright.sync_api import sync_playwright, expect
     project = Path(__file__).resolve().parents[1]

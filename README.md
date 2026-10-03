@@ -162,7 +162,12 @@ them in your terminal first. Checkpoints do not push. Saving never commits.
   an opaque sandbox origin, no application API token and no access to parent
   state. Inline scripts and HTTPS report resources are allowed. Use self-contained
   reports; workspace-relative linked assets are not currently served to previews.
-  Source HTML supports anchored comments. Rendered-HTML annotation is deferred.
+   Select visible report text and use **Add comment** or Ctrl+Enter to annotate
+   rendered HTML. Highlights and passage navigation stay in the report.
+   Source HTML also supports anchored comments. Each thread records its anchor mode.
+   Rendered anchors store the selected text and surrounding context. Missing or
+   ambiguous passages request reattachment. Select a new rendered passage and click
+   **Attach to selection**. Comments persist in SQLite; the HTML file stays unchanged.
 
 ## Development and checks
 
