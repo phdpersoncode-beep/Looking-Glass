@@ -576,7 +576,7 @@ async function poll(){
     updateToolbar();
     await refreshBaseline();
     // Avoid replacing a reply field while the user is writing.
-    if(!$('#threads').contains(document.activeElement)&&!$$('.reply-form textarea').some(t=>t.value))await refreshThreads();
+    if(!document.activeElement?.matches('.reply-form textarea')&&!$$('.reply-form textarea').some(t=>t.value))await refreshThreads();
   }catch(e){notify(e.message,true);}finally{polling=false;}
 }
 
@@ -624,7 +624,15 @@ window.addEventListener('message',guard(async event=>{
 }));
 document.addEventListener('htmx:beforeSwap',event=>{if(event.detail.target.id==='threads'){const query=new URL(event.detail.xhr.responseURL,location.href).searchParams;if(query.get('path')!==(active||'')||query.get('scope')!==threadScope())event.detail.shouldSwap=false;}});
 document.addEventListener('htmx:afterSwap',event=>{if(event.detail.target.id==='file-tree'){$$('.file-folder').forEach(folder=>folder.open=expandedFolders.has(folder.dataset.directory));filterFiles();renderTabs();}if(event.detail.target.id==='threads')filterThreads();});
-document.addEventListener('toggle',event=>{const folder=event.target;if(!folder.matches?.('.file-folder')||$('#file-filter').value)return;if(folder.open)expandedFolders.add(folder.dataset.directory);else expandedFolders.delete(folder.dataset.directory);localStorage.setItem('looking-glass-folders:'+root,JSON.stringify([...expandedFolders]));},true);
+// Persist user gestures synchronously. Native toggle events are deferred and
+// also fire for filter/refresh changes, which must not overwrite saved state.
+document.addEventListener('click',event=>{
+  const summary=event.target.closest('.file-folder > summary');if(!summary)return;
+  event.preventDefault();const folder=summary.parentElement;folder.open=!folder.open;
+  if($('#file-filter').value)return;
+  if(folder.open)expandedFolders.add(folder.dataset.directory);else expandedFolders.delete(folder.dataset.directory);
+  localStorage.setItem('looking-glass-folders:'+root,JSON.stringify([...expandedFolders]));
+});
 document.addEventListener('htmx:responseError',event=>notify('Sidebar request failed: '+event.detail.xhr.status,true));
 function beginSelection(event){
   if(event.button===0&&event.target.closest?.('#editor')){selectingText=true;scheduleSelectionTools();}
@@ -687,7 +695,13 @@ document.addEventListener('click',guard(async event=>{
   }
 }));
 document.addEventListener('submit',event=>{
-  if(event.target.matches('.reply-form')){event.preventDefault();guard(async()=>{const id=Number(event.target.closest('.thread').dataset.thread);await api('threads/'+id+'/replies','POST',{author:$('#author').value,body:event.target.querySelector('textarea').value});await refreshThreads();notify('Reply added');})();}
+  if(event.target.matches('.reply-form')){event.preventDefault();guard(async()=>{
+    const form=event.target,id=Number(form.closest('.thread').dataset.thread),field=form.querySelector('textarea'),body=field.value;
+    await api('threads/'+id+'/replies','POST',{author:$('#author').value,body});
+    // Clear only the submitted draft, not any text typed while it was sending.
+    const current=document.getElementById('reply-'+id);if(current?.value===body)current.value='';
+    await refreshThreads();notify('Reply added');
+  })();}
 });
 $('#comment-form').onsubmit=event=>{submitComment(event).catch(error=>{$('#comment-error').textContent=error.message;notify(error.message,true);});};
 $('#comment-dialog').addEventListener('close',()=>{if(!$('#comment-dialog').open&&pending?.path)pending=null;scheduleSelectionTools();});

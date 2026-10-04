@@ -4,7 +4,7 @@ import threading
 import pytest
 from werkzeug.serving import make_server
 from looking_glass.app import create_app
-pytestmark=pytest.mark.skipif(not os.environ.get('LOOKING_GLASS_BROWSER'),reason='Set LOOKING_GLASS_BROWSER for browser checks')
+pytestmark=[pytest.mark.browser, pytest.mark.skipif(not os.environ.get('LOOKING_GLASS_BROWSER'),reason='Set LOOKING_GLASS_BROWSER for browser checks')]
 
 @pytest.fixture
 def workspace_page(tmp_path, request):
@@ -434,6 +434,7 @@ def test_file_tree_refresh_preserves_state_and_recovers(workspace_page, monkeypa
         page.locator('#refresh-files').click()
     assert page.evaluate('window.originalFile===document.querySelector(".file-entry")')
     expect(folder).to_have_attribute('open', '')
+    assert page.evaluate('JSON.parse(localStorage.getItem("looking-glass-folders:"+document.querySelector(".root-label").textContent))') == ['folder']
     original = os.scandir
     def fail_scan(path):
         if str(path) == str(root):
@@ -453,3 +454,22 @@ def test_file_tree_refresh_preserves_state_and_recovers(workspace_page, monkeypa
     (root/'folder'/'note.txt').unlink(); (root/'folder'/'new.txt').unlink()
     page.locator('#refresh-files').click()
     expect(page.locator('#file-tree')).to_contain_text('No files in this directory.')
+
+
+def test_submitted_reply_clears_draft_and_keeps_agent_updates_live(workspace_page):
+    from playwright.sync_api import expect
+    root, page, url, ws = workspace_page
+    (root/'note.txt').write_text('Passage.')
+    t = ws.create_thread('note.txt', 0, 7, 'Review', 'Tester', ws.read('note.txt')['version'])
+    page.goto(url); open_file(page, 'note.txt'); page.locator('#next').click()
+    field = page.locator('.reply-form textarea')
+    field.fill('My reply'); page.locator('.reply-form button').click()
+    expect(page.locator('.message').last).to_contain_text('My reply')
+    expect(field).to_have_value('')
+    page.locator('[data-action=collapse-thread]').click()
+    ws.reply(t['id'], 'Agent follow-up', 'Agent')
+    expect(page.locator('.message').last).to_contain_text('Agent follow-up')
+    page.locator('[data-action=expand-thread]').click()
+    field.fill('Unsent draft')
+    page.locator('[data-action=resolve]').click()
+    expect(field).to_have_value('Unsent draft')
