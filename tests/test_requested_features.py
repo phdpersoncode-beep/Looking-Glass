@@ -344,3 +344,18 @@ def test_global_thread_arrows_and_fixed_header(workspace_page):
     expect(page.locator('.thread')).to_have_count(4)
     page.locator('#previous').click();expect(page.locator('#document-name')).to_have_text('a.txt')
     page.get_by_role('switch',name='Across files').check();expect(page.locator('.thread')).to_have_count(8)
+
+
+def test_discussion_resizer(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,_=workspace_page
+    page.goto(url)
+    separator=page.get_by_role('separator',name='Resize discussions');box=separator.bounding_box()
+    page.mouse.move(box['x']+3,box['y']+100);page.mouse.down();page.mouse.move(1000,box['y']+100);page.mouse.up()
+    assert abs(page.locator('.discussion-sidebar').bounding_box()['width']-440)<2
+    assert page.locator('.document-panel').bounding_box()['width']>=350
+    page.reload();expect(separator).to_have_attribute('aria-valuenow','440')
+    separator.focus();page.keyboard.press('ArrowLeft');expect(separator).to_have_attribute('aria-valuenow','450')
+    page.keyboard.press('Home');expect(separator).to_have_attribute('aria-valuenow','220')
+    page.set_viewport_size({'width':1000,'height':800});page.keyboard.press('End')
+    assert page.locator('.document-panel').bounding_box()['width']>=300
