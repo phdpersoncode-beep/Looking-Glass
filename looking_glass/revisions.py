@@ -58,6 +58,13 @@ class Revisions:
             return dict(content=None)
         root = Path(repository.stdout.decode().strip())
         name = file.relative_to(root).as_posix()
+        # Tracked files still get markers when a later ignore rule matches them.
+        # check-ignore takes literal names and rejects GIT_LITERAL_PATHSPECS.
+        ignored = self.git('-C',str(root),'--no-literal-pathspecs','check-ignore','--quiet','--',name,check=False)
+        if ignored.returncode == 0:
+            return dict(content=None)
+        if ignored.returncode != 1:
+            raise Problem(ignored.stderr.decode('utf-8', errors='replace').strip() or 'Cannot check Git ignore rules.')
         committed = self.git('-C',str(root),'show',f'HEAD:{name}',check=False)
         if committed.returncode:
             return dict(content='')

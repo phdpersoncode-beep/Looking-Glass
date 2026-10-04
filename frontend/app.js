@@ -34,7 +34,7 @@ function previewMessage(type,data={}){const preview=renderedPreview;if(preview?.
 function previewThreads(){previewMessage('threads',{threads:currentThreads.filter(t=>t.path===active&&t.anchor_kind==='rendered').map(t=>({id:t.id,render_anchor:t.render_anchor,resolved:t.resolved})),active:activeThread});}
 let fontStep = Math.max(-4,Math.min(12,Number(localStorage.getItem('looking-glass-font-step'))||0));
 function applyFontSize(){document.documentElement.style.setProperty('--document-font-size',(14+fontStep)+'px');document.documentElement.style.setProperty('--prose-font-size',(18+fontStep)+'px');document.documentElement.style.setProperty('--document-font-step',fontStep+'px');view?.requestMeasure();}
-const themeSlot = new Compartment(), liveSlot = new Compartment();
+const themeSlot = new Compartment(), liveSlot = new Compartment(), gitSlot=new Compartment();
 const selectionSettled = StateEffect.define();
 const baselineEffect=StateEffect.define();
 const diffConfig={scanLimit:1000,timeout:50};
@@ -233,7 +233,7 @@ async function closeTab(path){
 function language(path){switch(ext(path)){case'md':case'markdown':return markdown({extensions:[TaskList,Table]});case'py':return python();case'sh':case'bash':return StreamLanguage.define(shell);case'html':case'htm':return html();case'json':return json();default:return [];}}
 function makeState(e){
   const prose=['md','markdown','txt'].includes(ext(e.path));
-  return EditorState.create({doc:e.content,extensions:[EditorState.lineSeparator.of(e.diskContent.includes('\r\n')?'\r\n':'\n'),basicSetup,language(e.path),syntaxHighlighting(colors),spanField,gitField,gitGutter,
+  return EditorState.create({doc:e.content,extensions:[EditorState.lineSeparator.of(e.diskContent.includes('\r\n')?'\r\n':'\n'),basicSetup,language(e.path),syntaxHighlighting(colors),spanField,gitField,gitSlot.of([]),
     themeSlot.of(theme()),liveSlot.of(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables]:[]),
     ...(prose?[EditorView.lineWrapping,EditorView.theme({'.cm-scroller':{fontFamily:'var(--prose)',fontSize:'var(--prose-font-size)'},'.cm-content':{maxWidth:'850px',margin:'0 auto',width:'100%'},'.cm-lineNumbers, .cm-foldGutter':{display:'none'}})]:[]),
     keymap.of([{key:'Mod-s',run:()=>{guard(saveActive)();return true;}},{key:'Mod-Enter',run:()=>{guard(startComment)();return true;}},{key:'Mod-f',run:openSearchPanel},{key:'Mod-h',run:openSearchPanel},indentWithTab]),
@@ -284,7 +284,7 @@ function mountDocument(e){
   }
   updateToolbar();
 }
-async function refreshBaseline(){const editor=view,path=active;if(!editor)return;const baseline=await api('git/baseline?'+new URLSearchParams({path}));if(view===editor&&active===path)editor.dispatch({effects:baselineEffect.of(baseline.content)});}
+async function refreshBaseline(){const editor=view,path=active;if(!editor)return;const baseline=await api('git/baseline?'+new URLSearchParams({path}));if(view===editor&&active===path)editor.dispatch({effects:[baselineEffect.of(baseline.content),gitSlot.reconfigure(baseline.content===null?[]:gitGutter)]});}
 function updateToolbar(){
   const e=entry(), type=e?ext(e.path):'', viewer=['stl','jsonl'].includes(type)||isImage(e?.path||'');
   $('#json-fold-controls').hidden=type!=='json';

@@ -176,3 +176,21 @@ def test_html_and_jsonl_downloads(workspace_page):
     assert Path(downloaded.value.path()).read_text()==html+'<!-- unsaved draft -->'
     assert (root/'report.html').read_text()==html
     open_file(page,'note.txt');expect(page.locator('#download-file')).not_to_be_visible()
+
+def test_gitignored_files_have_no_gutter(workspace_page):
+    import subprocess
+    from playwright.sync_api import expect
+    root,page,url,_=workspace_page
+    (root/'tracked.txt').write_text('Tracked.\n')
+    subprocess.run(['git','init',str(root)],check=True,capture_output=True)
+    subprocess.run(['git','-C',str(root),'add','tracked.txt'],check=True)
+    subprocess.run(['git','-C',str(root),'-c','user.name=Test','-c','user.email=test@example.invalid','commit','-m','Initial'],check=True,capture_output=True)
+    (root/'.gitignore').write_text('*.txt\n');(root/'ignored.txt').write_text('Ignored.\n')
+    (root/'new.py').write_text('value = 1\n');(root/'tracked.txt').write_text('Modified.\n')
+    page.goto(url);open_file(page,'ignored.txt');expect(page.locator('.git-gutter')).to_have_count(0)
+    page.locator('.cm-content').click();page.keyboard.press('Control+End');page.keyboard.insert_text('New draft.')
+    expect(page.locator('.git-marker.added')).to_have_count(0)
+    open_file(page,'new.py');expect(page.locator('.git-marker.added').first).to_be_visible()
+    open_file(page,'tracked.txt');expect(page.locator('.git-marker.changed').first).to_be_visible()
+    (root/'.gitignore').write_text('*.txt\nnew.py\n')
+    open_file(page,'new.py');expect(page.locator('.git-gutter')).to_have_count(0)
