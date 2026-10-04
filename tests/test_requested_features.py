@@ -217,3 +217,24 @@ document.addEventListener('keydown',event=>{if(event.key.toLowerCase()==='p')set
         page.locator('#quick-query').fill('note');page.keyboard.press('Enter')
         expect(page.locator('#document-name')).to_have_text('note.md')
         expect(page.locator('#quick-dialog')).not_to_be_visible()
+
+
+def test_fenced_markdown_highlighting(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,_=workspace_page
+    original='# Code\n\n```python\ndef volume(width):\n    return width * 12\n```\n\n```bash\nif true; then\n  echo "hello"\nfi\n```\n\n```unknown\n<script>window.codeExecuted=true</script>\n```\n\nEnding.\n'
+    (root/'code.md').write_text(original)
+    page.goto(url);open_file(page,'code.md')
+    expect(page.locator('.cm-content')).not_to_contain_text('python')
+    expect(page.locator('.cm-content')).not_to_contain_text('bash')
+    expect(page.locator('.md-code-block').first).to_be_visible()
+    for word in ('def','return','if'):
+        page.wait_for_function("""word=>[...document.querySelectorAll('.cm-line span')].some(s=>s.textContent===word&&getComputedStyle(s).color==='rgb(173, 93, 237)')""",arg=word)
+    page.locator('#mode').select_option('source')
+    expect(page.locator('.cm-content')).to_contain_text('```python')
+    page.locator('#mode').select_option('preview')
+    expect(page.locator('.language-python .tok-keyword')).to_have_text(['def','return'])
+    expect(page.locator('.language-bash .tok-keyword').first).to_have_text('if')
+    expect(page.locator('.language-unknown')).to_have_text('<script>window.codeExecuted=true</script>\n')
+    assert page.evaluate('window.codeExecuted') is None
+    assert (root/'code.md').read_text()==original

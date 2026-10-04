@@ -51,3 +51,12 @@ dialog:modal{margin:auto}.directory-list{height:260px;overflow:auto;margin-top:8
 .file-sidebar{position:relative;min-width:0}#file-resize{position:absolute;top:0;bottom:0;right:-4px;width:8px;cursor:col-resize;touch-action:none;z-index:20}#file-resize:hover,#file-resize:focus-visible,.sidebar-resizing #file-resize{background:var(--selection)}.sidebar-resizing,.sidebar-resizing *{cursor:col-resize!important;user-select:none!important}
 
 .prose-editor .cm-scroller,.markdown-preview{font-optical-sizing:auto}
+
+.md-code-block,.md-code-fence{font-family:var(--mono);font-size:var(--document-font-size);background:var(--panel)}
+.md-code-fence{color:var(--muted)}
+.markdown-preview .tok-keyword{color:#ad5ded}
+.markdown-preview .tok-string{color:#4a9c80}
+.markdown-preview .tok-number{color:#c68b45}
+.markdown-preview .tok-comment{color:#858392;font-style:italic}
+.markdown-preview .tok-propertyName{color:#639bb5}
+.markdown-preview .tok-variableName.tok-definition{color:#8b72dc}

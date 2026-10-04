@@ -11,7 +11,7 @@ import {html} from '@codemirror/lang-html';
 import {json} from '@codemirror/lang-json';
 import {StreamLanguage, syntaxTree, syntaxHighlighting, HighlightStyle, ensureSyntaxTree, foldable, foldEffect, unfoldAll} from '@codemirror/language';
 import {shell} from '@codemirror/legacy-modes/mode/shell';
-import {tags} from '@lezer/highlight';
+import {tags,highlightTree,classHighlighter} from '@lezer/highlight';
 import {marked} from 'marked';
 import DOMPurify from 'dompurify';
 import * as THREE from 'three';
@@ -128,13 +128,14 @@ function liveDecorations(v, activeRange) {
       if(b<=a) return;
       const line=doc.lineAt(a), isActive=line.from<=activeTo && line.to>=activeFrom;
       if(/^ATXHeading[1-6]$/.test(name)) ranges.push(Decoration.line({class:'md-heading md-h'+name.slice(-1)}).range(line.from));
+      if(name==='FencedCode'){const last=doc.lineAt(b);for(let number=line.number;number<=last.number;number++)ranges.push(Decoration.line({class:number===line.number||number===last.number?'md-code-fence':'md-code-block'}).range(doc.line(number).from));}
       if(name==='Blockquote') ranges.push(Decoration.line({class:'md-quote'}).range(line.from));
       if(name==='StrongEmphasis') ranges.push(Decoration.mark({class:'md-strong'}).range(a,b));
       if(name==='Emphasis') ranges.push(Decoration.mark({class:'md-emphasis'}).range(a,b));
       if(name==='InlineCode'||name==='CodeText') ranges.push(Decoration.mark({class:'md-code'}).range(a,b));
       if(name==='Link') ranges.push(Decoration.mark({class:'md-link'}).range(a,b));
       if(isActive) return;
-      if(['HeaderMark','EmphasisMark','CodeMark','QuoteMark','LinkMark'].includes(name) && doc.lineAt(b).number===line.number)
+      if(['HeaderMark','EmphasisMark','CodeMark','CodeInfo','QuoteMark','LinkMark'].includes(name) && doc.lineAt(b).number===line.number)
         ranges.push(Decoration.replace({}).range(a,b));
       if(name==='URL' && doc.lineAt(b).number===line.number) ranges.push(Decoration.replace({}).range(a,b));
       if(name==='TaskMarker')ranges.push(Decoration.replace({widget:new TaskCheckbox(doc.sliceString(a+1,a+2).toLowerCase()==='x',a)}).range(a,b));
@@ -230,7 +231,27 @@ async function closeTab(path){
   else if(!active){$('#surface').innerHTML='<div class="welcome"><h1>Open a file to begin.</h1></div>';$('#threads').replaceChildren();currentThreads=[];$('#thread-count').textContent='0';updateToolbar();await refreshThreads();}
 }
 
-function language(path){switch(ext(path)){case'md':case'markdown':return markdown({extensions:[TaskList,Table]});case'py':return python();case'sh':case'bash':return StreamLanguage.define(shell);case'html':case'htm':return html();case'json':return json();default:return [];}}
+const shellLanguage=StreamLanguage.define(shell);
+function codeLanguage(info){switch(info.trim().split(/\s+/)[0].toLowerCase()){
+  case 'py':case 'python':return python().language;
+  case 'sh':case 'bash':case 'shell':return shellLanguage;
+  case 'json':return json().language;
+  case 'html':case 'htm':return html().language;
+  default:return null;
+}}
+function highlightMarkdown(preview){
+  for(const block of preview.querySelectorAll('pre code')){
+    const language=codeLanguage(block.className.replace(/^language-/,''));if(!language)continue;
+    const source=block.textContent,fragment=document.createDocumentFragment();let at=0;
+    highlightTree(language.parser.parse(source),classHighlighter,(from,to,classes)=>{
+      if(from>at)fragment.append(document.createTextNode(source.slice(at,from)));
+      const span=document.createElement('span');span.className=classes;span.textContent=source.slice(from,to);fragment.append(span);at=to;
+    });
+    if(at<source.length)fragment.append(document.createTextNode(source.slice(at)));
+    block.replaceChildren(fragment);
+  }
+}
+function language(path){switch(ext(path)){case'md':case'markdown':return markdown({extensions:[TaskList,Table],codeLanguages:codeLanguage});case'py':return python();case'sh':case'bash':return shellLanguage;case'html':case'htm':return html();case'json':return json();default:return [];}}
 function makeState(e){
   const prose=['md','markdown','txt'].includes(ext(e.path));
   return EditorState.create({doc:e.content,extensions:[EditorState.lineSeparator.of(e.diskContent.includes('\r\n')?'\r\n':'\n'),basicSetup,language(e.path),syntaxHighlighting(colors),spanField,gitField,gitSlot.of([]),
@@ -276,7 +297,7 @@ function mountDocument(e){
     cleanup=()=>{renderedPreview=null;renderedSelection=null;renderedJump=null;};
     $('#surface').append(frame);
   }else if(e.mode==='preview'){
-    const preview=document.createElement('div');preview.className='markdown-preview';preview.innerHTML=DOMPurify.sanitize(marked.parse(e.content));$('#surface').append(preview);
+    const preview=document.createElement('div');preview.className='markdown-preview';preview.innerHTML=DOMPurify.sanitize(marked.parse(e.content));highlightMarkdown(preview);$('#surface').append(preview);
   }else{
     const parent=document.createElement('div');parent.id='editor';if(['md','markdown','txt'].includes(ext(e.path)))parent.className='prose-editor';$('#surface').append(parent);view=new EditorView({state:e.state||makeState(e),parent});
     view.dispatch({effects:[themeSlot.reconfigure(theme()),liveSlot.reconfigure(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables]:[])]});
