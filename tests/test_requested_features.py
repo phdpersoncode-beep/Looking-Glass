@@ -124,3 +124,17 @@ def test_cross_file_comments(workspace_page):
     page.locator('#show-resolved').check();expect(page.locator('.thread.resolved')).to_be_visible()
     page.locator('#thread-scope').select_option('file');expect(page.locator('.thread')).to_have_count(1)
     expect(page.locator('.thread-file')).to_have_count(0)
+
+def test_resizable_file_explorer(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,_=workspace_page
+    (root/'note.txt').write_text('Example.');page.goto(url)
+    separator=page.get_by_role('separator',name='Resize file explorer');box=separator.bounding_box()
+    page.mouse.move(box['x']+box['width']/2,box['y']+100);page.mouse.down();page.mouse.move(360,box['y']+100);page.mouse.up()
+    assert abs(page.locator('.file-sidebar').bounding_box()['width']-360)<2
+    assert page.locator('.document-panel').bounding_box()['width']>=350
+    page.reload();expect(separator).to_have_attribute('aria-valuenow','360')
+    separator.focus();page.keyboard.press('ArrowRight');expect(separator).to_have_attribute('aria-valuenow','370')
+    page.keyboard.press('Home');expect(separator).to_have_attribute('aria-valuenow','120')
+    page.keyboard.press('End');expect(separator).to_have_attribute('aria-valuenow','600')
+    assert page.locator('.document-panel').bounding_box()['width']>=350
