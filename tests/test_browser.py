@@ -17,7 +17,7 @@ from werkzeug.serving import make_server
 from looking_glass.app import create_app
 from looking_glass.workspace import Workspace
 
-pytestmark = pytest.mark.skipif(not os.environ.get('LOOKING_GLASS_BROWSER'), reason='Set LOOKING_GLASS_BROWSER to run the browser workflow')
+pytestmark = [pytest.mark.browser, pytest.mark.skipif(not os.environ.get('LOOKING_GLASS_BROWSER'), reason='Set LOOKING_GLASS_BROWSER to run the browser workflow')]
 
 
 def test_review_workflow_features(tmp_path):

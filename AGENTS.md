@@ -5,7 +5,7 @@ A local prose/code editor and review tool for working with coding agents on ordi
 
 ## Current capabilities
 - CodeMirror editing: live/raw/preview Markdown, plain text, Python/Bash highlighting, undo/redo, save, search/replace, tabs, fuzzy file search, and Git change gutters.
-- Persistent threads on source text and rendered HTML: replies, resolve/reopen, deletion, passage navigation, and reattachment.
+- Persistent source/HTML threads: replies, attachments/renaming, resolve/reopen, deletion, cross-file navigation, collapse controls, and reattachment. Resizable sidebars; zen mode uses Ctrl+Alt+Z, preserving Ctrl+Z undo.
 - Interactive sandboxed HTML reports, split JSONL viewer with search, and ASCII/binary STL viewing with orbit/pan/zoom/fit and software fallback.
 - Directory switching, outside-file opening, external-change detection, conflict comparison, selected-file Git checkpoints, and agent project discovery/search/context.
 
@@ -25,7 +25,9 @@ uv run looking-glass serve ./demo_dir  # http://127.0.0.1:8765
 npm ci
 npm run build                        # rebuild committed static assets
 uv build                             # Python wheel/source distribution
-uv run pytest -q
+npm test
+uv run pytest -m 'not browser' -q
+LOOKING_GLASS_BROWSER=installed uv run pytest -m browser -q  # playwright install chromium firefox first
 ```
 
 For a CLI available from any directory:
@@ -46,7 +48,7 @@ Use `uv run looking-glass` from this checkout if not installed globally. See `--
 ## Repo map
 Keep this map and commands current when structure or workflows change.
 - `looking_glass/app.py`: routes/security; `workspace.py`: files, SQLite, threads; `anchors.py`: anchor mapping; `revisions.py`: Git checkpoints.
-- `looking_glass/cli.py`: server/agent commands; `projects.py`: project registry; `instructions.py`: agent guidance.
+- `looking_glass/cli.py`: server/agent commands; `projects.py`: project registry; `instructions.py`: agent guidance; `attachments.py`: thread-owned uploads.
 - `looking_glass/templates/`: HTML/HTMX; `frontend/app.js`, `frontend/style.css`: client sources; `looking_glass/static/`: committed output of `build.mjs`.
-- `tests/`: backend/CLI/browser checks; `demo_dir/`: representative files; `docs/`: API, architecture, limitations, verification.
+- `tests/`: backend/CLI/browser checks; `.github/workflows/`: automated checks; `scripts/benchmark_discussions.py`: disposable benchmark; `demo_dir/`: fixtures; `docs/`: API, architecture, performance, verification.
 - `pyproject.toml`, `uv.lock`: Python packaging/dependencies; `package.json`, `package-lock.json`: frontend dependencies.

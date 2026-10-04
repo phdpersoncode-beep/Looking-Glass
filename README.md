@@ -68,10 +68,25 @@ are excluded. Symlinks are not opened. No project code is executed.
 
 Use **×** beside a comment to delete that comment. **Delete thread** removes the
 whole discussion and its highlight. Deleting the last comment also removes its thread.
-The application asks for confirmation before deletion. Choose **All files** above
+The application asks for confirmation before deletion. Turn on **Across files** above
 the discussions to see threads throughout the workspace, including outside files
-opened in this workspace. Each thread shows its file; ↑/↓ traverses open discussions
-and opens the corresponding file while retaining unsaved drafts in other tabs.
+opened in this workspace. ↑/↓ always traverses discussions across files, even when
+the toggle is off, and preserves unsaved drafts. Navigation stays at the top.
+
+Drag the discussions divider to resize it; the width persists. Collapse a thread
+with its chevron and reopen it with its comment icon. The header also has collapse-all
+and expand-all controls. **Zen mode** (top-bar button or **Ctrl+Alt+Z**, **Cmd+Alt+Z**
+on macOS) hides the file explorer and tabs and expands only the focused thread.
+Leaving zen restores the normal collapse settings. **Ctrl+Z remains undo.**
+
+Use **Attach files** on a thread to upload images, STL, JSON, or other files
+(up to 64 MiB each). Images can be previewed; all attachments can be downloaded,
+renamed, or removed. They live with discussion data in `.looking-glass/attachments/`,
+not beside the reviewed document. Deleting a thread removes its attachments.
+
+The JSON toolbar's **Format JSON** button indents a compact JSON document without
+rounding large numbers or removing duplicate keys. Formatting is undoable and stays
+unsaved until you save. Invalid JSON stays unchanged and produces an error.
 
 Ctrl+P opens fuzzy file search throughout the application and overrides browser printing.
 Type parts of a filename or path, use ↑/↓ to select, and press Enter to open.
@@ -256,9 +271,10 @@ is used for application dependencies.
 npm ci
 npm run build
 uv sync   # includes the dev dependency group
-uv run pytest -q
+npm test
+uv run pytest -m 'not browser' -q  # fast backend and CLI contracts
 uv run playwright install chromium firefox
-LOOKING_GLASS_BROWSER=installed uv run pytest -q
+LOOKING_GLASS_BROWSER=installed uv run pytest -m browser -q
 ```
 
 For native Wayland selection checks, run Firefox with visible windows inside
@@ -280,6 +296,9 @@ JSONL/STL/HTML viewers, HTML isolation, and selected Git checkpoints.
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the repository plan,
 [docs/LIMITATIONS.md](docs/LIMITATIONS.md) for deferred work, and
 [docs/VERIFICATION.md](docs/VERIFICATION.md) for results.
+See [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for measurements, the Rust-port
+decision, and regression requirements. GitHub Actions runs fast checks and a separate
+Chromium/Firefox browser job on pushes and pull requests.
 
 If this project was delivered as an archive, extract it into your checked-out
 Looking-Glass repository and review the diff before committing. The archive

@@ -1,3 +1,39 @@
+# Discussion workflow completion · 2026-10-04
+
+Continued `codex/discussion-workflow` from `76ae7bb`; the earlier commits already
+implemented uploads/renaming, JSON formatting, cross-file arrows and toggle,
+resizing, collapse controls, zen mode (Ctrl+Alt+Z), and conditional discussions.
+
+This follow-up fixes:
+
+- Failed directory scans no longer replace a valid file tree with an empty one.
+- Unchanged file-tree responses keep existing elements and use HTTP 304; refresh
+  requests are serialized. Actual file additions/removals still refresh the tree.
+- Folder expansion records user gestures synchronously, avoiding delayed toggle
+  events from filtering or redraws overwriting the saved state.
+- Successful replies clear only the submitted draft. Unsent text remains intact;
+  focused discussion buttons no longer suppress external agent updates forever.
+
+Verification in this session:
+
+- **54 Python/browser checks passed in 92.46 seconds**, with three Firefox
+  cases excluded from that run. Chromium used the available headless shell build 1187;
+  the Python environment used the locked Playwright 1.63.0.
+- **29 fast Python checks passed in 4.21 seconds**; **2 JavaScript checks passed**
+  in approximately 0.08 seconds.
+- `npm run build`, `uv build`, and `git diff --check` passed.
+- New browser regressions reproduce scan failure/recovery, unchanged-element
+  identity, real empty-directory updates, folder state, submitted reply clearing,
+  preserved unsent drafts, and resumed external agent replies.
+- The full end-to-end tests initially exposed the stale submitted-draft bug;
+  they pass after the fix, including agent reopen/delete updates and HTML anchors.
+
+The new GitHub Actions workflow separates fast tests/build/package checks from
+browser tests. Browser installation is a one-time setup cost, excluded from timings.
+See [PERFORMANCE.md](PERFORMANCE.md) for measured server costs and the port decision.
+
+---
+
 # Linux selection follow-up · 2026-10-04
 
 Full suite: **44 passed** in 105.61 seconds. Frontend build and `git diff --check`
