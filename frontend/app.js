@@ -163,6 +163,7 @@ const liveMarkdown = ViewPlugin.fromClass(class {
 function notify(message,error=false) {$('#notice').textContent=message;$('#notice').classList.toggle('error',error);}
 async function api(route,method='GET',data) {
   const result=await fetch('/api/'+route,{method,headers:{'X-Looking-Glass-Token':token,'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)});
+  if(result.status===304)return null;
   const payload=await result.json();
   if(!result.ok){const e=new Error(payload.error||'Request failed');e.status=result.status;throw e;}
   return payload;
@@ -232,7 +233,7 @@ async function closeTab(path){
   if(path===active){closeComment();syncState();view?.destroy();view=null;cleanup();cleanup=()=>{};active=null;}
   tabs.delete(path);remember();renderTabs();
   if(!active&&tabs.size)await openFile([...tabs.keys()].at(-1));
-  else if(!active){$('#surface').innerHTML='<div class="welcome"><h1>Open a file to begin.</h1></div>';$('#threads').replaceChildren();currentThreads=[];$('#thread-count').textContent='0';updateToolbar();await refreshThreads();}
+  else if(!active){lastThreadHTML='';lastThreadKey='';$('#surface').innerHTML='<div class="welcome"><h1>Open a file to begin.</h1></div>';$('#threads').replaceChildren();currentThreads=[];$('#thread-count').textContent='0';updateToolbar();await refreshThreads();}
 }
 
 const shellLanguage=StreamLanguage.define(shell);
@@ -337,18 +338,35 @@ async function saveActive(){
 }
 
 function threadScope(){return $('#thread-scope').checked?'all':'file';}
-async function refreshThreads(){
-  const e=entry(),scope=threadScope();
-  if(scope==='file'&&(!e||['stl','jsonl'].includes(ext(e.path))||isImage(e.path))){currentThreads=[];$('#threads').innerHTML='<div class="empty-discussions">This viewer has no annotations.</div>';$('#thread-count').textContent='0';return;}
-  const path=active,generation=++refreshNumber;
-  const threads=await api('threads'+(scope==='file'?'?'+new URLSearchParams({path}):''));
-  if(active!==path||scope!==threadScope()||generation!==refreshNumber)return;
-  if(scope==='all')threads.sort((a,b)=>(a.path>b.path)-(a.path<b.path)||a.start-b.start||a.id-b.id);
-  currentThreads=threads;$('#thread-count').textContent=threads.filter(t=>!t.resolved).length;
-  previewThreads();
-  if(view&&e&&!e.dirty)view.dispatch({effects:spansEffect.of(spansFor(threads,e.content))});
-  await window.htmx.ajax('GET','/fragments/threads?'+new URLSearchParams({path:path||'',scope,active:activeThread||''}),{target:'#threads',swap:'innerHTML'});
+const discussionCache=new Map();let lastThreadHTML='',lastThreadKey='',navigationIndex=[],indexTime=0;
+function renderDiscussions(data,key){
+  currentThreads=data.threads;navigationIndex=data.index;indexTime=Date.now();
+  $('#thread-count').textContent=currentThreads.filter(t=>!t.resolved).length;
+  previewThreads();const e=entry();
+  if(view&&e&&!e.dirty)view.dispatch({effects:spansEffect.of(spansFor(currentThreads,e.content))});
+  if(data.html!==lastThreadHTML||key!==lastThreadKey){
+    const drafts=new Map($$('.reply-form').map(f=>[f.closest('.thread').dataset.thread,f.querySelector('textarea').value]));
+    const focused=document.activeElement,focusId=focused?.id,start=focused?.selectionStart,end=focused?.selectionEnd;
+    $('#threads').innerHTML=data.html;lastThreadHTML=data.html;lastThreadKey=key;
+    for(const form of $$('.reply-form')){const draft=drafts.get(form.closest('.thread').dataset.thread);if(draft)form.querySelector('textarea').value=draft;}
+    if(focusId&&$('#threads').contains(document.getElementById(focusId))){const field=document.getElementById(focusId);field.focus({preventScroll:true});field.setSelectionRange(start,end);}
+  }
   filterThreads();
+}
+async function refreshThreads(useCache=false){
+  const path=active,scope=threadScope(),generation=++refreshNumber,key=scope+':'+(path||'');
+  const cached=discussionCache.get(key);
+  if(useCache&&cached)renderDiscussions(cached.data,key);
+  const response=await fetch('/api/discussions?'+new URLSearchParams({path:path||'',scope}),{headers:{'X-Looking-Glass-Token':token,...(cached?{'If-None-Match':cached.etag}:{})}});
+  if(!response.ok&&response.status!==304)throw new Error((await response.json()).error);
+  const data=response.status===304?cached.data:await response.json();
+  if(response.status!==304){discussionCache.set(key,{data,etag:response.headers.get('ETag')});if(discussionCache.size>8)discussionCache.delete(discussionCache.keys().next().value);}
+  if(active!==path||scope!==threadScope()||generation!==refreshNumber)return;
+  renderDiscussions(data,key);
+}
+async function getNavigationIndex(){
+  if(Date.now()-indexTime>2000){navigationIndex=await api('thread-index');indexTime=Date.now();}
+  return navigationIndex;
 }
 function filterThreads(){if(zenMode&&!currentThreads.some(t=>t.id===activeThread&&(!t.resolved||$('#show-resolved').checked))){activeThread=currentThreads.find(t=>!t.resolved||$('#show-resolved').checked)?.id||null;zenCollapsed=false;}$$('.thread').forEach(t=>{t.hidden=t.dataset.resolved==='true'&&!$('#show-resolved').checked;t.classList.toggle('active',Number(t.dataset.thread)===activeThread);t.classList.toggle('collapsed',zenMode?(Number(t.dataset.thread)!==activeThread||zenCollapsed):collapsedThreads.has(Number(t.dataset.thread)));t.querySelector('[data-action=collapse-thread]')?.setAttribute('aria-expanded',String(!t.classList.contains('collapsed')));const reply=t.querySelector('.reply-form');if(reply)reply.hidden=Number(t.dataset.thread)!==activeThread;});}
 function showThread(id){
@@ -378,7 +396,7 @@ async function jump(id,target=null){
 let navigationQueue=Promise.resolve();
 function navigate(direction){
   navigationQueue=navigationQueue.catch(()=>{}).then(async()=>{
-    const threads=(await api('threads')).filter(t=>!t.resolved||$('#show-resolved').checked).sort((a,b)=>(a.path>b.path)-(a.path<b.path)||a.start-b.start||a.id-b.id);
+    const threads=(await getNavigationIndex()).filter(t=>!t.resolved||$('#show-resolved').checked).sort((a,b)=>(a.path>b.path)-(a.path<b.path)||a.start-b.start||a.id-b.id);
     if(!threads.length)return;
     let at=threads.findIndex(t=>t.id===activeThread);
     if(at<0){const local=threads.map((t,i)=>t.path===active?i:-1).filter(i=>i>=0);at=local.length?(direction>0?local[0]:local.at(-1)):(direction>0?0:threads.length-1);}
@@ -547,7 +565,8 @@ async function poll(){
           if(disk.version!==e.version){e.version=disk.version;if(e.path===active){cleanup();cleanup=()=>{};$('#surface').replaceChildren();if(isImage(e.path))await mountImage(e);else await mountSTL(e);notify('Reloaded the external viewer change');}}
           continue;
         }
-        const disk=await api('file?'+new URLSearchParams({path:e.path}));
+        const disk=await api('file?'+new URLSearchParams({path:e.path,version:requestedVersion}));
+        if(!disk)continue;
         if(e.version!==requestedVersion||switching||saving)continue;
         if(disk.version===e.version)continue;
         if(e.dirty){e.conflict=disk;if(e.path===active)notify('External change detected; your draft is preserved.',true);}
@@ -682,7 +701,7 @@ $('#collapse-threads').onclick=()=>{if(zenMode)zenCollapsed=true;else for(const 
 $('#expand-threads').onclick=()=>{for(const t of currentThreads)collapsedThreads.delete(t.id);rememberCollapsed();filterThreads();};
 $('#previous').onclick=guard(()=>navigate(-1));$('#next').onclick=guard(()=>navigate(1));$('#show-resolved').onchange=filterThreads;
 $('#thread-scope').checked=localStorage.getItem('looking-glass-thread-scope:'+root)==='all';
-$('#thread-scope').onchange=guard(async()=>{localStorage.setItem('looking-glass-thread-scope:'+root,threadScope());await refreshThreads();});
+$('#thread-scope').onchange=guard(async()=>{localStorage.setItem('looking-glass-thread-scope:'+root,threadScope());await refreshThreads(true);});
 async function setMode(value){const e=entry();syncState();e.mode=value;view?.destroy();view=null;mountDocument(e);await refreshThreads();remember();}
 $('#mode').onchange=guard(()=>setMode($('#mode').value));
 $('#html-toggle').onclick=guard(()=>setMode(entry().mode==='rendered'?'source':'rendered'));

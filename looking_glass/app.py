@@ -1,3 +1,4 @@
+import hashlib
 import secrets
 import time
 import json
@@ -97,6 +98,26 @@ def create_app(root):
             items.sort(key=lambda t: (t['path'], t['start'], t['id']))
         return render_template('threads.html', threads=items, all_files=all_files, active=request.args.get('active',type=int))
 
+    @app.get('/api/thread-index')
+    def thread_index():
+        return jsonify(ws.thread_index())
+
+    @app.get('/api/discussions')
+    def discussions():
+        # Browsing discussions must not reread every document. Opening/polling
+        # the active file reconciles anchors before passage navigation.
+        path=request.args.get('path') or None
+        all_files=request.args.get('scope')=='all'
+        items=ws.threads(None if all_files else path,reconcile=False) if all_files or path else []
+        items.sort(key=lambda t:(t['path'],t['start'],t['id']))
+        index=ws.thread_index()
+        tag=hashlib.sha256(json.dumps([items,index],ensure_ascii=False).encode()).hexdigest()
+        if request.if_none_match.contains(tag):
+            return Response(status=304,headers={'ETag':'"'+tag+'"'})
+        response=jsonify(threads=items,index=index,html=render_template('threads.html',threads=items,all_files=all_files,active=None))
+        response.set_etag(tag)
+        return response
+
     @app.get('/api/workspace')
     def workspace():
         return jsonify(root=str(ws.root), files=ws.files())
@@ -128,6 +149,8 @@ def create_app(root):
 
     @app.get('/api/file')
     def read_file():
+        if request.args.get('version') and ws.unchanged(request.args.get('path'),request.args['version']):
+            return Response(status=304)
         return jsonify(ws.read(request.args.get('path')))
 
     @app.put('/api/file')

@@ -44,6 +44,7 @@ class Workspace:
         if not self.root.is_dir():
             raise Problem('Choose a directory.')
         self.lock = threading.RLock()
+        self._fingerprints = {}
         self.meta = self.root / '.looking-glass'
         self.meta.mkdir(mode=0o700, exist_ok=True)
         token_file = self.meta / 'token'
@@ -64,10 +65,12 @@ class Workspace:
                     id INTEGER PRIMARY KEY, path TEXT NOT NULL, start INTEGER NOT NULL,
                     end INTEGER NOT NULL, quote TEXT NOT NULL, anchor_status TEXT NOT NULL DEFAULT 'attached',
                     resolved INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+                CREATE INDEX IF NOT EXISTS threads_path ON threads(path);
                 CREATE TABLE IF NOT EXISTS messages(
                     id INTEGER PRIMARY KEY, thread_id INTEGER NOT NULL REFERENCES threads(id),
                     author TEXT NOT NULL, body TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
             ''')
+            db.execute('CREATE INDEX IF NOT EXISTS messages_thread ON messages(thread_id)')
             columns = {row['name'] for row in db.execute('PRAGMA table_info(threads)')}
             if 'anchor_kind' not in columns:
                 db.execute("ALTER TABLE threads ADD COLUMN anchor_kind TEXT NOT NULL DEFAULT 'source'")
@@ -151,7 +154,9 @@ class Workspace:
 
     def reconcile(self, db, path, content):
         row = db.execute('SELECT content FROM snapshots WHERE path=?', (path,)).fetchone()
-        if row and row['content'] != content:
+        if row and row['content'] == content:
+            return
+        if row:
             for t in db.execute("SELECT * FROM threads WHERE path=? AND anchor_status='attached' AND anchor_kind='source'", (path,)).fetchall():
                 mapped = relocate(row['content'], content, t['start'], t['end'])
                 if mapped:
@@ -164,14 +169,27 @@ class Workspace:
 
     def read(self, path):
         with self.lock, self.connection() as db:
+            before = self.fingerprint(path)
             content, version = self.text(path)
             self.reconcile(db, path, content)
+            if before == self.fingerprint(path):
+                self._fingerprints[path] = (before, version)
             return dict(path=path, content=content, version=version)
+
+    def fingerprint(self, path):
+        info = self.path(path).stat()
+        return (info.st_dev,info.st_ino,info.st_size,info.st_mtime_ns,info.st_ctime_ns)
+
+    def unchanged(self, path, version):
+        with self.lock:
+            cached = self._fingerprints.get(path)
+            return bool(cached and cached[1] == version and cached[0] == self.fingerprint(path))
 
     def save(self, path, content, version):
         if not isinstance(content, str) or len(content.encode('utf-8')) > MAX_TEXT or '\x00' in content:
             raise Problem('Invalid or oversized text content.')
         with self.lock, self.connection() as db:
+            self._fingerprints.pop(path,None)
             p = self.path(path)
             old, current_version = self.text(path)
             if current_version != version:
@@ -194,10 +212,10 @@ class Workspace:
             self.reconcile(db, path, content)
             return dict(path=path, content=content, version=digest(content.encode('utf-8')))
 
-    def threads(self, path=None):
+    def threads(self, path=None, reconcile=True):
         with self.lock, self.connection() as db:
-            paths = [path] if path else [r[0] for r in db.execute('SELECT DISTINCT path FROM threads')]
-            for name in paths:
+            paths = ([path] if path else [r[0] for r in db.execute('SELECT DISTINCT path FROM threads')]) if reconcile else []
+            for name in paths if reconcile else []:
                 try:
                     content, _ = self.text(name)
                     self.reconcile(db, name, content)
@@ -207,15 +225,25 @@ class Workspace:
                     else:
                         raise
             rows = db.execute('SELECT * FROM threads' + (' WHERE path=?' if path else '') + ' ORDER BY start,id', (path,) if path else ()).fetchall()
+            messages, attachments = {}, {}
+            suffix = ' WHERE thread_id IN (SELECT id FROM threads WHERE path=?)' if path else ''
+            for message in db.execute('SELECT * FROM messages'+suffix+' ORDER BY id',(path,) if path else ()):
+                messages.setdefault(message['thread_id'],[]).append(dict(message))
+            for item in db.execute('SELECT * FROM attachments'+suffix+' ORDER BY id',(path,) if path else ()):
+                attachments.setdefault(item['thread_id'],[]).append(self.attachments.public(item))
             result = []
             for row in rows:
                 t = dict(row)
                 t['render_anchor'] = json.loads(t['render_anchor']) if t['render_anchor'] else None
                 t['resolved'] = bool(t['resolved'])
-                t['messages'] = [dict(m) for m in db.execute('SELECT * FROM messages WHERE thread_id=? ORDER BY id', (t['id'],))]
-                t['attachments'] = [self.attachments.public(a) for a in db.execute('SELECT * FROM attachments WHERE thread_id=? ORDER BY id',(t['id'],))]
+                t['messages'] = messages.get(t['id'],[])
+                t['attachments'] = attachments.get(t['id'],[])
                 result.append(t)
             return result
+
+    def thread_index(self):
+        with self.connection() as db:
+            return [dict(row) for row in db.execute('SELECT id,path,start,resolved FROM threads ORDER BY path,start,id')]
 
     @staticmethod
     def message(author, body):

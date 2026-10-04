@@ -34,3 +34,31 @@ def test_attachment_roundtrip_and_cleanup(api,monkeypatch):
     c.delete(f'/api/threads/{t["id"]}/messages/{t["messages"][0]["id"]}',headers=h)
     assert not list(ws.attachments.directory.iterdir())
     assert c.get(f'/api/attachments/{r["id"]}',headers=h).status_code==404
+
+def test_discussion_refresh_avoids_source_reads_and_revalidates(api,monkeypatch):
+    root,ws,c,h,t=api
+    def forbidden(path):raise AssertionError('Discussion browsing reread a document')
+    monkeypatch.setattr(ws,'text',forbidden)
+    first=c.get('/api/discussions?scope=all',headers=h)
+    assert first.status_code==200 and first.json['threads'][0]['id']==t['id']
+    assert first.json['index'][0]['path']=='note.txt'
+    assert c.get('/api/thread-index',headers=h).json[0]['id']==t['id']
+    assert c.get('/api/discussions?scope=all',headers={**h,'If-None-Match':first.headers['ETag']}).status_code==304
+    with ws.connection() as db:db.execute('INSERT INTO messages(thread_id,author,body) VALUES(?,?,?)',(t['id'],'Agent','New reply'))
+    changed=c.get('/api/discussions?scope=all',headers={**h,'If-None-Match':first.headers['ETag']})
+    assert changed.status_code==200 and 'New reply' in changed.json['html']
+    assert c.get('/api/discussions').status_code==401
+
+def test_unchanged_file_poll_does_not_read_or_write(api,monkeypatch):
+    import os
+    root,ws,c,h,t=api
+    first=c.get('/api/file?path=note.txt',headers=h).json
+    original=ws.text
+    monkeypatch.setattr(ws,'text',lambda path:(_ for _ in ()).throw(AssertionError('Unchanged file read')))
+    assert c.get('/api/file',query_string={'path':'note.txt','version':first['version']},headers=h).status_code==304
+    monkeypatch.setattr(ws,'text',original)
+    p=root/'note.txt';info=p.stat();p.write_text('B'+p.read_text()[1:]);os.utime(p,ns=(info.st_atime_ns,info.st_mtime_ns))
+    changed=c.get('/api/file',query_string={'path':'note.txt','version':first['version']},headers=h)
+    assert changed.status_code==200 and changed.json['content'].startswith('B')
+    assert changed.json['version']!=first['version']
+    assert ws.get_thread(t['id'])['quote'].startswith('B')

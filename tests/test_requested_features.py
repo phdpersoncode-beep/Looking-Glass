@@ -405,3 +405,16 @@ def test_zen_mode_preserves_undo_and_collapse_state(workspace_page):
     open_file(page,'report.html');page.frame_locator('#html-preview').get_by_role('textbox',name='Report field').click()
     page.keyboard.press('Control+Alt+z');expect(page.locator('#zen-toggle')).to_have_attribute('aria-pressed','true')
     page.keyboard.press('Control+Alt+z');expect(page.locator('#zen-toggle')).to_have_attribute('aria-pressed','false')
+
+
+def test_unchanged_discussions_keep_dom_and_external_replies_refresh(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    (root/'note.txt').write_text('Passage.');f=ws.read('note.txt')
+    t=ws.create_thread('note.txt',0,7,'Review','Tester',f['version'])
+    page.goto(url);open_file(page,'note.txt');expect(page.locator('.thread')).to_have_count(1)
+    page.evaluate('window.originalThread=document.querySelector(".thread")')
+    with page.expect_response(lambda r:'/api/discussions?' in r.url and r.status==304):page.wait_for_timeout(2400)
+    assert page.evaluate('window.originalThread===document.querySelector(".thread")')
+    ws.reply(t['id'],'An external agent reply','Agent')
+    expect(page.locator('.thread')).to_contain_text('An external agent reply')
