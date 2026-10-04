@@ -47,3 +47,29 @@ def test_markdown_tables(workspace_page):
     page.locator('#mode').select_option('preview');expect(page.locator('.markdown-preview table')).to_be_visible()
     page.locator('#mode').select_option('source');expect(page.locator('.md-table')).to_have_count(0)
     assert (root/'table.md').read_text()==original
+
+def test_json_folding(workspace_page):
+    import json
+    from playwright.sync_api import expect
+    root,page,url,_=workspace_page
+    data={'first':{'nested':[1,2]},'second':{'value':3}}
+    original=json.dumps(data,indent=2)
+    (root/'data.json').write_text(original)
+    (root/'rows.jsonl').write_text(json.dumps(data)+'\n{"other":[4,5]}\ninvalid\n')
+    page.goto(url)
+    for name in ('data.json','rows.jsonl'):
+        open_file(page,name)
+        page.get_by_role('button',name='Collapse all',exact=True).click()
+        expect(page.locator('.cm-foldPlaceholder')).to_have_count(1)
+        page.locator('.cm-foldPlaceholder').first.click()
+        expect(page.locator('.cm-foldPlaceholder')).to_have_count(2)
+        expect(page.locator('.cm-content')).not_to_contain_text('nested')
+        page.locator('.cm-foldPlaceholder').first.click()
+        expect(page.locator('.cm-content')).to_contain_text('nested')
+        expect(page.locator('.cm-content')).not_to_contain_text('value')
+        page.get_by_role('button',name='Expand all',exact=True).click()
+        expect(page.locator('.cm-foldPlaceholder')).to_have_count(0)
+        expect(page.locator('.cm-content')).to_contain_text('value')
+    page.locator('.jsonl-row[data-row="1"]').click();expect(page.locator('.cm-content')).to_contain_text('other')
+    page.locator('.jsonl-row[data-row="2"]').click();expect(page.locator('.jsonl-detail .viewer-heading')).to_contain_text('MALFORMED')
+    assert (root/'data.json').read_text()==original

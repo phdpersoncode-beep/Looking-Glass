@@ -9,7 +9,7 @@ import {markdown} from '@codemirror/lang-markdown';
 import {python} from '@codemirror/lang-python';
 import {html} from '@codemirror/lang-html';
 import {json} from '@codemirror/lang-json';
-import {StreamLanguage, syntaxTree, syntaxHighlighting, HighlightStyle} from '@codemirror/language';
+import {StreamLanguage, syntaxTree, syntaxHighlighting, HighlightStyle, ensureSyntaxTree, foldable, foldEffect, unfoldAll} from '@codemirror/language';
 import {shell} from '@codemirror/legacy-modes/mode/shell';
 import {tags} from '@lezer/highlight';
 import {marked} from 'marked';
@@ -285,6 +285,7 @@ function mountDocument(e){
 async function refreshBaseline(){const editor=view,path=active;if(!editor)return;const baseline=await api('git/baseline?'+new URLSearchParams({path}));if(view===editor&&active===path)editor.dispatch({effects:baselineEffect.of(baseline.content)});}
 function updateToolbar(){
   const e=entry(), type=e?ext(e.path):'', viewer=['stl','jsonl'].includes(type);
+  $('#json-fold-controls').hidden=type!=='json';
   $('#document-name').textContent=e?.path||'Open a file';$('#dirty').textContent=e?.dirty?' · Unsaved':'';
   $('#save').disabled=!e||viewer||!e.dirty||saving;$('#annotate').disabled=!e||viewer||!(renderedPreview?renderedSelection:view&&!view.state.selection.main.empty);
   const mode=$('#mode');const modes=type==='md'||type==='markdown'?[['live','Live Markdown'],['source','Raw source'],['preview','Reading preview']]:type==='html'||type==='htm'?[['rendered','Rendered HTML'],['source','HTML source']]:[['source',viewer?'Viewer':'Source']];
@@ -364,12 +365,25 @@ async function submitComment(event){
   }finally{postingComment=false;$('#comment-submit').disabled=false;}
 }
 
+function collapseJSON(editor){
+  if(!editor)return;
+  ensureSyntaxTree(editor.state,editor.state.doc.length,200);
+  const effects=[];
+  for(let i=1;i<=editor.state.doc.lines;i++){const line=editor.state.doc.line(i),range=foldable(editor.state,line.from,line.to);if(range)effects.push(foldEffect.of(range));}
+  editor.dispatch({effects});
+}
+function jsonControls(editor){
+  const tools=document.createElement('div');tools.className='json-fold-controls';
+  const collapse=document.createElement('button'),expand=document.createElement('button');
+  collapse.textContent='Collapse all';expand.textContent='Expand all';collapse.onclick=()=>collapseJSON(editor);expand.onclick=()=>unfoldAll(editor);tools.append(collapse,expand);return tools;
+}
 function mountJSONL(e){
   const container=document.createElement('div');container.className='jsonl-split';const left=document.createElement('div'),right=document.createElement('div');left.className='jsonl-raw';right.className='jsonl-detail';
   const rawTitle=document.createElement('div');rawTitle.className='viewer-heading';rawTitle.textContent='FULL JSONL · SELECT A ROW';left.append(rawTitle);
   const detailTitle=document.createElement('div');detailTitle.className='viewer-heading';right.append(detailTitle);
   const parent=document.createElement('div');parent.className='json-detail-editor';right.append(parent);
   const detail=new EditorView({state:EditorState.create({extensions:[basicSetup,json(),syntaxHighlighting(colors),theme(),EditorView.editable.of(false),EditorState.readOnly.of(true),EditorView.lineWrapping]}),parent});
+  right.insertBefore(jsonControls(detail),parent);
   const lines=e.content.split(/\r?\n/);if(lines.at(-1)==='')lines.pop();
   function select(index){const raw=lines[index];let text;try{text=JSON.stringify(JSON.parse(raw),null,2);detailTitle.textContent='ROW '+(index+1)+' · FORMATTED JSON';}catch(error){text=raw;detailTitle.textContent='ROW '+(index+1)+' · MALFORMED: '+error.message;}detail.dispatch({changes:{from:0,to:detail.state.doc.length,insert:text}});left.querySelectorAll('.jsonl-row').forEach((b,i)=>b.classList.toggle('selected',i===index));}
   lines.forEach((line,index)=>{const button=document.createElement('button');button.className='jsonl-row';button.dataset.row=index;let malformed=false;try{JSON.parse(line);}catch{malformed=true;}if(malformed)button.classList.add('malformed');const number=document.createElement('span');number.className='row-number';number.textContent=(index+1)+(malformed?' !':'');const source=document.createElement('code');source.textContent=line||'[empty line]';button.append(number,source);button.onclick=()=>select(index);left.append(button);});
@@ -547,6 +561,7 @@ $('#comment-body').addEventListener('keydown',event=>{if((event.ctrlKey||event.m
 $('#selection-tools').onmousedown=event=>event.preventDefault();
 $('#selection-comment').onclick=guard(startComment);
 $('#selection-thread').onclick=()=>showThread(Number($('#selection-thread').dataset.thread));
+$('#json-collapse').onclick=()=>collapseJSON(view);$('#json-expand').onclick=()=>{if(view)unfoldAll(view);};
 $('#save').onclick=guard(saveActive);$('#annotate').onclick=guard(startComment);
 $('#previous').onclick=guard(()=>navigate(-1));$('#next').onclick=guard(()=>navigate(1));$('#show-resolved').onchange=filterThreads;
 async function setMode(value){const e=entry();syncState();e.mode=value;view?.destroy();view=null;mountDocument(e);await refreshThreads();remember();}

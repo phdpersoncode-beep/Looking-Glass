@@ -40,3 +40,5 @@ dialog:modal{margin:auto}.directory-list{height:260px;overflow:auto;margin-top:8
 @media(max-width:800px){.workspace{grid-template-columns:145px minmax(260px,1fr) 230px;overflow-x:auto}.root-label{display:none}header{min-width:635px}.document-toolbar{padding:8px}.file-entry{padding:7px 10px}.merge-columns{grid-template-columns:1fr}}
 
 .md-table{padding:12px 28px;overflow-x:auto;cursor:text}.md-table table{border-collapse:collapse;width:100%;font-family:inherit}.md-table th,.md-table td{border:1px solid var(--border);padding:6px 10px}.md-table th{font-weight:600;background:var(--panel)}.md-table code{font-family:var(--mono);font-size:.8em}
+
+.json-fold-controls{display:flex;gap:4px;padding:4px 8px}.json-fold-controls button{font-size:10px}.jsonl-detail .viewer-heading{padding-bottom:2px}
