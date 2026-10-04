@@ -194,3 +194,26 @@ def test_gitignored_files_have_no_gutter(workspace_page):
     open_file(page,'tracked.txt');expect(page.locator('.git-marker.changed').first).to_be_visible()
     (root/'.gitignore').write_text('*.txt\nnew.py\n')
     open_file(page,'new.py');expect(page.locator('.git-gutter')).to_have_count(0)
+
+
+def test_ctrl_p_in_rendered_html(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,_=workspace_page
+    (root/'report.html').write_text("""<p>Focus here</p><input aria-label="Report input"><script>
+window.printed=false;window.prevented=false;
+window.addEventListener('beforeprint',()=>window.printed=true);
+document.addEventListener('keydown',event=>{if(event.key.toLowerCase()==='p')setTimeout(()=>window.prevented=event.defaultPrevented,0);},true);
+</script>""")
+    (root/'note.md').write_text('A note.\n')
+    page.goto(url)
+    for key in ('Control+p','Meta+p'):
+        open_file(page,'report.html')
+        frame=page.frame_locator('#html-preview')
+        frame.get_by_role('textbox',name='Report input').click()
+        page.keyboard.press(key)
+        expect(page.locator('#quick-dialog')).to_be_visible()
+        assert frame.locator('body').evaluate('()=>window.prevented')
+        assert not frame.locator('body').evaluate('()=>window.printed')
+        page.locator('#quick-query').fill('note');page.keyboard.press('Enter')
+        expect(page.locator('#document-name')).to_have_text('note.md')
+        expect(page.locator('#quick-dialog')).not_to_be_visible()
