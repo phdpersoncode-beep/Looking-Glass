@@ -138,3 +138,16 @@ def test_resizable_file_explorer(workspace_page):
     page.keyboard.press('Home');expect(separator).to_have_attribute('aria-valuenow','120')
     page.keyboard.press('End');expect(separator).to_have_attribute('aria-valuenow','600')
     assert page.locator('.document-panel').bounding_box()['width']>=350
+
+def test_newsreader_is_local(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,_=workspace_page
+    (root/'note.md').write_text('A clean writing font.\n\n*İstanbul and München.*\n')
+    page.goto(url);open_file(page,'note.md')
+    fonts=page.evaluate('''async()=>{const normal=await document.fonts.load('18px Newsreader','İstanbul München');const italic=await document.fonts.load('italic 18px Newsreader','İstanbul München');return [...normal,...italic].map(f=>f.status);}''')
+    assert fonts and all(status=='loaded' for status in fonts)
+    assert 'Newsreader' in page.locator('.cm-scroller').evaluate('el=>getComputedStyle(el).fontFamily')
+    page.locator('#mode').select_option('preview');expect(page.locator('.markdown-preview em')).to_have_text('İstanbul and München.')
+    assert 'Newsreader' in page.locator('.markdown-preview').evaluate('el=>getComputedStyle(el).fontFamily')
+    urls=page.evaluate('performance.getEntriesByType("resource").filter(r=>r.name.endsWith(".woff2")).map(r=>r.name)')
+    assert urls and all(resource.startswith(url+'/static/newsreader-') for resource in urls)

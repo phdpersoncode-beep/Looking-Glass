@@ -489,7 +489,7 @@ def test_end_to_end(tmp_path):
         page.locator('#next').click()
         page.locator('#editor').click(position={'x':300,'y':450})
         family=page.locator('#editor .cm-scroller').evaluate('(el)=>getComputedStyle(el).fontFamily')
-        assert 'Times New Roman' in family
+        assert 'Newsreader' in family
         page.locator('.tab[data-path="example.py"] button[title="Pin tab"]').click()
         page.locator('.tab[data-path="welcome.md"]').click(button='right')
         page.get_by_role('button',name='Close other tabs',exact=True).click()

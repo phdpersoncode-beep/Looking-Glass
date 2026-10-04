@@ -1,5 +1,7 @@
 # Third-party software
 
+- Newsreader variable font: [SIL Open Font License](licenses/newsreader.txt).
+
 The application bundles open-source editor, viewer and interaction libraries.
 The npm lockfile records exact versions; corresponding license notices follow.
 Some entries are build-time dependencies, which are not shipped as runtime code.

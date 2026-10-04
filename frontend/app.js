@@ -235,7 +235,7 @@ function makeState(e){
   const prose=['md','markdown','txt'].includes(ext(e.path));
   return EditorState.create({doc:e.content,extensions:[EditorState.lineSeparator.of(e.diskContent.includes('\r\n')?'\r\n':'\n'),basicSetup,language(e.path),syntaxHighlighting(colors),spanField,gitField,gitGutter,
     themeSlot.of(theme()),liveSlot.of(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables]:[]),
-    ...(prose?[EditorView.lineWrapping,EditorView.theme({'.cm-scroller':{fontFamily:'"Times New Roman", Times, serif',fontSize:'var(--prose-font-size)'},'.cm-content':{maxWidth:'850px',margin:'0 auto',width:'100%'},'.cm-lineNumbers, .cm-foldGutter':{display:'none'}})]:[]),
+    ...(prose?[EditorView.lineWrapping,EditorView.theme({'.cm-scroller':{fontFamily:'var(--prose)',fontSize:'var(--prose-font-size)'},'.cm-content':{maxWidth:'850px',margin:'0 auto',width:'100%'},'.cm-lineNumbers, .cm-foldGutter':{display:'none'}})]:[]),
     keymap.of([{key:'Mod-s',run:()=>{guard(saveActive)();return true;}},{key:'Mod-Enter',run:()=>{guard(startComment)();return true;}},{key:'Mod-f',run:openSearchPanel},{key:'Mod-h',run:openSearchPanel},indentWithTab]),
     EditorView.updateListener.of(u=>{if(u.docChanged){e.content=u.state.sliceDoc();e.dirty=e.content!==e.diskContent;e.state=u.state;updateToolbar();renderTabs();}if(u.selectionSet)updateToolbar();if(u.selectionSet||u.docChanged||u.viewportChanged||u.geometryChanged)scheduleSelectionTools();}),
     EditorView.domEventHandlers({click:event=>{const mark=event.target.closest?.('[data-anchor]');if(mark&&view?.state.selection.main.empty&&event.detail===1){showThread(Number(mark.dataset.anchor));return true;}return false;}})

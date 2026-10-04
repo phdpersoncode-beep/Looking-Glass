@@ -80,7 +80,7 @@ Ctrl+A selects the active editor document. Ctrl+F and Ctrl+H open CodeMirror's
 document search/replace panel. Ctrl+Z and Ctrl+Shift+Z undo/redo. On macOS, use
 Command in place of Ctrl. Browser/input shortcuts retain their normal meaning
 when focus is outside the editor. Python and Bash have basic syntax highlighting.
-Text and Markdown use Times New Roman with Times/serif fallback; code/JSON use
+Text and Markdown use locally bundled Newsreader with Times/serif fallback; code/JSON use
 your system monospace font. The top-right button switches light/dark themes.
 
 Tabs have pin and close buttons. Right-click a tab to close the other unpinned
@@ -110,7 +110,6 @@ Use `looking-glass agent --root PATH ...` from another directory.
 Follow `next_offset` with `--offset` for additional pages.
 
 Append `--help` when you need help with a command. Run `looking-glass agent instructions` for the full guide.
-altay@dinm5CD51053RK:~/.claude$ vim CLAUDE.md
 ```
 
 Click **Agent instructions** beneath the file explorer, then **Copy instructions**.
