@@ -43,6 +43,23 @@ with its body limited to 240 characters. Use `--full` for complete messages.
 `read` includes current passage context with 10 surrounding lines by default.
 Commands print JSON; `instructions` prints text. Errors use stderr and a nonzero exit code.
 
+## Markdown bodies and shell quoting
+
+`create` and `reply` accept exactly one of `--body`, `--body-file FILE`, or
+`--body-stdin`. `--body-file -` also reads standard input. Files use UTF-8.
+Bash executes backticks and `$(...)` inside double quotes before the CLI sees
+anything. Use single quotes for short literal text, or a file/quoted here-document:
+
+````bash
+looking-glass agent reply 2 --body-file explanation.md
+looking-glass agent reply 2 --body-stdin <<'MARKDOWN'
+Use `width` as the named parameter.
+```python
+width = 12
+```
+MARKDOWN
+````
+
 ## HTTP API
 
 Each request needs the `X-Looking-Glass-Token` header. Its value is the contents

@@ -141,3 +141,33 @@ def test_every_command_has_help_and_examples(capsys):
         assert error.value.code==0
         help=capsys.readouterr().out
         assert 'usage:' in help and ('Example:' in help or 'Start here:' in help)
+
+
+def test_markdown_body_file_and_stdin(tmp_path):
+    import threading
+    from werkzeug.serving import make_server
+    from looking_glass.app import create_app
+    (tmp_path/'notes.md').write_text('A passage.\n')
+    app=create_app(tmp_path);server=make_server('127.0.0.1',0,app,threaded=True)
+    worker=threading.Thread(target=server.serve_forever,daemon=True);worker.start()
+    command=[sys.executable,'-m','looking_glass.cli','agent','--root',str(tmp_path),'--url',f'http://127.0.0.1:{server.server_port}']
+    markdown='Use `width`, "quotes", $(do_not_execute), and 🪞.\n\n```python\nwidth = 12\n```'
+    body=tmp_path/'reply.md';body.write_text(markdown,encoding='utf-8')
+    def run(*args,input=None,ok=True):
+        result=subprocess.run([*command,*args],input=input,capture_output=True,text=True)
+        assert (result.returncode==0)==ok,result.stderr
+        return json.loads(result.stdout) if ok else result.stderr
+    try:
+        first=run('create','notes.md','--quote','A passage','--body-file',str(body))
+        assert first['messages'][0]['body']==markdown
+        for args in [('--body-stdin',),('--body-file','-'),('--body',markdown)]:
+            result=run('reply',str(first['id']),*args,input=markdown if args[0]!='--body' else None)
+            assert result['messages'][-1]['body']==markdown
+        assert run('create','notes.md','--quote','A passage','--body-stdin',input=markdown)['messages'][0]['body']==markdown
+        assert 'not allowed' in run('reply',str(first['id']),'--body','x','--body-stdin',ok=False)
+        assert 'No such file' in run('reply',str(first['id']),'--body-file',str(tmp_path/'missing'),ok=False)
+        assert 'required' in run('reply',str(first['id']),ok=False)
+        help=subprocess.run([*command,'reply','--help'],capture_output=True,text=True).stdout
+        assert 'backticks' in help and '--body-file' in help and '--body-stdin' in help
+    finally:
+        server.shutdown();worker.join(timeout=5);server.server_close()
