@@ -31,7 +31,7 @@ let selectingText = false, selectionFrame = 0, postingComment = false;
 let jsonlSearch = null;
 let renderedPreview=null,renderedSelection=null,renderedJump=null;
 function previewMessage(type,data={}){const preview=renderedPreview;if(preview?.ready)preview.frame.contentWindow.postMessage({lookingGlass:preview.channel,type,...data},'*');}
-function previewThreads(){previewMessage('threads',{threads:currentThreads.filter(t=>t.anchor_kind==='rendered').map(t=>({id:t.id,render_anchor:t.render_anchor,resolved:t.resolved})),active:activeThread});}
+function previewThreads(){previewMessage('threads',{threads:currentThreads.filter(t=>t.path===active&&t.anchor_kind==='rendered').map(t=>({id:t.id,render_anchor:t.render_anchor,resolved:t.resolved})),active:activeThread});}
 let fontStep = Math.max(-4,Math.min(12,Number(localStorage.getItem('looking-glass-font-step'))||0));
 function applyFontSize(){document.documentElement.style.setProperty('--document-font-size',(14+fontStep)+'px');document.documentElement.style.setProperty('--prose-font-size',(18+fontStep)+'px');document.documentElement.style.setProperty('--document-font-step',fontStep+'px');view?.requestMeasure();}
 const themeSlot = new Compartment(), liveSlot = new Compartment();
@@ -171,7 +171,7 @@ const isImage=path=>['png','jpg','jpeg','svg'].includes(ext(path));
 function entry(){return active?tabs.get(active):null;}
 function remember(){localStorage.setItem('looking-glass-tabs:'+root,JSON.stringify({active,tabs:[...tabs.values()].map(e=>({path:e.path,pinned:e.pinned,mode:e.mode}))}));}
 function syncState(){const e=entry();if(e&&view){e.state=view.state;e.content=view.state.sliceDoc();}}
-function spansFor(threads,text){return threads.filter(t=>t.anchor_kind!=='rendered'&&t.anchor_status==='attached'&&!t.resolved).map(t=>({id:t.id,from:toUnits(text,t.start),to:toUnits(text,t.end)})).filter(s=>s.from<s.to&&s.to<=text.length);}
+function spansFor(threads,text){return threads.filter(t=>t.path===active&&t.anchor_kind!=='rendered'&&t.anchor_status==='attached'&&!t.resolved).map(t=>({id:t.id,from:toUnits(text,t.start),to:toUnits(text,t.end)})).filter(s=>s.from<s.to&&s.to<=text.length);}
 
 function selectionLocation(){
   if(renderedPreview&&renderedSelection){const frame=renderedPreview.frame.getBoundingClientRect(),rect=renderedSelection.rect;const coords={left:frame.left+rect.left,right:frame.left+rect.right,top:frame.top+rect.top,bottom:frame.top+rect.bottom};if(coords.bottom<frame.top||coords.top>frame.bottom)return null;return {coords,bounds:frame,from:0,to:0};}
@@ -227,7 +227,7 @@ async function closeTab(path){
   if(path===active){closeComment();syncState();view?.destroy();view=null;cleanup();cleanup=()=>{};active=null;}
   tabs.delete(path);remember();renderTabs();
   if(!active&&tabs.size)await openFile([...tabs.keys()].at(-1));
-  else if(!active){$('#surface').innerHTML='<div class="welcome"><h1>Open a file to begin.</h1></div>';$('#threads').replaceChildren();currentThreads=[];$('#thread-count').textContent='0';updateToolbar();}
+  else if(!active){$('#surface').innerHTML='<div class="welcome"><h1>Open a file to begin.</h1></div>';$('#threads').replaceChildren();currentThreads=[];$('#thread-count').textContent='0';updateToolbar();await refreshThreads();}
 }
 
 function language(path){switch(ext(path)){case'md':case'markdown':return markdown({extensions:[TaskList,Table]});case'py':return python();case'sh':case'bash':return StreamLanguage.define(shell);case'html':case'htm':return html();case'json':return json();default:return [];}}
@@ -311,14 +311,16 @@ async function saveActive(){
 }
 
 async function refreshThreads(){
-  const e=entry();if(!e||(['stl','jsonl'].includes(ext(e.path))||isImage(e.path))){$('#threads').innerHTML='<div class="empty-discussions">This viewer has no annotations.</div>';$('#thread-count').textContent='0';return;}
-  const path=active, generation=++refreshNumber;
-  const threads=await api('threads?'+new URLSearchParams({path}));
-  if(active!==path||generation!==refreshNumber)return;
+  const e=entry(),scope=$('#thread-scope').value;
+  if(scope==='file'&&(!e||['stl','jsonl'].includes(ext(e.path))||isImage(e.path))){currentThreads=[];$('#threads').innerHTML='<div class="empty-discussions">This viewer has no annotations.</div>';$('#thread-count').textContent='0';return;}
+  const path=active,generation=++refreshNumber;
+  const threads=await api('threads'+(scope==='file'?'?'+new URLSearchParams({path}):''));
+  if(active!==path||scope!==$('#thread-scope').value||generation!==refreshNumber)return;
+  if(scope==='all')threads.sort((a,b)=>(a.path>b.path)-(a.path<b.path)||a.start-b.start||a.id-b.id);
   currentThreads=threads;$('#thread-count').textContent=threads.filter(t=>!t.resolved).length;
   previewThreads();
-  if(view&&!e.dirty)view.dispatch({effects:spansEffect.of(spansFor(threads,e.content))});
-  await window.htmx.ajax('GET','/fragments/threads?'+new URLSearchParams({path,active:activeThread||''}),{target:'#threads',swap:'innerHTML'});
+  if(view&&e&&!e.dirty)view.dispatch({effects:spansEffect.of(spansFor(threads,e.content))});
+  await window.htmx.ajax('GET','/fragments/threads?'+new URLSearchParams({path:path||'',scope,active:activeThread||''}),{target:'#threads',swap:'innerHTML'});
   filterThreads();
 }
 function filterThreads(){$$('.thread').forEach(t=>{t.hidden=t.dataset.resolved==='true'&&!$('#show-resolved').checked;t.classList.toggle('active',Number(t.dataset.thread)===activeThread);const reply=t.querySelector('.reply-form');if(reply)reply.hidden=Number(t.dataset.thread)!==activeThread;});}
@@ -329,7 +331,9 @@ function showThread(id){
   $('.thread[data-thread="'+id+'"]')?.scrollIntoView({block:'nearest'});
 }
 async function jump(id){
-  const t=currentThreads.find(t=>t.id===id);if(!t)return;showThread(id);
+  const t=currentThreads.find(t=>t.id===id);if(!t)return;
+  if(t.path!==active){showThread(id);try{await openFile(t.path);}catch(error){notify(error.message,true);return;}}
+  showThread(id);
   if(t.anchor_kind==='rendered'){
     if(entry().mode!=='rendered'){syncState();view?.destroy();view=null;entry().mode='rendered';mountDocument(entry());remember();}
     renderedJump=id;
@@ -343,7 +347,7 @@ async function jump(id){
   if(to<=view.state.doc.length){view.dispatch({selection:{anchor:from,head:to},effects:EditorView.scrollIntoView(from,{y:'center'})});view.focus();}
   $('.thread[data-thread="'+id+'"]')?.scrollIntoView({block:'nearest'});
 }
-async function navigate(direction){const threads=currentThreads.filter(t=>!t.resolved||$('#show-resolved').checked);if(!threads.length)return;let at=threads.findIndex(t=>t.id===activeThread);at=(at+direction+threads.length)%threads.length;await jump(threads[at].id);}
+async function navigate(direction){const threads=currentThreads.filter(t=>!t.resolved||$('#show-resolved').checked);if(!threads.length)return;let at=threads.findIndex(t=>t.id===activeThread);at=at<0?(direction>0?0:threads.length-1):(at+direction+threads.length)%threads.length;await jump(threads[at].id);}
 async function startComment(){
   const e=entry();if(!e)return;
   if(renderedPreview&&renderedSelection)pending={path:e.path,render_anchor:renderedSelection.anchor,quote:renderedSelection.anchor.quote,content:e.content};
@@ -550,7 +554,7 @@ window.addEventListener('message',guard(async event=>{
     if(changed&&renderedPreview===preview)await refreshThreads();
   }
 }));
-document.addEventListener('htmx:beforeSwap',event=>{if(event.detail.target.id==='threads'&&new URL(event.detail.xhr.responseURL,location.href).searchParams.get('path')!==active)event.detail.shouldSwap=false;});
+document.addEventListener('htmx:beforeSwap',event=>{if(event.detail.target.id==='threads'){const query=new URL(event.detail.xhr.responseURL,location.href).searchParams;if(query.get('path')!==(active||'')||query.get('scope')!==$('#thread-scope').value)event.detail.shouldSwap=false;}});
 document.addEventListener('htmx:afterSwap',event=>{if(event.detail.target.id==='file-tree'){$$('.file-folder').forEach(folder=>folder.open=expandedFolders.has(folder.dataset.directory));filterFiles();renderTabs();}if(event.detail.target.id==='threads')filterThreads();});
 document.addEventListener('toggle',event=>{const folder=event.target;if(!folder.matches?.('.file-folder')||$('#file-filter').value)return;if(folder.open)expandedFolders.add(folder.dataset.directory);else expandedFolders.delete(folder.dataset.directory);localStorage.setItem('looking-glass-folders:'+root,JSON.stringify([...expandedFolders]));},true);
 document.addEventListener('htmx:responseError',event=>notify('Sidebar request failed: '+event.detail.xhr.status,true));
@@ -586,6 +590,7 @@ document.addEventListener('click',guard(async event=>{
     notify(whole?'Thread deleted':'Comment deleted');
   }
   if(action.dataset.action==='reattach'){
+    if(t.path!==active){await jump(id);notify('Select the new passage in this file, then attach the thread.');return;}
     if(t.anchor_kind==='rendered'){if(!renderedSelection)throw new Error('Select the new passage in the rendered report first.');await saveActive();await api('threads/'+id,'PATCH',{render_anchor:renderedSelection.anchor,version:entry().version});await refreshThreads();await jump(id);return;}
     if(!view||view.state.selection.main.empty)throw new Error('Select the new passage in the editor first.');const {from,to}=view.state.selection.main;const start=selectionPoints(view.state,from),end=selectionPoints(view.state,to);await saveActive();await api('threads/'+id,'PATCH',{start,end,version:entry().version});await refreshThreads();await jump(id);
   }
@@ -603,6 +608,8 @@ $('#selection-thread').onclick=()=>showThread(Number($('#selection-thread').data
 $('#json-collapse').onclick=()=>collapseJSON(view);$('#json-expand').onclick=()=>{if(view)unfoldAll(view);};
 $('#save').onclick=guard(saveActive);$('#annotate').onclick=guard(startComment);
 $('#previous').onclick=guard(()=>navigate(-1));$('#next').onclick=guard(()=>navigate(1));$('#show-resolved').onchange=filterThreads;
+$('#thread-scope').value=localStorage.getItem('looking-glass-thread-scope:'+root)||'file';
+$('#thread-scope').onchange=guard(async()=>{localStorage.setItem('looking-glass-thread-scope:'+root,$('#thread-scope').value);await refreshThreads();});
 async function setMode(value){const e=entry();syncState();e.mode=value;view?.destroy();view=null;mountDocument(e);await refreshThreads();remember();}
 $('#mode').onchange=guard(()=>setMode($('#mode').value));
 $('#html-toggle').onclick=guard(()=>setMode(entry().mode==='rendered'?'source':'rendered'));
@@ -661,6 +668,6 @@ guard(async()=>{
   const requested=queuedFile;queuedFile=null;
   if(requested)await openFile(requested);
   else if(tabs.size)await openFile(tabs.has(restored.active)?restored.active:[...tabs.keys()].at(-1));
-  renderTabs();
+  renderTabs();if(!active)await refreshThreads();
 })();
 setInterval(poll,2200);setInterval(()=>{if(!document.hidden)window.htmx.trigger('#file-tree','refresh');},12000);

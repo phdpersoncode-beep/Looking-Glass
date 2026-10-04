@@ -89,7 +89,11 @@ def create_app(root):
 
     @app.get('/fragments/threads')
     def discussion():
-        return render_template('threads.html', threads=ws.threads(request.args.get('path')), active=request.args.get('active',type=int))
+        all_files = request.args.get('scope') == 'all'
+        items = ws.threads(None if all_files else request.args.get('path'))
+        if all_files:
+            items.sort(key=lambda t: (t['path'], t['start'], t['id']))
+        return render_template('threads.html', threads=items, all_files=all_files, active=request.args.get('active',type=int))
 
     @app.get('/api/workspace')
     def workspace():

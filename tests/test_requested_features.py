@@ -100,3 +100,27 @@ def test_images_and_zoom(workspace_page):
     page.reload();expect(page.locator('.image-tools span')).to_contain_text('800 × 600')
     assert page.evaluate('window.svgExecuted') is None
     open_file(page,'broken.png');expect(page.locator('.image-status')).to_contain_text('Unable to display this image')
+
+def test_cross_file_comments(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    (root/'a.md').write_text('Alpha passage.\n');(root/'b.py').write_text('beta = 2\n');(root/'report.html').write_text('<p>Rendered passage.</p>')
+    first=ws.create_thread('a.md',0,5,'First discussion.','Altay',ws.read('a.md')['version'])
+    second=ws.create_thread('b.py',0,4,'Second discussion.','Agent',ws.read('b.py')['version'])
+    ws.create_rendered_thread('report.html',{'quote':'Rendered passage.','prefix':'','suffix':''},'HTML discussion.','Agent',ws.read('report.html')['version'])
+    page.goto(url);open_file(page,'a.md');expect(page.locator('.thread')).to_have_count(1)
+    page.locator('#thread-scope').select_option('all');expect(page.locator('.thread')).to_have_count(3)
+    expect(page.locator('.thread-file')).to_have_text(['a.md','b.py','report.html'])
+    page.locator('#next').click();expect(page.locator('.thread.active')).to_have_attribute('data-thread',str(first['id']))
+    page.locator('#next').click();expect(page.locator('#document-name')).to_have_text('b.py')
+    expect(page.locator('.focused-highlight')).to_have_text('beta')
+    expect(page.locator('.thread.active')).to_have_attribute('data-thread',str(second['id']))
+    page.locator('.cm-content').click();page.keyboard.press('Control+End');page.keyboard.insert_text('# draft')
+    page.locator('#next').click();expect(page.locator('#document-name')).to_have_text('report.html')
+    expect(page.frame_locator('#html-preview').locator('p')).to_have_text('Rendered passage.')
+    page.locator('#previous').click();expect(page.locator('#document-name')).to_have_text('b.py')
+    expect(page.locator('.cm-content')).to_contain_text('# draft')
+    page.locator('.thread.active [data-action="resolve"]').click();expect(page.locator('#thread-count')).to_have_text('2')
+    page.locator('#show-resolved').check();expect(page.locator('.thread.resolved')).to_be_visible()
+    page.locator('#thread-scope').select_option('file');expect(page.locator('.thread')).to_have_count(1)
+    expect(page.locator('.thread-file')).to_have_count(0)

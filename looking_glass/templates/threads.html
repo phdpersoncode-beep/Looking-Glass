@@ -1,6 +1,7 @@
 {% for thread in threads %}
-<article class="thread {% if thread.resolved %}resolved{% endif %} {% if thread.id == active %}active{% endif %}" data-thread="{{ thread.id }}" data-resolved="{{ 'true' if thread.resolved else 'false' }}">
+<article class="thread {% if thread.resolved %}resolved{% endif %} {% if thread.id == active %}active{% endif %}" data-thread="{{ thread.id }}" data-path="{{ thread.path }}" data-resolved="{{ 'true' if thread.resolved else 'false' }}">
   <div class="thread-heading"><button class="jump" data-action="jump">#{{ thread.id }} · {{ 'Resolved' if thread.resolved else 'Open' }}</button><button data-action="resolve" title="{{ 'Reopen' if thread.resolved else 'Resolve' }} thread">{{ 'Reopen' if thread.resolved else 'Resolve ✓' }}</button></div>
+  {% if all_files %}<button class="thread-file" data-action="jump" title="{{ thread.path }}">{{ thread.path }}</button>{% endif %}
   {% if thread.anchor_kind == 'rendered' %}<span class="muted">Rendered HTML passage</span>{% endif %}
   <blockquote data-action="jump">{{ thread.quote }}</blockquote>
   {% if thread.anchor_status != 'attached' %}<p class="anchor-warning">Passage needs reattachment.<button data-action="reattach">Attach to selection</button></p>{% endif %}
