@@ -62,3 +62,28 @@ def test_unchanged_file_poll_does_not_read_or_write(api,monkeypatch):
     assert changed.status_code==200 and changed.json['content'].startswith('B')
     assert changed.json['version']!=first['version']
     assert ws.get_thread(t['id'])['quote'].startswith('B')
+
+
+def test_file_tree_revalidation_and_scan_failure(api, monkeypatch):
+    import os
+    root, ws, c, h, _ = api
+    first = c.get('/fragments/files', headers=h)
+    assert first.status_code == 200 and b'note.txt' in first.data
+    conditional = {**h, 'If-None-Match': first.headers['ETag']}
+    assert c.get('/fragments/files', headers=conditional).status_code == 304
+    (root/'new.txt').write_text('New file')
+    changed = c.get('/fragments/files', headers=conditional)
+    assert changed.status_code == 200 and b'new.txt' in changed.data
+    original = os.scandir
+    def fail_scan(path):
+        if str(path) == str(root):
+            raise PermissionError('Temporary scan failure')
+        return original(path)
+    monkeypatch.setattr(os, 'scandir', fail_scan)
+    failed = c.get('/fragments/files', headers=h)
+    assert failed.status_code == 409
+    assert 'Temporary scan failure' in failed.json['error']
+    monkeypatch.setattr(os, 'scandir', original)
+    (root/'note.txt').unlink(); (root/'new.txt').unlink()
+    empty = c.get('/fragments/files', headers=conditional)
+    assert empty.status_code == 200 and b'No files in this directory.' in empty.data

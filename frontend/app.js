@@ -589,7 +589,16 @@ async function showGit(){
 }
 function selectedGit(){return $$('#git-files input:checked').map(c=>c.value);}
 
-document.addEventListener('htmx:configRequest',event=>event.detail.headers['X-Looking-Glass-Token']=token);
+let fileTreeETag=null;
+document.addEventListener('htmx:configRequest',event=>{
+  event.detail.headers['X-Looking-Glass-Token']=token;
+  if(event.detail.elt.id==='file-tree'&&fileTreeETag)event.detail.headers['If-None-Match']=fileTreeETag;
+});
+document.addEventListener('htmx:beforeSwap',event=>{
+  if(event.detail.target.id!=='file-tree')return;
+  if(event.detail.xhr.status===304){event.detail.shouldSwap=false;return;}
+  if(event.detail.xhr.status===200)fileTreeETag=event.detail.xhr.getResponseHeader('ETag');
+});
 window.addEventListener('message',guard(async event=>{
   const preview=renderedPreview,message=event.data;
   if(!preview||event.source!==preview.frame.contentWindow||event.origin!=='null'||message?.lookingGlass!==preview.channel)return;

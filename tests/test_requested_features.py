@@ -418,3 +418,38 @@ def test_unchanged_discussions_keep_dom_and_external_replies_refresh(workspace_p
     assert page.evaluate('window.originalThread===document.querySelector(".thread")')
     ws.reply(t['id'],'An external agent reply','Agent')
     expect(page.locator('.thread')).to_contain_text('An external agent reply')
+
+
+def test_file_tree_refresh_preserves_state_and_recovers(workspace_page, monkeypatch):
+    import os
+    from playwright.sync_api import expect
+    root, page, url, _ = workspace_page
+    (root/'folder').mkdir(); (root/'folder'/'note.txt').write_text('Passage.')
+    page.goto(url)
+    folder = page.locator('.file-folder')
+    folder.locator('summary').click()
+    page.locator('#file-filter').fill('note')
+    page.evaluate('window.originalFile=document.querySelector(".file-entry")')
+    with page.expect_response(lambda r:'/fragments/files' in r.url and r.status==304):
+        page.locator('#refresh-files').click()
+    assert page.evaluate('window.originalFile===document.querySelector(".file-entry")')
+    expect(folder).to_have_attribute('open', '')
+    original = os.scandir
+    def fail_scan(path):
+        if str(path) == str(root):
+            raise PermissionError('Temporary scan failure')
+        return original(path)
+    monkeypatch.setattr(os, 'scandir', fail_scan)
+    page.locator('#refresh-files').click()
+    expect(page.locator('#notice.error')).to_contain_text('Sidebar request failed')
+    expect(page.locator('.file-entry')).to_be_visible()
+    assert page.evaluate('window.originalFile===document.querySelector(".file-entry")')
+    monkeypatch.setattr(os, 'scandir', original)
+    (root/'folder'/'new.txt').write_text('New file.')
+    page.locator('#file-filter').fill('')
+    page.locator('#refresh-files').click()
+    expect(page.locator('.file-entry')).to_have_count(2)
+    expect(folder).to_have_attribute('open', '')
+    (root/'folder'/'note.txt').unlink(); (root/'folder'/'new.txt').unlink()
+    page.locator('#refresh-files').click()
+    expect(page.locator('#file-tree')).to_contain_text('No files in this directory.')

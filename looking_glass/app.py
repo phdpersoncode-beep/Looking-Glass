@@ -73,6 +73,9 @@ def create_app(root):
     @app.get('/fragments/files')
     def tree():
         files = ws.files()
+        tag = hashlib.sha256(json.dumps(files, ensure_ascii=False).encode()).hexdigest()
+        if request.if_none_match.contains(tag):
+            return Response(status=304, headers={'ETag': '"' + tag + '"'})
         tree = {}
         for path in files:
             branch = tree
@@ -80,7 +83,9 @@ def create_app(root):
             for part in parts[:-1]:
                 branch = branch.setdefault(part, {})
             branch[parts[-1]] = path
-        return render_template('files.html', tree=tree)
+        response = app.make_response(render_template('files.html', tree=tree))
+        response.set_etag(tag)
+        return response
 
     @app.get('/api/agent-instructions')
     def agent_instructions():

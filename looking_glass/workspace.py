@@ -127,7 +127,12 @@ class Workspace:
 
     def files(self):
         found = []
-        for directory, dirs, names in os.walk(self.root):
+        def scan_error(error):
+            # A failed scan is not an empty workspace. Let the client retain
+            # its last successful tree and report the failure.
+            raise error
+
+        for directory, dirs, names in os.walk(self.root, onerror=scan_error):
             dirs[:] = sorted(d for d in dirs if d not in EXCLUDED and not (Path(directory)/d).is_symlink())
             for name in sorted(names):
                 file = Path(directory) / name
