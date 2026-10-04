@@ -77,12 +77,22 @@ There are no built-in model calls or automatic editing passes.
 | PATCH | `/threads/1` | Resolve/reopen or reattach |
 | DELETE | `/threads/1` | Delete a thread and all its comments |
 | DELETE | `/threads/1/messages/2` | Delete one comment; remove an empty thread |
+| POST | `/threads/1/attachments` | Upload a multipart `file` field (up to 64 MiB) |
+| GET | `/attachments/1` | Download the original attachment bytes |
+| PATCH | `/attachments/1` | Rename with `{"name":"feedback.json"}` |
+| DELETE | `/attachments/1` | Remove an attachment |
 | GET | `/file?path=welcome.md` | Read current disk text and version |
 | PUT | `/file` | Save with a required current version hash |
 | GET | `/workspace` | Workspace root and available file paths |
 | GET | `/project` | Workspace root only, for inexpensive identity checks |
 | GET | `/agent-instructions` | Copyable instructions for this workspace and server |
 | GET | `/git/baseline?path=welcome.md` | Last committed text for editor gutter markers |
+
+Paths above are relative to `/api`. Full thread responses include `attachments`
+with `id`, `thread_id`, `name`, `size`, and `media_type`. Display names can change;
+download bytes remain unchanged. Attachments belong to the thread, survive server
+restarts, and are removed when the thread or its last message is deleted. All four
+attachment endpoints require the same token as other API requests.
 
 ### Thread queries and context
 

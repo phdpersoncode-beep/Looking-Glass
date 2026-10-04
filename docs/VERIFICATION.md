@@ -16,6 +16,11 @@ This follow-up fixes:
 
 Verification in this session:
 
+- **GitHub Actions passed both jobs** on commit `16b9551`: 29 fast Python tests,
+  2 JavaScript tests, and **28 Chromium/Firefox browser tests in 123.12 seconds**.
+  The clean runner also verified rebuilt assets and packaging.
+  [Verified run](https://github.com/phdpersoncode-beep/Looking-Glass/actions/runs/37225152259).
+  Local Firefox startup stalled; the clean runner completed those checks.
 - **54 Python/browser checks passed in 92.46 seconds**, with three Firefox
   cases excluded from that run. Chromium used the available headless shell build 1187;
   the Python environment used the locked Playwright 1.63.0.
