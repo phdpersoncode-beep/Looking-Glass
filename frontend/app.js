@@ -288,6 +288,7 @@ async function refreshBaseline(){const editor=view,path=active;if(!editor)return
 function updateToolbar(){
   const e=entry(), type=e?ext(e.path):'', viewer=['stl','jsonl'].includes(type)||isImage(e?.path||'');
   $('#json-fold-controls').hidden=type!=='json';
+  $('#download-file').hidden=!['html','htm','jsonl'].includes(type);
   $('#document-name').textContent=e?.path||'Open a file';$('#dirty').textContent=e?.dirty?' · Unsaved':'';
   $('#save').disabled=!e||viewer||!e.dirty||saving;$('#annotate').disabled=!e||viewer||!(renderedPreview?renderedSelection:view&&!view.state.selection.main.empty);
   const mode=$('#mode');const modes=type==='md'||type==='markdown'?[['live','Live Markdown'],['source','Raw source'],['preview','Reading preview']]:type==='html'||type==='htm'?[['rendered','Rendered HTML'],['source','HTML source']]:[['source',viewer?'Viewer':'Source']];
@@ -606,6 +607,13 @@ $('#selection-tools').onmousedown=event=>event.preventDefault();
 $('#selection-comment').onclick=guard(startComment);
 $('#selection-thread').onclick=()=>showThread(Number($('#selection-thread').dataset.thread));
 $('#json-collapse').onclick=()=>collapseJSON(view);$('#json-expand').onclick=()=>{if(view)unfoldAll(view);};
+$('#download-file').onclick=guard(()=>{
+  syncState();const e=entry();if(!e||!['html','htm','jsonl'].includes(ext(e.path)))return;
+  const type=ext(e.path)==='jsonl'?'application/x-ndjson;charset=utf-8':'text/html;charset=utf-8';
+  const url=URL.createObjectURL(new Blob([e.content],{type})),link=document.createElement('a');
+  link.href=url;link.download=e.path.split('/').pop();document.body.append(link);link.click();link.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+});
 $('#save').onclick=guard(saveActive);$('#annotate').onclick=guard(startComment);
 $('#previous').onclick=guard(()=>navigate(-1));$('#next').onclick=guard(()=>navigate(1));$('#show-resolved').onchange=filterThreads;
 $('#thread-scope').value=localStorage.getItem('looking-glass-thread-scope:'+root)||'file';

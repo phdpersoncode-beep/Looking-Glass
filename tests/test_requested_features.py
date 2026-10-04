@@ -151,3 +151,28 @@ def test_newsreader_is_local(workspace_page):
     assert 'Newsreader' in page.locator('.markdown-preview').evaluate('el=>getComputedStyle(el).fontFamily')
     urls=page.evaluate('performance.getEntriesByType("resource").filter(r=>r.name.endsWith(".woff2")).map(r=>r.name)')
     assert urls and all(resource.startswith(url+'/static/newsreader-') for resource in urls)
+
+def test_html_and_jsonl_downloads(workspace_page):
+    from pathlib import Path
+    from playwright.sync_api import expect
+    root,page,url,_=workspace_page
+    html='<html><body><button onclick="this.textContent=\'It works\'">Run</button></body></html>'
+    jsonl='{"text":"München", "literal":"`width`"}\ninvalid\n'
+    (root/'report.html').write_text(html);(root/'rows.jsonl').write_text(jsonl);(root/'note.txt').write_text('Plain text.')
+    page.goto(url)
+    for name,content in [('report.html',html),('rows.jsonl',jsonl)]:
+        open_file(page,name)
+        with page.expect_download() as downloaded:page.locator('#download-file').click()
+        download=downloaded.value
+        assert download.suggested_filename==name
+        assert Path(download.path()).read_bytes()==content.encode('utf-8')
+        if name.endswith('.html'):
+            local=root/'downloaded.html';download.save_as(local)
+            viewer=page.context.new_page();viewer.goto(local.as_uri());viewer.get_by_role('button',name='Run').click()
+            expect(viewer.get_by_role('button')).to_have_text('It works');viewer.close()
+    open_file(page,'report.html');page.locator('#html-toggle').click()
+    page.locator('.cm-content').click();page.keyboard.press('Control+End');page.keyboard.insert_text('<!-- unsaved draft -->')
+    with page.expect_download() as downloaded:page.locator('#download-file').click()
+    assert Path(downloaded.value.path()).read_text()==html+'<!-- unsaved draft -->'
+    assert (root/'report.html').read_text()==html
+    open_file(page,'note.txt');expect(page.locator('#download-file')).not_to_be_visible()
