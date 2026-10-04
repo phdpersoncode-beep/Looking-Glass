@@ -311,3 +311,18 @@ def test_thread_attachments(workspace_page):
     assert download.value.suggested_filename=='renamed.stl'
     assert Path(download.value.path()).read_bytes()==b'\x00mesh'
     page.reload();open_file(page,'note.txt');expect(page.locator('.attachment')).to_have_count(2)
+
+
+def test_json_formatter(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,_=workspace_page
+    source='{"x":9007199254740993,"items":[1,{"s":"hello"}]}'
+    (root/'one.json').write_text(source);(root/'bad.json').write_text('{"bad":}')
+    page.goto(url);open_file(page,'one.json');page.locator('#json-format').click()
+    expect(page.locator('.cm-line')).to_have_count(10)
+    expect(page.locator('.cm-content')).to_contain_text('9007199254740993')
+    assert (root/'one.json').read_text()==source
+    page.keyboard.press('Control+z');expect(page.locator('.cm-content')).to_have_text(source)
+    open_file(page,'bad.json');page.locator('#json-format').click()
+    expect(page.locator('#notice.error')).to_be_visible()
+    expect(page.locator('.cm-content')).to_have_text('{"bad":}')

@@ -1,9 +1,10 @@
+import {formatJSON} from './json-format.mjs';
 import {basicSetup} from 'codemirror';
 import {EditorState, StateEffect, StateField, Compartment, Text, RangeSet} from '@codemirror/state';
 import {EditorView, Decoration, ViewPlugin, keymap, WidgetType, gutter, GutterMarker} from '@codemirror/view';
 import {Chunk} from '@codemirror/merge';
 import {TaskList, Table} from '@lezer/markdown';
-import {undo, redo, indentWithTab} from '@codemirror/commands';
+import {undo, redo, indentWithTab, isolateHistory} from '@codemirror/commands';
 import {openSearchPanel} from '@codemirror/search';
 import {markdown} from '@codemirror/lang-markdown';
 import {python} from '@codemirror/lang-python';
@@ -648,6 +649,7 @@ $('#comment-body').addEventListener('keydown',event=>{if((event.ctrlKey||event.m
 $('#selection-tools').onmousedown=event=>event.preventDefault();
 $('#selection-comment').onclick=guard(startComment);
 $('#selection-thread').onclick=()=>showThread(Number($('#selection-thread').dataset.thread));
+$('#json-format').onclick=guard(()=>{if(!view||ext(active)!=='json')return;const content=formatJSON(view.state.sliceDoc(),view.state.lineBreak);view.dispatch({changes:{from:0,to:view.state.doc.length,insert:content},annotations:isolateHistory.of('full'),userEvent:'input.format'});view.focus();});
 $('#json-collapse').onclick=()=>collapseJSON(view);$('#json-expand').onclick=()=>{if(view)unfoldAll(view);};
 $('#download-file').onclick=guard(()=>{
   syncState();const e=entry();if(!e||!['html','htm','jsonl'].includes(ext(e.path)))return;
