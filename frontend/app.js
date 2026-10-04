@@ -2,7 +2,7 @@ import {basicSetup} from 'codemirror';
 import {EditorState, StateEffect, StateField, Compartment, Text, RangeSet} from '@codemirror/state';
 import {EditorView, Decoration, ViewPlugin, keymap, WidgetType, gutter, GutterMarker} from '@codemirror/view';
 import {Chunk} from '@codemirror/merge';
-import {TaskList} from '@lezer/markdown';
+import {TaskList, Table} from '@lezer/markdown';
 import {undo, redo, indentWithTab} from '@codemirror/commands';
 import {openSearchPanel} from '@codemirror/search';
 import {markdown} from '@codemirror/lang-markdown';
@@ -96,6 +96,22 @@ const theme = () => EditorView.theme({
   '.cm-panel input, .cm-panel button':{color:'var(--text)',background:'var(--paper)'}
 },{dark:document.documentElement.dataset.theme === 'dark'});
 
+class MarkdownTable extends WidgetType {
+  constructor(source,from){super();this.source=source;this.from=from;}
+  eq(other){return this.source===other.source&&this.from===other.from;}
+  toDOM(v){const el=document.createElement('div');el.className='md-table';el.innerHTML=DOMPurify.sanitize(marked.parse(this.source));el.title='Click to edit table source';el.onmousedown=event=>{event.preventDefault();v.dispatch({selection:{anchor:this.from}});v.focus();};return el;}
+  ignoreEvent(){return true;}
+}
+function tableDecorations(state){
+  const ranges=[],selection=state.selection.main;
+  syntaxTree(state).iterate({enter(node){
+    if(node.name!=='Table')return;
+    if(selection.from<=node.to&&selection.to>=node.from)return false;
+    ranges.push(Decoration.replace({block:true,widget:new MarkdownTable(state.sliceDoc(node.from,node.to),node.from)}).range(node.from,node.to));return false;
+  }});
+  return Decoration.set(ranges,true);
+}
+const liveTables=StateField.define({create:tableDecorations,update:(_value,tr)=>tableDecorations(tr.state),provide:field=>EditorView.decorations.from(field)});
 class Bullet extends WidgetType {toDOM(){const el=document.createElement('span');el.textContent='• ';return el;}}
 class TaskCheckbox extends WidgetType {
   constructor(checked,from){super();this.checked=checked;this.from=from;}
@@ -213,11 +229,11 @@ async function closeTab(path){
   else if(!active){$('#surface').innerHTML='<div class="welcome"><h1>Open a file to begin.</h1></div>';$('#threads').replaceChildren();currentThreads=[];$('#thread-count').textContent='0';updateToolbar();}
 }
 
-function language(path){switch(ext(path)){case'md':case'markdown':return markdown({extensions:[TaskList]});case'py':return python();case'sh':case'bash':return StreamLanguage.define(shell);case'html':case'htm':return html();case'json':return json();default:return [];}}
+function language(path){switch(ext(path)){case'md':case'markdown':return markdown({extensions:[TaskList,Table]});case'py':return python();case'sh':case'bash':return StreamLanguage.define(shell);case'html':case'htm':return html();case'json':return json();default:return [];}}
 function makeState(e){
   const prose=['md','markdown','txt'].includes(ext(e.path));
   return EditorState.create({doc:e.content,extensions:[EditorState.lineSeparator.of(e.diskContent.includes('\r\n')?'\r\n':'\n'),basicSetup,language(e.path),syntaxHighlighting(colors),spanField,gitField,gitGutter,
-    themeSlot.of(theme()),liveSlot.of(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?liveMarkdown:[]),
+    themeSlot.of(theme()),liveSlot.of(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables]:[]),
     ...(prose?[EditorView.lineWrapping,EditorView.theme({'.cm-scroller':{fontFamily:'"Times New Roman", Times, serif',fontSize:'var(--prose-font-size)'},'.cm-content':{maxWidth:'850px',margin:'0 auto',width:'100%'},'.cm-lineNumbers, .cm-foldGutter':{display:'none'}})]:[]),
     keymap.of([{key:'Mod-s',run:()=>{guard(saveActive)();return true;}},{key:'Mod-Enter',run:()=>{guard(startComment)();return true;}},{key:'Mod-f',run:openSearchPanel},{key:'Mod-h',run:openSearchPanel},indentWithTab]),
     EditorView.updateListener.of(u=>{if(u.docChanged){e.content=u.state.sliceDoc();e.dirty=e.content!==e.diskContent;e.state=u.state;updateToolbar();renderTabs();}if(u.selectionSet)updateToolbar();if(u.selectionSet||u.docChanged||u.viewportChanged||u.geometryChanged)scheduleSelectionTools();}),
@@ -261,7 +277,7 @@ function mountDocument(e){
     const preview=document.createElement('div');preview.className='markdown-preview';preview.innerHTML=DOMPurify.sanitize(marked.parse(e.content));$('#surface').append(preview);
   }else{
     const parent=document.createElement('div');parent.id='editor';if(['md','markdown','txt'].includes(ext(e.path)))parent.className='prose-editor';$('#surface').append(parent);view=new EditorView({state:e.state||makeState(e),parent});
-    view.dispatch({effects:[themeSlot.reconfigure(theme()),liveSlot.reconfigure(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?liveMarkdown:[])]});
+    view.dispatch({effects:[themeSlot.reconfigure(theme()),liveSlot.reconfigure(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables]:[])]});
     guard(refreshBaseline)();
   }
   updateToolbar();
