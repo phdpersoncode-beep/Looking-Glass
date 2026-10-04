@@ -110,7 +110,7 @@ def test_cross_file_comments(workspace_page):
     second=ws.create_thread('b.py',0,4,'Second discussion.','Agent',ws.read('b.py')['version'])
     ws.create_rendered_thread('report.html',{'quote':'Rendered passage.','prefix':'','suffix':''},'HTML discussion.','Agent',ws.read('report.html')['version'])
     page.goto(url);open_file(page,'a.md');expect(page.locator('.thread')).to_have_count(1)
-    page.locator('#thread-scope').select_option('all');expect(page.locator('.thread')).to_have_count(3)
+    page.locator('#thread-scope').check();expect(page.locator('.thread')).to_have_count(3)
     expect(page.locator('.thread-file')).to_have_text(['a.md','b.py','report.html'])
     page.locator('#next').click();expect(page.locator('.thread.active')).to_have_attribute('data-thread',str(first['id']))
     page.locator('#next').click();expect(page.locator('#document-name')).to_have_text('b.py')
@@ -123,7 +123,7 @@ def test_cross_file_comments(workspace_page):
     expect(page.locator('.cm-content')).to_contain_text('# draft')
     page.locator('.thread.active [data-action="resolve"]').click();expect(page.locator('#thread-count')).to_have_text('2')
     page.locator('#show-resolved').check();expect(page.locator('.thread.resolved')).to_be_visible()
-    page.locator('#thread-scope').select_option('file');expect(page.locator('.thread')).to_have_count(1)
+    page.locator('#thread-scope').uncheck();expect(page.locator('.thread')).to_have_count(1)
     expect(page.locator('.thread-file')).to_have_count(0)
 
 def test_resizable_file_explorer(workspace_page):
@@ -326,3 +326,21 @@ def test_json_formatter(workspace_page):
     open_file(page,'bad.json');page.locator('#json-format').click()
     expect(page.locator('#notice.error')).to_be_visible()
     expect(page.locator('.cm-content')).to_have_text('{"bad":}')
+
+
+def test_global_thread_arrows_and_fixed_header(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    for name in ('a.txt','b.txt'):
+        (root/name).write_text('Passage.');f=ws.read(name)
+        for i in range(4):ws.create_thread(name,0,7,'Long review. '*50,'Tester',f['version'])
+    page.goto(url);open_file(page,'a.txt')
+    expect(page.get_by_role('switch',name='Across files')).not_to_be_checked()
+    initial=page.locator('#next').bounding_box()
+    for _ in range(5):page.locator('#next').click()
+    expect(page.locator('#document-name')).to_have_text('b.txt')
+    expect(page.locator('.thread.active')).to_have_attribute('data-thread','5')
+    assert page.locator('#next').bounding_box()['y']==initial['y']
+    expect(page.locator('.thread')).to_have_count(4)
+    page.locator('#previous').click();expect(page.locator('#document-name')).to_have_text('a.txt')
+    page.get_by_role('switch',name='Across files').check();expect(page.locator('.thread')).to_have_count(8)

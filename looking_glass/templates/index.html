@@ -37,10 +37,12 @@
   </section>
   <aside class="discussion-sidebar">
     <div class="panel-heading"><span>DISCUSSIONS <span id="thread-count">0</span></span><div class="flex gap-1"><button id="previous" title="Previous passage" aria-label="Previous passage">↑</button><button id="next" title="Next passage" aria-label="Next passage">↓</button></div></div>
+    <div class="discussion-content">
     <label class="author-label">Your author label<input id="author" value="Altay" maxlength="120"></label>
-    <label class="thread-scope">Discussions in<select id="thread-scope" aria-label="Discussion scope"><option value="file">Current file</option><option value="all">All files</option></select></label>
+    <label class="thread-scope"><input type="checkbox" role="switch" id="thread-scope" aria-label="Across files"> Across files</label>
     <label class="resolved-toggle"><input type="checkbox" id="show-resolved"> Show resolved threads</label>
     <div id="threads"><div class="empty-discussions">Select text or code to leave a comment.<p>Feedback opens a conversation. Edits stay yours to make.</p></div></div>
+    </div>
   </aside>
 </main>
 <div id="selection-tools" role="group" aria-label="Selection actions" hidden><button id="selection-comment" title="Add a comment (Ctrl+Enter)">＋ Add comment</button><button id="selection-thread" hidden>View thread</button></div>
