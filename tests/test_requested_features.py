@@ -379,3 +379,29 @@ def test_thread_collapse_controls(workspace_page):
     expect(page.locator('.thread.collapsed')).to_have_count(0)
     page.get_by_role('button',name='Collapse all threads',exact=True).click()
     page.locator('#next').click();expect(page.locator('.thread.active .thread-body')).to_be_visible()
+
+
+def test_zen_mode_preserves_undo_and_collapse_state(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    (root/'note.txt').write_text('Passage.')
+    (root/'report.html').write_text('<input aria-label="Report field">')
+    f=ws.read('note.txt')
+    for i in range(3):ws.create_thread('note.txt',0,7,'Comment','Tester',f['version'])
+    page.goto(url);open_file(page,'note.txt')
+    page.get_by_role('button',name='Collapse thread 2',exact=True).click()
+    page.locator('.cm-content').click();page.keyboard.press('Control+End');page.keyboard.insert_text(' Draft')
+    page.keyboard.press('Control+z');expect(page.locator('.cm-content')).to_have_text('Passage.')
+    expect(page.locator('#zen-toggle')).to_have_attribute('aria-pressed','false')
+    page.keyboard.press('Control+Alt+z')
+    expect(page.locator('.file-sidebar')).not_to_be_visible();expect(page.locator('#tabs')).not_to_be_visible()
+    expect(page.locator('.discussion-sidebar')).to_be_visible()
+    expect(page.locator('.thread:not(.collapsed)')).to_have_count(1)
+    page.locator('#next').click();expect(page.locator('.thread.active')).to_have_attribute('data-thread','2')
+    expect(page.locator('.thread:not(.collapsed)')).to_have_count(1)
+    page.locator('#zen-toggle').click()
+    expect(page.locator('.thread[data-thread="2"]')).to_have_class('thread active collapsed')
+    expect(page.locator('.file-sidebar')).to_be_visible();expect(page.locator('#tabs')).to_be_visible()
+    open_file(page,'report.html');page.frame_locator('#html-preview').get_by_role('textbox',name='Report field').click()
+    page.keyboard.press('Control+Alt+z');expect(page.locator('#zen-toggle')).to_have_attribute('aria-pressed','true')
+    page.keyboard.press('Control+Alt+z');expect(page.locator('#zen-toggle')).to_have_attribute('aria-pressed','false')

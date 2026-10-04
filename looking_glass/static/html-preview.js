@@ -60,6 +60,7 @@ window.addEventListener('message',event=>{
 document.addEventListener('selectionchange',()=>{clearTimeout(timer);timer=setTimeout(capture,100);});
 document.addEventListener('pointerup',()=>setTimeout(capture,0));
 document.addEventListener('keydown',event=>{
+  if((event.ctrlKey||event.metaKey)&&event.altKey&&!event.shiftKey&&event.key.toLowerCase()==='z'){event.preventDefault();event.stopPropagation();send('zen');return;}
   if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='p'){event.preventDefault();event.stopPropagation();send('quick-open');}
 },true);
 document.addEventListener('keydown',event=>{if((event.ctrlKey||event.metaKey)&&event.key==='Enter'&&!['INPUT','TEXTAREA','SELECT'].includes(event.target.tagName)){capture();if(selected){event.preventDefault();send('comment');}}});
