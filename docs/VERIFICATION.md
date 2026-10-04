@@ -1,3 +1,59 @@
+# Viewer and review improvements · 2026-10-03
+
+All 38 tests pass, including every opt-in browser test, using Playwright 1.55.0
+with its installed Chromium headless shell. The frontend build and wheel build
+also succeed. The wheel contains all six bundled Newsreader fonts, their license,
+and the HTML preview keyboard bridge.
+
+```bash
+npm run build
+LOOKING_GLASS_BROWSER=installed .venv/bin/pytest -q
+.venv/bin/python -m pip wheel --no-deps . -w ../wheel-check
+git diff --check
+```
+
+Verified the requested items individually before their commits:
+
+- Live Markdown tables: alignment, inline formatting, editable source, and preview.
+- JSON and JSONL: collapse all, selectively unfold nested entries, expand all,
+  and keep malformed JSONL rows usable.
+- PNG/JPEG/SVG: zoom, fit, actual size, pan, restored tabs, invalid-image errors,
+  and inert SVG scripts.
+- All-file discussions: file labels, traversal across Markdown/code/HTML,
+  retained dirty drafts, and resolved-thread filtering.
+- CLI body files and stdin: exact Unicode/Markdown/backtick/quote preservation,
+  create and reply, mutually exclusive input options, and missing-file errors.
+- Explorer resizing: mouse drag, persisted width, keyboard controls, and bounds.
+- Newsreader: normal/italic faces and extended characters load from local assets.
+- HTML/JSONL downloads: filenames and bytes, unsaved HTML drafts, and working
+  scripts when a downloaded self-contained report is opened directly in a browser.
+- Gitignored files: no gutter for ignored untracked files, including nested paths;
+  tracked files still show modifications, and changed ignore rules refresh the gutter.
+- Ctrl/Cmd+P inside rendered HTML: opens the app file picker and prevents printing.
+- Markdown fences: hidden inactive language tags, highlighted Python/Bash in the
+  editor and preview, and safe plain-text fallback for unknown languages.
+
+The existing end-to-end workflows also passed. Updated their stale default-author
+expectation from Codex to Agent to match the existing CLI default. No product
+change to the default author was made.
+
+## Delivery
+
+Changes are based on `altaykacan/Looking-Glass` commit
+`e8550c451444404964d35445a1bf0d72ebd84bb3` on branch `codex/viewers-and-review`,
+with a separate commit for each requested item. GitHub publishing is blocked:
+HTTPS Git has no usable credentials, and the connected GitHub integration rejects
+branch creation with HTTP 403, "Resource not accessible by integration".
+No commits have been pushed. A Git bundle preserves the unpublished branch and
+can be fetched into a clone containing the base commit:
+
+```bash
+git fetch /path/to/Looking-Glass-review.bundle codex/viewers-and-review:codex/viewers-and-review
+git push -u origin codex/viewers-and-review
+```
+
+---
+
 # First milestone verification · 2026-10-03
 
 Latest CLI update: 23 non-browser tests passed. The browser instruction workflow
@@ -94,14 +150,4 @@ Updated comment composer: [light](screenshots/comment-light.png),
   initial repositories, subdirectory workspaces, deletions, and literal filenames
   containing Git path-pattern characters. Existing selected staged work is rejected.
 
-## Repository delivery
-
-The supplied `altaykacan/Looking-Glass` repository returned 404 through the GitHub
-connection, and normal Git cloning had no usable authentication. The connection
-lists an installation for `phdpersoncode-beep`, with no accessible Looking-Glass
-repository. Existing remote contents/instructions could not be inspected.
-
-This deliverable is a standalone local implementation, with all source, local
-build assets, fixtures, tests and setup documentation. It has **not been pushed**
-to GitHub or integrated with unseen remote files. The downloadable archive excludes
-Git metadata, dependencies, local API tokens and annotation databases.
+The delivery status above supersedes the original standalone archive handoff.

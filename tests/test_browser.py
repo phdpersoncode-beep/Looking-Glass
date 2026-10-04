@@ -365,7 +365,7 @@ def test_end_to_end(tmp_path):
         assert 'solid_volume' in (root/'example.py').read_text()
         t=agent('create','example.py','--quote','return width * height * depth','--body','Validate positive dimensions first.')
         page.get_by_text('Validate positive dimensions first.',exact=True).wait_for()
-        assert t['messages'][0]['author']=='Codex'
+        assert t['messages'][0]['author']=='Agent'
 
         open_file('_crlf.txt')
         page.locator('.cm-content').click()

@@ -46,7 +46,9 @@ The terminal prints the new root, and the API token changes with it.
 workspace are keyed by their resolved absolute path. Their discussions are stored
 in the current workspace. The file sidebar lists files recursively
 as a collapsible tree and supports filtering. Use **Collapse all folders** to fold
-the tree. Folder expansion persists across refreshes. Common dependency, Git and application metadata folders
+the tree. Drag the sidebar divider to resize the explorer; its width persists across
+refreshes. The focused divider also supports arrow keys, Home/End, and double-click
+to reset. Folder expansion persists across refreshes. Common dependency, Git and application metadata folders
 are excluded. Symlinks are not opened. No project code is executed.
 
 ## Review a file
@@ -66,7 +68,10 @@ are excluded. Symlinks are not opened. No project code is executed.
 
 Use **×** beside a comment to delete that comment. **Delete thread** removes the
 whole discussion and its highlight. Deleting the last comment also removes its thread.
-The application asks for confirmation before deletion.
+The application asks for confirmation before deletion. Choose **All files** above
+the discussions to see threads throughout the workspace, including outside files
+opened in this workspace. Each thread shows its file; ↑/↓ traverses open discussions
+and opens the corresponding file while retaining unsaved drafts in other tabs.
 
 Ctrl+P opens fuzzy file search throughout the application and overrides browser printing.
 Type parts of a filename or path, use ↑/↓ to select, and press Enter to open.
@@ -75,6 +80,9 @@ Use **A− / A+** in the document toolbar to adjust document text size.
 The setting persists. Toolbar, sidebar, and search controls keep their size.
 Live Markdown task lists display clickable checkboxes. The active line exposes
 ordinary Markdown syntax. Checkbox clicks update the Markdown draft; save to write it.
+Markdown tables render in live mode; click a table to edit its source. Fenced Python,
+Bash, JSON, and HTML blocks have basic syntax highlighting in live/source mode and
+reading preview. Inactive fence markers and language labels are hidden in live mode.
 
 Ctrl+A selects the active editor document. Ctrl+F and Ctrl+H open CodeMirror's
 document search/replace panel. Ctrl+Z and Ctrl+Shift+Z undo/redo. On macOS, use
@@ -100,7 +108,7 @@ Use the looking-glass CLI if it is installed to collaborate with me. It is for r
 - Find open threads: `looking-glass agent list --status open`.
 - Search comments: `looking-glass agent search "TEXT" --status open`.
 - Read messages and passage context: `looking-glass agent read ID --context-lines 10`.
-- Reply: `looking-glass agent reply ID --author "Agent" --body "REPLY"`.
+- Reply: write the Markdown reply to a UTF-8 file, then use `looking-glass agent reply ID --author "Agent" --body-file reply.md`.
 - Resolve completed work: `looking-glass agent resolve ID`.
 
 Read context before replying. Ask for guidance on detached anchors.
@@ -147,6 +155,12 @@ before the operation. The CLI verifies the server's project root before accessin
 Thread IDs come from `list`, `search`, or `create`.
 Comments never automatically apply edits.
 
+For Markdown bodies, use `--body-file reply.md`, or pipe text into `--body-stdin`
+(`--body-file -` also reads stdin). `create` and `reply` accept exactly one of these
+or `--body`. Shell double quotes still execute backticks and `$(...)` before the
+CLI runs; body files and quoted here-documents avoid that substitution. See the
+[body input examples](docs/AGENT_API.md) for safe multiline replies.
+
 `list` and `search` return paginated summaries with `threads`, `total`, `limit`,
 `offset`, and `next_offset`. Use `--limit` and `--offset` to page through results.
 Use `--full` for all messages. Filters include `--status all|open|resolved`,
@@ -184,7 +198,8 @@ your project's `.gitignore`; the included repository already does this.
 Code, Markdown, and text editors show changes against the last Git commit in their
 left gutter. Green bars mark added lines. Blue bars mark changed lines.
 Red horizontal triangles mark removed lines. Markers include unsaved drafts and remain
-after saving. They reset after a checkpoint. Files outside Git have no markers.
+after saving. They reset after a checkpoint. Files outside Git and ignored untracked files have no markers. Tracked files
+continue showing changes even when they match an ignore pattern.
 
 Choose **Changes & checkpoints**, select saved files, inspect their changes,
 and give the checkpoint a name. Looking Glass reuses the enclosing repository.
@@ -202,10 +217,16 @@ them in your terminal first. Checkpoints do not push. Saving never commits.
 
 ## Viewers
 
+- **PNG, JPEG, SVG:** view images with zoom buttons, wheel zoom, actual size, fit,
+  and drag to pan. SVG runs as an image, so embedded scripts do not execute.
+- **JSON:** collapse all objects/arrays, then unfold individual entries using their
+  fold markers. **Expand all** restores the complete tree. The same controls appear
+  in the formatted JSONL pane.
 - **JSONL:** all raw lines on the left, selected JSON value formatted on the right.
   Malformed and empty lines are marked individually; other rows still work.
   Ctrl+F searches all raw rows, including malformed rows. Enter and Shift+Enter
-  move between matching rows. Escape closes search.
+  move between matching rows. Escape closes search. **Download** saves the JSONL
+  file with its original filename.
 - **STL:** ASCII (text) and binary STL; drag to orbit, right-drag to pan, scroll
   to zoom, and use **Fit to view**. Uses WebGL when available, with an SVG
   software fallback. Software previews of large models reduce detail to 12,000
@@ -217,6 +238,10 @@ them in your terminal first. Checkpoints do not push. Saving never commits.
   reports; workspace-relative linked assets are not currently served to previews.
    Select visible report text and use **Add comment** or Ctrl+Enter to annotate
    rendered HTML. Highlights and passage navigation stay in the report.
+   Ctrl/Cmd+P opens the application file picker even when the report has focus.
+   **Download** saves the current HTML draft for opening directly in a browser,
+   without saving pending edits to the workspace. Self-contained reports retain
+   their scripts and styling in the downloaded file.
    Source HTML also supports anchored comments. Each thread records its anchor mode.
    Rendered anchors store the selected text and surrounding context. Missing or
    ambiguous passages request reattachment. Select a new rendered passage and click
@@ -233,7 +258,7 @@ npm run build
 uv sync   # includes the dev dependency group
 uv run pytest -q
 uv run playwright install chromium
-LOOKING_GLASS_BROWSER=installed uv run pytest tests/test_browser.py -v
+LOOKING_GLASS_BROWSER=installed uv run pytest -q
 ```
 
 For an already-installed Chromium, set `LOOKING_GLASS_BROWSER` to its executable
