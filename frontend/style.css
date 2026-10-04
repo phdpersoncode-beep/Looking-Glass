@@ -60,3 +60,5 @@ dialog:modal{margin:auto}.directory-list{height:260px;overflow:auto;margin-top:8
 .markdown-preview .tok-comment{color:#858392;font-style:italic}
 .markdown-preview .tok-propertyName{color:#639bb5}
 .markdown-preview .tok-variableName.tok-definition{color:#8b72dc}
+
+.attachments{margin:10px 0}.attachment{display:flex;align-items:center;gap:3px}.attachment button{font-size:10px;padding:3px}.attachment button:first-child{white-space:normal;overflow-wrap:anywhere;text-align:left;flex:1}.attach-button{display:block;font-size:10px;color:var(--purple);cursor:pointer}.attach-files{display:block;max-width:100%;font-size:10px;margin-top:5px}#attachment-dialog{width:900px}#attachment-image{max-width:100%;max-height:65vh;object-fit:contain}

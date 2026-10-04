@@ -290,3 +290,24 @@ def test_linux_text_selection(workspace_page,event_delivery):
             page.keyboard.press('Control+Enter')
             expect(page.locator('#comment-dialog')).not_to_be_visible()
             expect(page.locator('.thread').last.locator('blockquote')).to_have_text(expected)
+
+def test_thread_attachments(workspace_page):
+    from playwright.sync_api import expect
+    from pathlib import Path
+    root,page,url,ws=workspace_page
+    (root/'note.txt').write_text('Discuss this.')
+    f=ws.read('note.txt');t=ws.create_thread('note.txt',0,7,'Review','Tester',f['version'])
+    page.goto(url);open_file(page,'note.txt')
+    page.locator('.attach-files').set_input_files([{'name':'shape.svg','mimeType':'image/svg+xml','buffer':b'<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30"><rect width="30" height="30"/></svg>'},{'name':'model.stl','mimeType':'application/octet-stream','buffer':b'\x00mesh'}])
+    expect(page.locator('.attachment')).to_have_count(2)
+    page.get_by_role('button',name='Preview shape.svg').click()
+    expect(page.locator('#attachment-image')).to_be_visible()
+    assert page.locator('#attachment-image').evaluate('el=>el.naturalWidth')==30
+    page.locator('#attachment-dialog [data-close]').click()
+    page.once('dialog',lambda dialog:dialog.accept('renamed.stl'))
+    page.get_by_role('button',name='Rename model.stl').click()
+    expect(page.locator('.attachment').last).to_contain_text('renamed.stl')
+    with page.expect_download() as download:page.get_by_role('button',name='renamed.stl',exact=True).click()
+    assert download.value.suggested_filename=='renamed.stl'
+    assert Path(download.value.path()).read_bytes()==b'\x00mesh'
+    page.reload();open_file(page,'note.txt');expect(page.locator('.attachment')).to_have_count(2)

@@ -611,6 +611,18 @@ document.addEventListener('click',guard(async event=>{
   const close=event.target.closest('[data-close]');if(close)close.closest('dialog').close();
   const action=event.target.closest('[data-action]');if(!action)return;
   const id=Number(action.closest('.thread').dataset.thread),t=currentThreads.find(t=>t.id===id);
+  if(action.dataset.action.endsWith('-attachment')){
+    const attachmentId=Number(action.closest('[data-attachment]').dataset.attachment),item=t.attachments.find(a=>a.id===attachmentId);
+    if(action.dataset.action==='rename-attachment'){const name=prompt('Attachment name',item.name);if(name!==null){await api('attachments/'+attachmentId,'PATCH',{name});await refreshThreads();}return;}
+    if(action.dataset.action==='delete-attachment'){if(confirm('Remove '+item.name+'?')){await api('attachments/'+attachmentId,'DELETE');await refreshThreads();}return;}
+    const response=await fetch('/api/attachments/'+attachmentId,{headers:{'X-Looking-Glass-Token':token}});
+    if(!response.ok)throw new Error((await response.json()).error);
+    const url=URL.createObjectURL(await response.blob());
+    if(action.dataset.action==='preview-attachment'){
+      $('#attachment-title').textContent=item.name;$('#attachment-image').src=url;$('#attachment-image').alt=item.name;
+      $('#attachment-dialog').addEventListener('close',()=>{URL.revokeObjectURL(url);$('#attachment-image').removeAttribute('src');},{once:true});$('#attachment-dialog').showModal();
+    }else{const link=document.createElement('a');link.href=url;link.download=item.name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}return;
+  }
   if(action.dataset.action==='jump')await jump(id);
   if(action.dataset.action==='resolve'){await api('threads/'+id,'PATCH',{resolved:!t.resolved});await refreshThreads();}
   if(action.dataset.action==='delete-thread'||action.dataset.action==='delete-message'){
@@ -720,3 +732,14 @@ guard(async()=>{
   renderTabs();if(!active)await refreshThreads();
 })();
 setInterval(poll,2200);setInterval(()=>{if(!document.hidden)window.htmx.trigger('#file-tree','refresh');},12000);
+
+document.addEventListener('change',guard(async event=>{
+  if(!event.target.matches('.attach-files'))return;
+  const input=event.target,id=input.closest('.thread').dataset.thread;
+  input.disabled=true;
+  try{for(const file of input.files){
+    const body=new FormData();body.append('file',file);
+    const response=await fetch('/api/threads/'+id+'/attachments',{method:'POST',headers:{'X-Looking-Glass-Token':token},body});
+    if(!response.ok)throw new Error((await response.json()).error);
+  }await refreshThreads();notify('Files attached');}finally{input.disabled=false;input.value='';}
+}));

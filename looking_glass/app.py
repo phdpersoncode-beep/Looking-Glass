@@ -23,6 +23,8 @@ def create_app(root):
 
     @app.before_request
     def protect():
+        if request.method=='POST' and request.path.endswith('/attachments'):
+            request.max_content_length=65*1024*1024
         if request.path.startswith(('/api/', '/fragments/')):
             if not secrets.compare_digest(request.headers.get('X-Looking-Glass-Token',''), ws.token):
                 raise Problem('Missing or invalid local API token.', 401)
@@ -214,6 +216,27 @@ def create_app(root):
         if not set(data).issubset({'resolved','start','end','version','render_anchor','render_attached'}):
             raise Problem('Unknown thread update fields.')
         return jsonify(ws.update_thread(identifier,**data))
+
+    @app.post('/api/threads/<int:identifier>/attachments')
+    def upload_attachment(identifier):
+        upload=request.files.get('file')
+        if upload is None:
+            raise Problem('Choose a file to attach.')
+        return jsonify(ws.attachments.add(identifier,upload.stream,request.form.get('name') or upload.filename)),201
+
+    @app.get('/api/attachments/<int:identifier>')
+    def download_attachment(identifier):
+        item=ws.attachments.get(identifier)
+        return send_file(ws.attachments.directory/item['storage_key'],mimetype=item['media_type'],
+                         as_attachment=True,download_name=item['name'])
+
+    @app.patch('/api/attachments/<int:identifier>')
+    def rename_attachment(identifier):
+        return jsonify(ws.attachments.rename(identifier,body().get('name')))
+
+    @app.delete('/api/attachments/<int:identifier>')
+    def delete_attachment(identifier):
+        return jsonify(ws.attachments.delete(identifier))
 
     @app.get('/api/git')
     def git_status():

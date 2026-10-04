@@ -74,6 +74,9 @@ class Workspace:
             if 'render_anchor' not in columns:
                 db.execute('ALTER TABLE threads ADD COLUMN render_anchor TEXT')
 
+        from .attachments import Attachments
+        self.attachments = Attachments(self)
+
     @contextmanager
     def connection(self):
         with sqlite3.connect(self.db, timeout=10) as db:
@@ -210,6 +213,7 @@ class Workspace:
                 t['render_anchor'] = json.loads(t['render_anchor']) if t['render_anchor'] else None
                 t['resolved'] = bool(t['resolved'])
                 t['messages'] = [dict(m) for m in db.execute('SELECT * FROM messages WHERE thread_id=? ORDER BY id', (t['id'],))]
+                t['attachments'] = [self.attachments.public(a) for a in db.execute('SELECT * FROM attachments WHERE thread_id=? ORDER BY id',(t['id'],))]
                 result.append(t)
             return result
 
@@ -381,6 +385,7 @@ class Workspace:
         with self.lock, self.connection() as db:
             if not db.execute('SELECT id FROM threads WHERE id=?', (identifier,)).fetchone():
                 raise Problem('Thread not found.', 404)
+            self._delete_attachment_files(db,identifier)
             db.execute('DELETE FROM messages WHERE thread_id=?', (identifier,))
             db.execute('DELETE FROM threads WHERE id=?', (identifier,))
         return dict(deleted=True)
@@ -391,5 +396,10 @@ class Workspace:
                 raise Problem('Comment not found.', 404)
             db.execute('DELETE FROM messages WHERE id=?', (message_id,))
             if not db.execute('SELECT id FROM messages WHERE thread_id=?', (identifier,)).fetchone():
+                self._delete_attachment_files(db,identifier)
                 db.execute('DELETE FROM threads WHERE id=?', (identifier,))
         return dict(deleted=True)
+
+    def _delete_attachment_files(self, db, identifier):
+        for row in db.execute('SELECT storage_key FROM attachments WHERE thread_id=?',(identifier,)):
+            (self.attachments.directory/row['storage_key']).unlink(missing_ok=True)

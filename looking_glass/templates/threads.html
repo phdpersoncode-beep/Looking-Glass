@@ -6,6 +6,14 @@
   <blockquote data-action="jump">{{ thread.quote }}</blockquote>
   {% if thread.anchor_status != 'attached' %}<p class="anchor-warning">Passage needs reattachment.<button data-action="reattach">Attach to selection</button></p>{% endif %}
   {% for message in thread.messages %}<div class="message"><div><strong>{{ message.author }}</strong><time>{{ message.created_at }}</time><button class="delete-comment" data-action="delete-message" data-message="{{ message.id }}" aria-label="Delete comment" title="Delete comment">×</button></div><p>{{ message.body }}</p></div>{% endfor %}
+  <div class="attachments">
+    {% for item in thread.attachments %}<div class="attachment" data-attachment="{{ item.id }}">
+      <button data-action="download-attachment" title="Download attachment">{{ item.name }}</button>
+      {% if item.media_type.startswith('image/') %}<button data-action="preview-attachment" aria-label="Preview {{ item.name }}">▧</button>{% endif %}
+      <button data-action="rename-attachment" aria-label="Rename {{ item.name }}">✎</button><button data-action="delete-attachment" aria-label="Remove {{ item.name }}">×</button>
+    </div>{% endfor %}
+    <label class="attach-button">＋ Attach file<input type="file" class="attach-files" multiple aria-label="Attach files to thread {{ thread.id }}"></label>
+  </div>
   <button class="delete-thread" data-action="delete-thread">Delete thread</button>
   <form class="reply-form"><label class="sr-only" for="reply-{{ thread.id }}">Reply to thread {{ thread.id }}</label><textarea id="reply-{{ thread.id }}" rows="2" placeholder="Reply to this thread…" required></textarea><button type="submit">Reply ↗</button></form>
 </article>
