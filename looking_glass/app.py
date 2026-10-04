@@ -132,11 +132,13 @@ def create_app(root):
     @app.get('/api/binary')
     def binary():
         p = ws.path(request.args.get('path'))
-        if p.suffix.lower() != '.stl':
-            raise Problem('The binary viewer accepts STL files only.')
+        types = {'.stl':'application/octet-stream', '.png':'image/png', '.jpg':'image/jpeg',
+                 '.jpeg':'image/jpeg', '.svg':'image/svg+xml'}
+        if p.suffix.lower() not in types:
+            raise Problem('Choose an STL, PNG, JPEG, or SVG file.')
         if p.stat().st_size > 64*1024*1024:
-            raise Problem('STL files are limited to 64 MiB.',413)
-        return send_file(p, mimetype='application/octet-stream', as_attachment=True)
+            raise Problem('Binary viewer files are limited to 64 MiB.',413)
+        return send_file(p, mimetype=types[p.suffix.lower()], as_attachment=True)
 
     @app.get('/api/stat')
     def file_stat():
@@ -185,7 +187,7 @@ def create_app(root):
     def new_thread():
         data = body()
         ws.path(data.get('path'))
-        if Path(data['path']).suffix.lower() in ('.stl','.jsonl'):
+        if Path(data['path']).suffix.lower() in ('.stl','.jsonl','.png','.jpg','.jpeg','.svg'):
             raise Problem('This viewer does not support annotations.')
         if 'render_anchor' in data:
             return jsonify(ws.create_rendered_thread(data.get('path'),data['render_anchor'],data.get('body'),data.get('author'),data.get('version'))),201

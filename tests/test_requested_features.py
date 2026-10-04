@@ -73,3 +73,30 @@ def test_json_folding(workspace_page):
     page.locator('.jsonl-row[data-row="1"]').click();expect(page.locator('.cm-content')).to_contain_text('other')
     page.locator('.jsonl-row[data-row="2"]').click();expect(page.locator('.jsonl-detail .viewer-heading')).to_contain_text('MALFORMED')
     assert (root/'data.json').read_text()==original
+
+def test_images_and_zoom(workspace_page):
+    import base64
+    from playwright.sync_api import expect
+    root,page,url,_=workspace_page
+    for name,mime in [('image.png','image/png'),('image.jpeg','image/jpeg')]:
+        encoded=page.evaluate('''mime=>{const c=document.createElement('canvas');c.width=800;c.height=600;const x=c.getContext('2d');x.fillStyle='#9935ee';x.fillRect(0,0,800,600);return c.toDataURL(mime).split(',')[1];}''',mime)
+        (root/name).write_bytes(base64.b64decode(encoded))
+    (root/'image.svg').write_text('<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600"><script>parent.svgExecuted=true</script><rect width="800" height="600" fill="purple"/></svg>')
+    (root/'broken.png').write_text('not an image')
+    page.goto(url)
+    for name in ('image.png','image.jpeg','image.svg'):
+        open_file(page,name);expect(page.locator('.image-tools span')).to_contain_text('800 × 600')
+        image=page.locator('.image-stage img')
+        assert image.evaluate('el=>el.complete && el.naturalWidth')==800
+        before=image.bounding_box()['width']
+        page.get_by_role('button',name='Zoom in',exact=True).click();assert image.bounding_box()['width']>before
+        page.get_by_role('button',name='Zoom out',exact=True).click()
+        page.get_by_role('button',name='Actual size',exact=True).click();assert image.bounding_box()['width']==800
+        image.hover();page.mouse.wheel(0,-300)
+        page.wait_for_function('document.querySelector(".image-stage img").getBoundingClientRect().width>800')
+        page.get_by_role('button',name='Fit to view',exact=True).click()
+        assert image.bounding_box()['width']<=page.locator('.image-viewport').bounding_box()['width']
+        expect(page.locator('#save')).to_be_disabled()
+    page.reload();expect(page.locator('.image-tools span')).to_contain_text('800 × 600')
+    assert page.evaluate('window.svgExecuted') is None
+    open_file(page,'broken.png');expect(page.locator('.image-status')).to_contain_text('Unable to display this image')

@@ -167,6 +167,7 @@ function guard(fn){return (...args)=>Promise.resolve().then(()=>fn(...args)).cat
 const toUnits=(text,points)=>Array.from(text).slice(0,points).join('').replace(/\r\n/g,'\n').length;
 const selectionPoints=(state,units)=>Array.from(state.sliceDoc(0,units)).length;
 const ext=path=>path.split('.').pop().toLowerCase();
+const isImage=path=>['png','jpg','jpeg','svg'].includes(ext(path));
 function entry(){return active?tabs.get(active):null;}
 function remember(){localStorage.setItem('looking-glass-tabs:'+root,JSON.stringify({active,tabs:[...tabs.values()].map(e=>({path:e.path,pinned:e.pinned,mode:e.mode}))}));}
 function syncState(){const e=entry();if(e&&view){e.state=view.state;e.content=view.state.sliceDoc();}}
@@ -250,13 +251,14 @@ async function openFile(path){
     let e=tabs.get(path);
     if(!e){
       const type=ext(path);
-      const file=type==='stl'?{content:'',version:null}:await api('file?'+new URLSearchParams({path}));
+      const file=type==='stl'||isImage(path)?{content:'',version:null}:await api('file?'+new URLSearchParams({path}));
       e={path,...file,diskContent:file.content,dirty:false,conflict:null,pinned:false,state:null,mode:type==='md'||type==='markdown'?'live':type==='html'||type==='htm'?'rendered':'source'};
       tabs.set(path,e);
     }
     view?.destroy();view=null;cleanup();cleanup=()=>{};active=path;activeThread=null;currentThreads=[];
     $('#surface').replaceChildren();renderTabs();revealFile(path);updateToolbar();remember();
-    if(ext(path)==='stl')await mountSTL(e);
+    if(isImage(path))await mountImage(e);
+    else if(ext(path)==='stl')await mountSTL(e);
     else if(ext(path)==='jsonl')mountJSONL(e);
     else mountDocument(e);
     await refreshThreads();notify('');
@@ -284,7 +286,7 @@ function mountDocument(e){
 }
 async function refreshBaseline(){const editor=view,path=active;if(!editor)return;const baseline=await api('git/baseline?'+new URLSearchParams({path}));if(view===editor&&active===path)editor.dispatch({effects:baselineEffect.of(baseline.content)});}
 function updateToolbar(){
-  const e=entry(), type=e?ext(e.path):'', viewer=['stl','jsonl'].includes(type);
+  const e=entry(), type=e?ext(e.path):'', viewer=['stl','jsonl'].includes(type)||isImage(e?.path||'');
   $('#json-fold-controls').hidden=type!=='json';
   $('#document-name').textContent=e?.path||'Open a file';$('#dirty').textContent=e?.dirty?' · Unsaved':'';
   $('#save').disabled=!e||viewer||!e.dirty||saving;$('#annotate').disabled=!e||viewer||!(renderedPreview?renderedSelection:view&&!view.state.selection.main.empty);
@@ -309,7 +311,7 @@ async function saveActive(){
 }
 
 async function refreshThreads(){
-  const e=entry();if(!e||['stl','jsonl'].includes(ext(e.path))){$('#threads').innerHTML='<div class="empty-discussions">This viewer has no annotations.</div>';$('#thread-count').textContent='0';return;}
+  const e=entry();if(!e||(['stl','jsonl'].includes(ext(e.path))||isImage(e.path))){$('#threads').innerHTML='<div class="empty-discussions">This viewer has no annotations.</div>';$('#thread-count').textContent='0';return;}
   const path=active, generation=++refreshNumber;
   const threads=await api('threads?'+new URLSearchParams({path}));
   if(active!==path||generation!==refreshNumber)return;
@@ -398,6 +400,43 @@ function mountJSONL(e){
    jsonlSearch=()=>{search.hidden=false;input.focus();input.select();};
    container.append(left,right);$('#surface').append(container);if(lines.length)select(0);cleanup=()=>{jsonlSearch=null;detail.destroy();};
 }
+async function mountImage(e){
+  const host=document.createElement('div');host.className='image-view';
+  const tools=document.createElement('div');tools.className='image-tools';
+  const viewport=document.createElement('div');viewport.className='image-viewport';viewport.tabIndex=0;
+  const stage=document.createElement('div');stage.className='image-stage';
+  const img=document.createElement('img');img.alt=e.path;img.draggable=false;
+  const status=document.createElement('div');status.className='image-status';status.setAttribute('role','status');status.textContent='Loading image…';
+  stage.append(img);viewport.append(stage);host.append(tools,viewport,status);$('#surface').append(host);
+  let scale=1,fitted=true,url,observer;
+  const label=document.createElement('span');
+  function resize(next){
+    const before=scale;scale=Math.max(.01,Math.min(16,next));
+    const x=(viewport.scrollLeft+viewport.clientWidth/2)/before,y=(viewport.scrollTop+viewport.clientHeight/2)/before;
+    img.style.width=img.naturalWidth*scale+'px';img.style.height=img.naturalHeight*scale+'px';
+    stage.style.width=Math.max(viewport.clientWidth,img.naturalWidth*scale)+'px';stage.style.height=Math.max(viewport.clientHeight,img.naturalHeight*scale)+'px';
+    viewport.scrollLeft=x*scale-viewport.clientWidth/2;viewport.scrollTop=y*scale-viewport.clientHeight/2;
+    label.textContent=Math.round(scale*100)+'% · '+img.naturalWidth+' × '+img.naturalHeight;
+  }
+  function fit(){fitted=true;resize(Math.min((viewport.clientWidth-32)/img.naturalWidth,(viewport.clientHeight-32)/img.naturalHeight,1));}
+  for(const [name,action] of [['Zoom out',()=>{fitted=false;resize(scale/1.25);}],['Zoom in',()=>{fitted=false;resize(scale*1.25);}],['Fit to view',fit],['Actual size',()=>{fitted=false;resize(1);}]] ){
+    const button=document.createElement('button');button.textContent=name;button.onclick=action;tools.append(button);
+  }
+  tools.append(label);
+  viewport.addEventListener('wheel',event=>{event.preventDefault();fitted=false;resize(scale*Math.exp(-event.deltaY*.002));},{passive:false});
+  let drag=null;
+  viewport.onpointerdown=event=>{if(event.button!==0)return;drag={x:event.clientX,y:event.clientY,left:viewport.scrollLeft,top:viewport.scrollTop};viewport.setPointerCapture(event.pointerId);viewport.classList.add('dragging');event.preventDefault();};
+  viewport.onpointermove=event=>{if(drag){viewport.scrollLeft=drag.left+drag.x-event.clientX;viewport.scrollTop=drag.top+drag.y-event.clientY;}};
+  viewport.onpointerup=viewport.onpointercancel=()=>{drag=null;viewport.classList.remove('dragging');};
+  cleanup=()=>{observer?.disconnect();if(url)URL.revokeObjectURL(url);};
+  try{
+    e.version=(await api('stat?'+new URLSearchParams({path:e.path}))).version;
+    const buffer=await binary(e.path),type=ext(e.path)==='svg'?'image/svg+xml':ext(e.path)==='png'?'image/png':'image/jpeg';
+    url=URL.createObjectURL(new Blob([buffer],{type}));img.src=url;await img.decode();
+    status.remove();fit();observer=new ResizeObserver(()=>{if(fitted)fit();else resize(scale);});observer.observe(viewport);
+  }catch(error){status.textContent='Unable to display this image: '+error.message;img.hidden=true;tools.querySelectorAll('button').forEach(button=>button.disabled=true);}
+}
+
 async function mountSTL(e){
   const host=document.createElement('div');host.className='stl-view';const tools=document.createElement('div');tools.className='stl-tools';const fit=document.createElement('button');fit.textContent='Fit to view';const info=document.createElement('span');info.textContent='Orbit: drag · Pan: right drag · Zoom: scroll';tools.append(fit,info);host.append(tools);$('#surface').append(host);
   const status=document.createElement('div');status.className='stl-status';status.setAttribute('role','status');status.textContent='Loading model…';host.append(status);fit.disabled=true;
@@ -460,10 +499,10 @@ async function poll(){
     for(const e of [...tabs.values()]){
       try{
         const requestedVersion=e.version;
-        if(ext(e.path)==='stl'){
+        if(ext(e.path)==='stl'||isImage(e.path)){
           const disk=await api('stat?'+new URLSearchParams({path:e.path}));
           if(e.version!==requestedVersion||switching||saving)continue;
-          if(disk.version!==e.version){e.version=disk.version;if(e.path===active){cleanup();cleanup=()=>{};$('#surface').replaceChildren();await mountSTL(e);notify('Reloaded the external STL change');}}
+          if(disk.version!==e.version){e.version=disk.version;if(e.path===active){cleanup();cleanup=()=>{};$('#surface').replaceChildren();if(isImage(e.path))await mountImage(e);else await mountSTL(e);notify('Reloaded the external viewer change');}}
           continue;
         }
         const disk=await api('file?'+new URLSearchParams({path:e.path}));
@@ -614,7 +653,7 @@ guard(async()=>{
   switching=true;
   try{
     const results=await Promise.allSettled((restored.tabs||[]).map(async item=>{
-      const type=ext(item.path),file=type==='stl'?{content:'',version:null}:await api('file?'+new URLSearchParams({path:item.path}));
+      const type=ext(item.path),file=type==='stl'||isImage(item.path)?{content:'',version:null}:await api('file?'+new URLSearchParams({path:item.path}));
       return {path:item.path,...file,diskContent:file.content,dirty:false,conflict:null,pinned:!!item.pinned,state:null,mode:item.mode||'source'};
     }));
     for(const result of results)if(result.status==='fulfilled')tabs.set(result.value.path,result.value);
