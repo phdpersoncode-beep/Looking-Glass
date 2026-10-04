@@ -25,6 +25,8 @@ const token = $('meta[name=looking-glass-token]').content;
 const root = $('.root-label').textContent;
 const tabs = new Map();
 let expandedFolders=new Set();try{expandedFolders=new Set(JSON.parse(localStorage.getItem('looking-glass-folders:'+root)||'[]'));}catch{}
+let collapsedThreads=new Set();try{collapsedThreads=new Set(JSON.parse(localStorage.getItem('looking-glass-collapsed-threads:'+root)||'[]'));}catch{}
+function rememberCollapsed(){localStorage.setItem('looking-glass-collapsed-threads:'+root,JSON.stringify([...collapsedThreads]));}
 let quickPaths=[],quickMatches=[],quickIndex=0;
 let active = null, view = null, cleanup = () => {}, currentThreads = [], activeThread = null, pending = null;
 let polling = false, saving = false, switching = false, refreshNumber = 0, queuedFile = null;
@@ -347,9 +349,9 @@ async function refreshThreads(){
   await window.htmx.ajax('GET','/fragments/threads?'+new URLSearchParams({path:path||'',scope,active:activeThread||''}),{target:'#threads',swap:'innerHTML'});
   filterThreads();
 }
-function filterThreads(){$$('.thread').forEach(t=>{t.hidden=t.dataset.resolved==='true'&&!$('#show-resolved').checked;t.classList.toggle('active',Number(t.dataset.thread)===activeThread);const reply=t.querySelector('.reply-form');if(reply)reply.hidden=Number(t.dataset.thread)!==activeThread;});}
+function filterThreads(){$$('.thread').forEach(t=>{t.hidden=t.dataset.resolved==='true'&&!$('#show-resolved').checked;t.classList.toggle('active',Number(t.dataset.thread)===activeThread);t.classList.toggle('collapsed',collapsedThreads.has(Number(t.dataset.thread)));t.querySelector('[data-action=collapse-thread]')?.setAttribute('aria-expanded',String(!t.classList.contains('collapsed')));const reply=t.querySelector('.reply-form');if(reply)reply.hidden=Number(t.dataset.thread)!==activeThread;});}
 function showThread(id){
-  activeThread=id;filterThreads();
+  activeThread=id;collapsedThreads.delete(id);rememberCollapsed();filterThreads();
   previewThreads();
   if(view)view.dispatch({effects:spansEffect.of(view.state.field(spanField))});
   $('.thread[data-thread="'+id+'"]')?.scrollIntoView({block:'nearest'});
@@ -624,6 +626,8 @@ document.addEventListener('click',guard(async event=>{
   const close=event.target.closest('[data-close]');if(close)close.closest('dialog').close();
   const action=event.target.closest('[data-action]');if(!action)return;
   const id=Number(action.closest('.thread').dataset.thread),t=currentThreads.find(t=>t.id===id);
+  if(action.dataset.action==='collapse-thread'){collapsedThreads.add(id);rememberCollapsed();filterThreads();return;}
+  if(action.dataset.action==='expand-thread'){showThread(id);return;}
   if(action.dataset.action.endsWith('-attachment')){
     const attachmentId=Number(action.closest('[data-attachment]').dataset.attachment),item=t.attachments.find(a=>a.id===attachmentId);
     if(action.dataset.action==='rename-attachment'){const name=prompt('Attachment name',item.name);if(name!==null){await api('attachments/'+attachmentId,'PATCH',{name});await refreshThreads();}return;}
@@ -671,6 +675,8 @@ $('#download-file').onclick=guard(()=>{
   setTimeout(()=>URL.revokeObjectURL(url),1000);
 });
 $('#save').onclick=guard(saveActive);$('#annotate').onclick=guard(startComment);
+$('#collapse-threads').onclick=()=>{for(const t of currentThreads)collapsedThreads.add(t.id);rememberCollapsed();filterThreads();};
+$('#expand-threads').onclick=()=>{for(const t of currentThreads)collapsedThreads.delete(t.id);rememberCollapsed();filterThreads();};
 $('#previous').onclick=guard(()=>navigate(-1));$('#next').onclick=guard(()=>navigate(1));$('#show-resolved').onchange=filterThreads;
 $('#thread-scope').checked=localStorage.getItem('looking-glass-thread-scope:'+root)==='all';
 $('#thread-scope').onchange=guard(async()=>{localStorage.setItem('looking-glass-thread-scope:'+root,threadScope());await refreshThreads();});

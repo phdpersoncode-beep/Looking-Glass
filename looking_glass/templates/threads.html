@@ -1,6 +1,8 @@
 {% for thread in threads %}
 <article class="thread {% if thread.resolved %}resolved{% endif %} {% if thread.id == active %}active{% endif %}" data-thread="{{ thread.id }}" data-path="{{ thread.path }}" data-resolved="{{ 'true' if thread.resolved else 'false' }}">
-  <div class="thread-heading"><button class="jump" data-action="jump">#{{ thread.id }} · {{ 'Resolved' if thread.resolved else 'Open' }}</button><button data-action="resolve" title="{{ 'Reopen' if thread.resolved else 'Resolve' }} thread">{{ 'Reopen' if thread.resolved else 'Resolve ✓' }}</button></div>
+  <button class="thread-summary" data-action="expand-thread" aria-label="Expand thread {{ thread.id }}" title="{{ thread.path }} · {{ thread.quote }}"><svg width="15" height="15" viewBox="0 0 20 20" aria-hidden="true"><path d="M3 3h14v10H8l-5 4z" fill="none" stroke="currentColor"/></svg> #{{ thread.id }}</button>
+  <div class="thread-heading"><button data-action="collapse-thread" aria-label="Collapse thread {{ thread.id }}" title="Collapse thread">⌄</button><button class="jump" data-action="jump">#{{ thread.id }} · {{ 'Resolved' if thread.resolved else 'Open' }}</button><button data-action="resolve" title="{{ 'Reopen' if thread.resolved else 'Resolve' }} thread">{{ 'Reopen' if thread.resolved else 'Resolve ✓' }}</button></div>
+  <div class="thread-body">
   {% if all_files %}<button class="thread-file" data-action="jump" title="{{ thread.path }}">{{ thread.path }}</button>{% endif %}
   {% if thread.anchor_kind == 'rendered' %}<span class="muted">Rendered HTML passage</span>{% endif %}
   <blockquote data-action="jump">{{ thread.quote }}</blockquote>
@@ -16,6 +18,7 @@
   </div>
   <button class="delete-thread" data-action="delete-thread">Delete thread</button>
   <form class="reply-form"><label class="sr-only" for="reply-{{ thread.id }}">Reply to thread {{ thread.id }}</label><textarea id="reply-{{ thread.id }}" rows="2" placeholder="Reply to this thread…" required></textarea><button type="submit">Reply ↗</button></form>
+  </div>
 </article>
 {% endfor %}
 {% if not threads %}<div class="empty-discussions">No discussions yet.<p>Select a passage and choose “Add comment”.</p></div>{% endif %}

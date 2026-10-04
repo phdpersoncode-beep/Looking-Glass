@@ -359,3 +359,23 @@ def test_discussion_resizer(workspace_page):
     page.keyboard.press('Home');expect(separator).to_have_attribute('aria-valuenow','220')
     page.set_viewport_size({'width':1000,'height':800});page.keyboard.press('End')
     assert page.locator('.document-panel').bounding_box()['width']>=300
+
+
+def test_thread_collapse_controls(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    (root/'note.txt').write_text('Passage.')
+    f=ws.read('note.txt')
+    for i in range(3):ws.create_thread('note.txt',0,7,'Comment '+str(i),'Tester',f['version'])
+    page.goto(url);open_file(page,'note.txt')
+    page.get_by_role('button',name='Collapse thread 1',exact=True).click()
+    expect(page.locator('.thread[data-thread="1"] .thread-body')).not_to_be_visible()
+    page.get_by_role('button',name='Expand thread 1',exact=True).click()
+    expect(page.locator('.thread[data-thread="1"] .thread-body')).to_be_visible()
+    page.get_by_role('button',name='Collapse all threads',exact=True).click()
+    expect(page.locator('.thread.collapsed')).to_have_count(3)
+    page.reload();expect(page.locator('.thread.collapsed')).to_have_count(3)
+    page.get_by_role('button',name='Expand all threads',exact=True).click()
+    expect(page.locator('.thread.collapsed')).to_have_count(0)
+    page.get_by_role('button',name='Collapse all threads',exact=True).click()
+    page.locator('#next').click();expect(page.locator('.thread.active .thread-body')).to_be_visible()
