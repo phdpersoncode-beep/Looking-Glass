@@ -257,9 +257,20 @@ npm ci
 npm run build
 uv sync   # includes the dev dependency group
 uv run pytest -q
-uv run playwright install chromium
+uv run playwright install chromium firefox
 LOOKING_GLASS_BROWSER=installed uv run pytest -q
 ```
+
+For native Wayland selection checks, run Firefox with visible windows inside
+your Linux Wayland desktop session (Firefox must be installed by Playwright):
+
+```bash
+MOZ_ENABLE_WAYLAND=1 LOOKING_GLASS_HEADED=1 LOOKING_GLASS_BROWSER=installed \
+  uv run pytest tests/test_requested_features.py -k "linux_text_selection and firefox" -q
+```
+
+The selection regression covers Chromium and Firefox, forward/backward and
+multiline drags, existing annotations, and recovery after missed release events.
 
 For an already-installed Chromium, set `LOOKING_GLASS_BROWSER` to its executable
 path. The browser test copies `demo_dir` into a disposable directory and verifies

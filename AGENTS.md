@@ -15,7 +15,7 @@ A local prose/code editor and review tool for working with coding agents on ordi
 - Reload clean external changes; preserve dirty drafts and reject stale saves. Ambiguous/deleted anchors need reattachment.
 - Saving never commits. Git checkpoints are explicit and preserve unrelated staged/unstaged work.
 - Loopback-only server; isolate report scripts from editor state/tokens. Agents run separately through the local interface; no built-in model calls or project-code execution.
-- Minimalist light/dark themes, neon-purple highlights, monospace code/JSON, and Times New Roman prose. Preserve Ctrl+A/F/H and selection-aware shortcuts.
+- Minimalist light/dark themes, neon-purple highlights, monospace code/JSON, and locally bundled Newsreader prose. Preserve Ctrl+A/F/H and selection-aware shortcuts.
 
 ## Run and build
 From the repository root (uv and Git required; Node 20+ for frontend builds):

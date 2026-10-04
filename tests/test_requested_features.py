@@ -7,7 +7,7 @@ from looking_glass.app import create_app
 pytestmark=pytest.mark.skipif(not os.environ.get('LOOKING_GLASS_BROWSER'),reason='Set LOOKING_GLASS_BROWSER for browser checks')
 
 @pytest.fixture
-def workspace_page(tmp_path):
+def workspace_page(tmp_path, request):
     from playwright.sync_api import sync_playwright
     app=create_app(tmp_path)
     server=make_server('127.0.0.1',0,app,threaded=True)
@@ -15,7 +15,8 @@ def workspace_page(tmp_path):
     try:
         with sync_playwright() as pw:
             executable=os.environ['LOOKING_GLASS_BROWSER']
-            browser=pw.chromium.launch(executable_path=None if executable=='installed' else executable,headless=True,args=['--no-sandbox'])
+            engine=getattr(request,'param','chromium')
+            browser=getattr(pw,engine).launch(executable_path=None if engine!='chromium' or executable=='installed' else executable,headless=not bool(os.environ.get('LOOKING_GLASS_HEADED')),args=['--no-sandbox'] if engine=='chromium' else [])
             context=browser.new_context(viewport={'width':1440,'height':960})
             page=context.new_page();errors=[]
             page.on('pageerror',lambda e:errors.append(str(e)))
@@ -238,3 +239,54 @@ def test_fenced_markdown_highlighting(workspace_page):
     expect(page.locator('.language-unknown')).to_have_text('<script>window.codeExecuted=true</script>\n')
     assert page.evaluate('window.codeExecuted') is None
     assert (root/'code.md').read_text()==original
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+@pytest.mark.parametrize('event_delivery',['normal','mouse-only','missed-release'])
+def test_linux_text_selection(workspace_page,event_delivery):
+    from playwright.sync_api import expect
+    root,page,url,_=workspace_page
+    (root/'note.md').write_text('# Heading\n\nAlpha **bold words** and ordinary words.\n\nSecond paragraph with München and 🪞.\n')
+    (root/'note.txt').write_text('Alpha bold words and ordinary words.\nSecond paragraph with München and 🪞.\n')
+    # Exercise mouse-only delivery and a release lost outside the window. These
+    # must not leave live formatting frozen or the annotation controls hidden.
+    blocked=['pointerdown','pointerup'] if event_delivery=='mouse-only' else ['pointerup','mouseup'] if event_delivery=='missed-release' else []
+    import json
+    page.add_init_script('for(const type of '+json.dumps(blocked)+'){window.addEventListener(type,event=>event.stopImmediatePropagation(),true);}')
+    page.goto(url)
+    for path in ('note.md','note.txt'):
+        open_file(page,path)
+        for end,reverse in [('ordinary words.',False),('ordinary words.',True),('München and 🪞.',False)]:
+            page.keyboard.press('ArrowRight')
+            page.wait_for_timeout(550)  # A new drag, not a double-click.
+            points=page.locator('.cm-content').evaluate("""(el,end)=>{
+                function caret(quote,end){
+                    const line=[...el.querySelectorAll('.cm-line')].find(line=>line.textContent.includes(quote));
+                    let offset=line.textContent.indexOf(quote)+(end?quote.length:0);
+                    const walker=document.createTreeWalker(line,NodeFilter.SHOW_TEXT);
+                    while(walker.nextNode()){
+                        const node=walker.currentNode;
+                        if(offset<node.length||(end&&offset===node.length)){
+                            const range=document.createRange();range.setStart(node,offset);range.collapse(true);
+                            const rect=range.getBoundingClientRect();return {x:rect.x+(end?-1:1),y:rect.y+rect.height/2};
+                        }
+                        offset-=node.length;
+                    }
+                    throw new Error('Caret not found');
+                }
+                return [caret('Alpha',false),caret(end,true)];
+            }""",end)
+            if reverse:points.reverse()
+            page.mouse.move(**points[0]);page.mouse.down();page.mouse.move(**points[1],steps=20);page.mouse.up()
+            page.mouse.move(points[1]['x']+1,points[1]['y'])
+            expect(page.locator('#selection-tools')).to_be_visible()
+            page.locator('#selection-comment').click()
+            expected='Alpha **bold words** and ordinary words.' if path.endswith('.md') else 'Alpha bold words and ordinary words.'
+            if end.startswith('München'):
+                expected+=('\n\n' if path.endswith('.md') else '\n')+'Second paragraph with München and 🪞.'
+            expect(page.locator('#selected-quote')).to_have_text(expected)
+            expect(page.locator('#comment-body')).to_be_focused()
+            page.locator('#comment-body').fill('Selected on Linux.')
+            page.keyboard.press('Control+Enter')
+            expect(page.locator('#comment-dialog')).not_to_be_visible()
+            expect(page.locator('.thread').last.locator('blockquote')).to_have_text(expected)

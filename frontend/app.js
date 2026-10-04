@@ -581,16 +581,24 @@ document.addEventListener('htmx:beforeSwap',event=>{if(event.detail.target.id===
 document.addEventListener('htmx:afterSwap',event=>{if(event.detail.target.id==='file-tree'){$$('.file-folder').forEach(folder=>folder.open=expandedFolders.has(folder.dataset.directory));filterFiles();renderTabs();}if(event.detail.target.id==='threads')filterThreads();});
 document.addEventListener('toggle',event=>{const folder=event.target;if(!folder.matches?.('.file-folder')||$('#file-filter').value)return;if(folder.open)expandedFolders.add(folder.dataset.directory);else expandedFolders.delete(folder.dataset.directory);localStorage.setItem('looking-glass-folders:'+root,JSON.stringify([...expandedFolders]));},true);
 document.addEventListener('htmx:responseError',event=>notify('Sidebar request failed: '+event.detail.xhr.status,true));
-document.addEventListener('pointerdown',event=>{
-  if(event.target.closest?.('#editor')){selectingText=true;scheduleSelectionTools();}
-},true);
+function beginSelection(event){
+  if(event.button===0&&event.target.closest?.('#editor')){selectingText=true;scheduleSelectionTools();}
+}
 function settleSelection(){
   if(!selectingText)return;selectingText=false;
-  requestAnimationFrame(()=>{if(view)view.dispatch({effects:selectionSettled.of(null)});scheduleSelectionTools();});
+  // Let CodeMirror finish its mouse/DOM selection update before revealing syntax.
+  const editor=view;
+  requestAnimationFrame(()=>{if(view&&view===editor)view.dispatch({effects:selectionSettled.of(null)});scheduleSelectionTools();});
 }
-document.addEventListener('pointerup',settleSelection);
-document.addEventListener('pointercancel',settleSelection);
+// CodeMirror selects through mouse events. Pointer events alone can leave this
+// UI's drag state stuck after an interrupted gesture or an out-of-window release.
+for(const type of ['pointerdown','mousedown'])document.addEventListener(type,beginSelection,true);
+for(const type of ['pointerup','mouseup','pointercancel','dragend'])window.addEventListener(type,settleSelection,true);
+for(const type of ['pointermove','mousemove'])window.addEventListener(type,event=>{
+  if(selectingText&&(event.buttons&1)===0)settleSelection();
+},true);
 window.addEventListener('blur',settleSelection);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)settleSelection();});
 document.addEventListener('scroll',scheduleSelectionTools,true);
 window.addEventListener('resize',()=>{scheduleSelectionTools();if($('#comment-dialog').open){const location=selectionLocation();if(location)placeNearSelection($('#comment-dialog'),location);}});
 document.addEventListener('keydown',event=>{

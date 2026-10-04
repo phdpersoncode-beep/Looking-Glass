@@ -1,3 +1,23 @@
+# Linux selection follow-up · 2026-10-04
+
+Full suite: **44 passed** in 105.61 seconds. Frontend build and `git diff --check`
+also passed. Firefox used Playwright 1.55.0, browser 141.0.
+
+The annotation toolbar could remain hidden after a missing pointer-release event:
+Looking Glass's drag flag listened to pointer events, while CodeMirror uses mouse
+events for selection. The regression reproduced the hidden toolbar before the fix.
+Selection now begins on pointer or mouse press, settles on captured release/cancel,
+and recovers when the mouse returns with the primary button up, when focus leaves,
+or when the page is hidden. Markdown syntax stays stable throughout the drag.
+
+Linux Chromium and Firefox checks cover ordinary and mouse-only input, suppressed
+release events, forward/backward and multiline drags through Markdown formatting,
+plain text, Unicode, existing annotations, and posting the selected quote.
+Tests ran headlessly on Ubuntu 24.04. Native Wayland compositor/input delivery and
+Linux middle-click PRIMARY clipboard integration were not verified here; this fix
+does not claim to diagnose the exact laptop-specific cause. The README includes a
+visible Firefox test command for a native Wayland session.
+
 # Viewer and review improvements · 2026-10-03
 
 All 38 tests pass, including every opt-in browser test, using Playwright 1.55.0
@@ -39,18 +59,12 @@ change to the default author was made.
 
 ## Delivery
 
-Changes are based on `altaykacan/Looking-Glass` commit
-`e8550c451444404964d35445a1bf0d72ebd84bb3` on branch `codex/viewers-and-review`,
-with a separate commit for each requested item. GitHub publishing is blocked:
-HTTPS Git has no usable credentials, and the connected GitHub integration rejects
-branch creation with HTTP 403, "Resource not accessible by integration".
-No commits have been pushed. A Git bundle preserves the unpublished branch and
-can be fetched into a clone containing the base commit:
-
-```bash
-git fetch /path/to/Looking-Glass-review.bundle codex/viewers-and-review:codex/viewers-and-review
-git push -u origin codex/viewers-and-review
-```
+The original requested items were published to
+`phdpersoncode-beep/Looking-Glass` on `codex/viewers-and-review`, one commit per
+item plus verification documentation. The branch includes the newer concise
+`AGENTS.md` from main. Its published file tree was fetched back and verified
+against the local tree. Publication to the originally named altaykacan fork had
+been blocked by connection permissions; the requested destination is writable.
 
 ---
 
