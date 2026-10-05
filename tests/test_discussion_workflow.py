@@ -110,6 +110,9 @@ def test_multipart_comments_and_message_owned_attachments(api,monkeypatch):
     failed=c.post(route,headers=h,data={'data':json.dumps({'author':'Agent','body':'Retry safely'}),'files':[(io.BytesIO(b'ok'),'ok.txt'),(io.BytesIO(b'large'),'large.png')]})
     assert failed.status_code==413 and len(ws.get_thread(t['id'])['messages'])==1
     assert not list(ws.attachments.directory.iterdir())
+    combined=c.post(route,headers=h,data={'data':json.dumps({'author':'Agent','body':'Too many bytes'}),'files':[(io.BytesIO(b'ok'),'first.txt'),(io.BytesIO(b'ok'),'second.txt')]})
+    assert combined.status_code==413 and len(ws.get_thread(t['id'])['messages'])==1
+    assert not list(ws.attachments.directory.iterdir())
     version=ws.read('note.txt')['version'];data={'path':'note.txt','start':0,'end':9,'author':'Agent','body':'','version':version}
     failed=c.post('/api/threads',headers=h,data={'data':json.dumps(data),'files':(io.BytesIO(b'large'),'large.png')})
     assert failed.status_code==413 and len(ws.threads())==2

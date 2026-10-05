@@ -10,10 +10,10 @@ class Revisions:
     def __init__(self, workspace):
         self.ws = workspace
 
-    def git(self, *args, env=None, check=True):
+    def git(self, *args, env=None, check=True, timeout=None):
         environment = {**os.environ, **(env or {}), 'GIT_LITERAL_PATHSPECS':'1'}
         try:
-            p = subprocess.run(['git', '-C', str(self.ws.root), *args], capture_output=True, env=environment, timeout=15)
+            p = subprocess.run(['git', '-C', str(self.ws.root), *args], capture_output=True, env=environment, timeout=timeout)
         except subprocess.TimeoutExpired as error:
             raise Problem('Git took too long. Try a smaller history selection.', 503) from error
         if check and p.returncode:
@@ -64,7 +64,7 @@ class Revisions:
         if not self.root():
             return dict(repository=False, branches=[], commits=[], tips=[], next_offset=None)
         raw = self.git('for-each-ref', '--format=%(refname)%00%(objectname)%00%(symref)',
-                       'refs/heads', 'refs/remotes').stdout.decode('utf-8', errors='replace')
+                       'refs/heads', 'refs/remotes',timeout=15).stdout.decode('utf-8', errors='replace')
         refs = []
         for line in raw.splitlines():
             ref, sha, symbolic = line.split('\0')
@@ -87,7 +87,7 @@ class Revisions:
         # NUL fields handle multiline bodies, tabs, and unusual author names.
         fmt = '%H%x00%P%x00%an%x00%ae%x00%cn%x00%ce%x00%cI%x00%s%x00%B%x00'
         raw = self.git('log', '--date-order', f'--max-count={limit+1}', f'--skip={offset}',
-                       f'--format={fmt}', *tips, '--').stdout.decode('utf-8', errors='replace')
+                       f'--format={fmt}', *tips, '--',timeout=15).stdout.decode('utf-8', errors='replace')
         fields = raw.split('\0'); commits = []
         for i in range(0, len(fields)-1, 9):
             sha, parents, author, email, committer, committer_email, date, subject, message = fields[i:i+9]

@@ -83,8 +83,13 @@ def create_app(root):
         with ws.lock:
             thread=create(bool(files));message_id=thread['messages'][-1]['id']
             try:
+                from .attachments import MAX_ATTACHMENT
+                total=0
                 for file in files:
-                    ws.attachments.add(thread['id'],file.stream,file.filename,message_id)
+                    item=ws.attachments.add(thread['id'],file.stream,file.filename,message_id)
+                    total+=item['size']
+                    if total>MAX_ATTACHMENT:
+                        raise Problem('Attachments in one comment are limited to 64 MiB.',413)
             except BaseException:
                 if new_thread: ws.delete_thread(thread['id'])
                 else: ws.delete_message(thread['id'],message_id)

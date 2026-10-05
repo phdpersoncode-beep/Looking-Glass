@@ -40,7 +40,10 @@
   same file simultaneously. Multi-server use of one workspace is unsupported.
 - Drafts live in the current browser session. Tab switches retain undo history;
   a browser reload/close warns about unsaved work but does not restore drafts.
-  Thread history is durable in SQLite. It is not yet exported into Git commits.
+  Pending pasted files remain in the browser until sent or cancelled. Thread history
+  and sent attachments are durable in SQLite/local storage; they are not exported
+  into Git commits. Clipboard image paste uses the browser paste event; operating-system
+  clipboard formats must be exposed to the browser as an image.
 - Tab pinning and author/theme preferences are local browser metadata. Close
   other tabs preserves pinned tabs. The UI is desktop-focused.
 - Git gutter indicators compare the current draft with HEAD. Diff computation has
@@ -50,7 +53,8 @@
   Markdown reading previews, and JSONL; isolated HTML reports keep their own styling.
 - Checkpoints preserve unrelated changes, but selected pre-staged files and
   in-progress merges/cherry-picks/reverts must be handled in the terminal. No
-  Git history viewer, amend, branch management, push or automatic commit exists.
+  amend, branch management, push or automatic commit exists. The read-only history
+  graph includes local and already-fetched remote branches; fetching remains a terminal action.
   Checkpoints use Git plumbing; commit hooks and automatic commit signing are
   not invoked in this milestone.
   Avoid concurrently changing Git's HEAD/index while creating a checkpoint.
@@ -60,8 +64,11 @@
   replacing directories in the middle of a request. The API also opens files outside
   the workspace by absolute path, so the token grants read/write access to every
   file your user can access. Only grant it to agents you trust with that.
-- SQLite snapshots contain last-observed text to map anchors. Disk files remain
-  authoritative; snapshots are not a backup or alternate document store.
+- SQLite live snapshots contain last-observed text to map anchors. Separate immutable,
+  compressed review snapshots preserve exact discussion/comment context, including
+  deleted files and uncommitted content. They are deduplicated and removed when no
+  discussion references them. Disk files remain authoritative for editing. Legacy
+  context is labelled recovered because its original commit was never recorded.
 - Agent commands require a running server. The project registry keeps the last
   address for each root; stopped or switched-away projects remain listed as unreachable.
   Servers started before an upgrade must restart to expose updated API routes.

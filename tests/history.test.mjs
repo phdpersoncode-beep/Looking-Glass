@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {graphRows} from '../frontend/history.mjs';
 test('merge lanes preserve both parents and reconnect shared ancestors',()=>{
-  const rows=graphRows([{hash:'merge',parents:['main','topic']},{hash:'topic',parents:['base']},{hash:'main',parents:['base']},{hash:'base',parents:[]}]);
+  const rows=graphRows([{hash:'merge',parents:['main','topic']},{hash:'topic',parents:['base']},{hash:'main',parents:['base']},{hash:'base',parents:[]}],[{commit:'merge',ref:'main'},{commit:'topic',ref:'agent/review'}]);
+  assert.equal(rows[0].color,rows[2].color);
+  assert.notEqual(rows[0].color,rows[1].color);
   assert.equal(rows[0].edges.filter(e=>e.half==='bottom').length,2);
   assert.ok(rows.some(r=>r.width===2));
   assert.equal(rows.at(-1).edges.filter(e=>e.half==='top').length,1);

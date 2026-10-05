@@ -339,6 +339,7 @@ function mountDocument(e){
 async function refreshBaseline(){const editor=view,path=active;if(!editor)return;const baseline=await api('git/baseline?'+new URLSearchParams({path}));if(view===editor&&active===path)editor.dispatch({effects:[baselineEffect.of(baseline.content),gitSlot.reconfigure(baseline.content===null?[]:gitGutter)]});}
 function updateToolbar(){
   const e=entry(), type=e?ext(e.path):'', viewer=!!e?.kind||['stl','jsonl'].includes(type)||isImage(e?.path||'');
+  $('.font-controls').hidden=e?.kind==='history';$('#annotate').hidden=!!e?.kind;$('#save').hidden=!!e?.kind;
   $('#json-fold-controls').hidden=type!=='json';
   $('#download-file').hidden=!['html','htm','jsonl'].includes(type);
   $('#document-name').textContent=e?.kind==='history'?'Commit history':e?.kind==='original'?'Original · '+e.sourcePath:e?.path||'Open a file';$('#dirty').textContent=e?.dirty?' · Unsaved':'';

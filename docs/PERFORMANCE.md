@@ -69,3 +69,16 @@ a Python app/Workspace directly; adapt their fixture and seed mechanism to launc
 replacement server. Keep the same browser assertions and public request/response
 contracts. Internal unit tests alone cannot establish behavior parity. Require
 before/after latency measurements as well as passing functional checks.
+
+
+## History and review context · 2026-10-05
+
+The commit graph loads 100 commits at a time on demand and performs no background
+Git fetch or history polling. Original-context tabs are read-only and skip file
+polling. Discussion refreshes return small origin metadata; full source copies
+are loaded only when requested. Review source is compressed once per unique
+content hash, shared across threads/messages, and garbage-collected when no
+remaining discussion uses it. Attachments stream to disk; the composer retains
+browser File/Blob references and small previews until sending, rather than
+embedding image bytes in every discussion response. No new frontend dependency
+or backend framework was added.

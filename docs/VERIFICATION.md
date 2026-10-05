@@ -1,3 +1,32 @@
+# Commit graph, durable review context, and clipboard attachments · 2026-10-05
+
+Based on the fork's latest branch, `codex/discussion-workflow` at `cb875b8`.
+Three feature commits were published separately to
+`codex/history-and-persistent-discussions`.
+
+- Local fast suite: **35 passed** in 4.69 seconds; **4 JavaScript tests passed**.
+- Local Chromium browser suite: **28 passed** in 97.64 seconds. Targeted checks
+  repeated after the final composer cleanup also passed.
+- GitHub Actions on `9f61154`: **both fast and browser jobs passed**, using locked
+  dependencies and installed Chromium/Firefox. Asset reproducibility and Python
+  packaging passed on the clean runner.
+  [Verified run](https://github.com/phdpersoncode-beep/Looking-Glass/actions/runs/37356220243).
+- Source distribution and wheel built locally; their new templates and origin
+  module were verified in the package contents. Installed frontend versions
+  match `package-lock.json`.
+- Light/dark graph and composer screenshots were inspected at 1440×960.
+
+New checks cover split/merge lanes, stable first-parent colors, branch filtering,
+read-only history, pagination, unsaved draft retention, exact uncommitted source,
+per-comment commit references, source/rendered anchors, deletion, reattachment,
+restart, legacy migration, token protection, snapshot deduplication/cleanup,
+image-only multipart comments, message-owned attachment cleanup, rollback after
+partial upload failure, and safe retries retaining text/files. Clipboard checks
+inject browser paste events containing PNG data and verify ordinary text paste
+is not intercepted. Physical Windows/Ubuntu clipboard integration was not run.
+
+---
+
 # Discussion workflow completion · 2026-10-04
 
 Continued `codex/discussion-workflow` from `76ae7bb`; the earlier commits already

@@ -303,3 +303,24 @@ Chromium/Firefox browser job on pushes and pull requests.
 If this project was delivered as an archive, extract it into your checked-out
 Looking-Glass repository and review the diff before committing. The archive
 contains no Git history, environments, API tokens, or annotation databases.
+
+
+### Review history and screenshots
+
+Open **Commit history** at the top of the file sidebar. It opens a normal tab with
+newest-first branch/merge lanes, a branch filter dropdown, colored identities,
+branch labels, and older-commit pagination. Hover a row for its full message;
+click for the full message and author/committer details. Remote branches reflect
+what your local Git repository has already fetched.
+
+Each thread and comment has a commit/context button. It opens the saved reviewed
+source read-only, even after the file or passage disappears. New comments record
+HEAD and keep the exact source snapshot; uncommitted work remains recoverable.
+Existing discussions are labelled **Recovered context** when their original
+commit was never recorded.
+
+Use the dim paperclip beside a comment/reply box, or focus that box and paste a
+clipboard screenshot with **Ctrl+V**. Small pending chips can be renamed or
+removed before sending. Files belong to the posted comment; image-only comments
+are supported. Click an image filename to preview it, or use **⋯** for download,
+rename, and removal. Text and files stay in the composer if sending fails.

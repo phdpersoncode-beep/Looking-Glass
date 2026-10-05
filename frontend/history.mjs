@@ -1,19 +1,22 @@
 // Pure lane layout: carry parent identities through splits, merges, and pages.
-export function graphRows(commits) {
-  let lanes=[];const rows=[];
+export function graphRows(commits,branches=[]) {
+  let lanes=[];const rows=[],colors=new Map();
+  for(const branch of branches)if(!colors.has(branch.commit))colors.set(branch.commit,branch.ref);
   for(const commit of commits){
+    if(!colors.has(commit.hash))colors.set(commit.hash,commit.hash);
+    commit.parents.forEach((parent,index)=>{if(!colors.has(parent))colors.set(parent,index===0?colors.get(commit.hash):parent);});
     const before=[...lanes];let column=lanes.indexOf(commit.hash);
     if(column<0){column=lanes.length;lanes.push(commit.hash);}
     const at=[...lanes],parents=[...new Set(commit.parents)];
     lanes.splice(column,1);
     for(const parent of [...parents].reverse())if(!lanes.includes(parent))lanes.splice(column,0,parent);
     const after=[...lanes],edges=[];
-    for(let x=0;x<before.length;x++)edges.push({from:x,to:at.indexOf(before[x]),half:'top',key:before[x]});
+    for(let x=0;x<before.length;x++)edges.push({from:x,to:at.indexOf(before[x]),half:'top',key:colors.get(before[x])});
     for(let x=0;x<at.length;x++){
       const targets=x===column?parents:[at[x]];
-      for(const target of targets)edges.push({from:x,to:after.indexOf(target),half:'bottom',key:target});
+      for(const target of targets)edges.push({from:x,to:after.indexOf(target),half:'bottom',key:colors.get(target)});
     }
-    rows.push({commit,column,edges,width:Math.max(before.length,at.length,after.length,1)});
+    rows.push({commit,column,edges,color:colors.get(commit.hash),width:Math.max(before.length,at.length,after.length,1)});
   }
   return rows;
 }
@@ -38,18 +41,18 @@ export function mountHistory(host,state,api){
     summary.textContent=state.selection===null?'All branches':`${state.selection.length} branches`;
   }
   function render(){
-    const rows=graphRows(state.commits),width=Math.max(1,...rows.map(r=>r.width))*18+16;
+    const rows=graphRows(state.commits,state.branches),width=Math.max(1,...rows.map(r=>r.width))*18+16;
     list.replaceChildren();list.style.setProperty('--graph-width',width+'px');
     const tips=new Map();for(const b of state.branches){if(!tips.has(b.commit))tips.set(b.commit,[]);tips.get(b.commit).push(b);}
-    for(const {commit,column,edges} of rows){
+    for(const {commit,column,edges,color:laneColor} of rows){
       const row=el('button','commit-row');row.type='button';row.dataset.commit=commit.hash;row.setAttribute('role','listitem');row.title=commit.message;
       const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('width',width);svg.setAttribute('height',60);svg.setAttribute('aria-hidden','true');
       for(const edge of edges){const line=document.createElementNS(svg.namespaceURI,'path'),x=16+edge.from*18,y=16+edge.to*18,top=edge.half==='top';
         line.setAttribute('d',top?`M ${x} 0 C ${x} 18 ${y} 12 ${y} 30`:`M ${x} 30 C ${x} 48 ${y} 42 ${y} 60`);line.setAttribute('fill','none');line.setAttribute('stroke',color(edge.key));line.setAttribute('stroke-width','1.6');svg.append(line);
       }
-      const dot=document.createElementNS(svg.namespaceURI,'circle');dot.setAttribute('cx',16+column*18);dot.setAttribute('cy',30);dot.setAttribute('r',4);dot.setAttribute('fill','var(--paper)');dot.setAttribute('stroke',color(commit.hash));dot.setAttribute('stroke-width','2');svg.append(dot);
+      const dot=document.createElementNS(svg.namespaceURI,'circle');dot.setAttribute('cx',16+column*18);dot.setAttribute('cy',30);dot.setAttribute('r',4);dot.setAttribute('fill','var(--paper)');dot.setAttribute('stroke',color(laneColor));dot.setAttribute('stroke-width','2');svg.append(dot);
       const content=el('span','commit-content'),subject=el('span','commit-subject',commit.subject),meta=el('span','commit-meta');
-      const author=el('span','commit-author',commit.committer),mark=el('span','author-mark',commit.committer.slice(0,1).toUpperCase());mark.style.background=color(commit.committer_email||commit.committer);
+      const author=el('span','commit-author',commit.committer),mark=el('span','author-mark',([...commit.committer][0]||'?').toUpperCase());mark.style.background=color(commit.committer_email||commit.committer);
       author.prepend(mark);author.title=commit.author===commit.committer?`${commit.committer} <${commit.committer_email}>`:`Committed by ${commit.committer} <${commit.committer_email}> · Authored by ${commit.author} <${commit.author_email}>`;
       const date=el('time','',new Date(commit.date).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'}));date.dateTime=commit.date;
       meta.append(author,el('code','',commit.hash.slice(0,8)),date);
