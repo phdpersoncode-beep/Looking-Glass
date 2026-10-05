@@ -42,3 +42,45 @@ def test_deleted_file_discussion_opens_original_context(workspace_page):
     page.locator('.message-origin').click();expect(page.locator('.cm-content')).to_contain_text('Original passage.')
     page.locator('#reply-'+str(t['id'])).fill('Still discussable');page.locator('.reply-form button[type=submit]').click()
     expect(page.locator('.message p')).to_have_text(['Keep this discussion','Still discussable'])
+
+def paste_image(page,selector):
+    page.locator(selector).evaluate('''el=>{
+      const bytes=Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j1ioAAAAASUVORK5CYII='),c=>c.charCodeAt(0));
+      const data=new DataTransfer();data.items.add(new File([bytes],'image.png',{type:'image/png'}));
+      el.dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true}));
+    }''')
+
+def test_clipboard_image_new_thread_reply_and_retry(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    (root/'note.txt').write_text('A passage to discuss.')
+    page.goto(url);open_file(page,'note.txt')
+    page.locator('.cm-content').click();page.keyboard.press('Control+a')
+    expect(page.locator('#annotate')).to_be_enabled();page.locator('#annotate').click()
+    expect(page.locator('#comment-dialog')).to_be_visible()
+    paperclip=page.get_by_role('button',name='Attach files to new thread',exact=True)
+    expect(paperclip).to_be_visible()
+    paste_image(page,'#comment-body');expect(page.locator('#comment-form .pending-file')).to_have_count(1)
+    assert page.locator('#comment-form .pending-file img').evaluate('el=>el.src.startsWith("blob:")')
+    page.locator('#comment-submit').click();expect(page.locator('.attachment')).to_have_count(1)
+    t=ws.threads()[0];assert t['messages'][0]['body']==''
+    assert t['attachments'][0]['message_id']==t['messages'][0]['id']
+    paste_image(page,'#reply-'+str(t['id']))
+    expect(page.locator('.reply-form .pending-file')).to_have_count(1)
+    # A reply failure must retain both the text and screenshot for a safe retry.
+    page.locator('#reply-'+str(t['id'])).fill('Screenshot feedback')
+    page.route('**/api/threads/*/replies',lambda route:route.fulfill(status=503,content_type='application/json',body='{"error":"Try again"}'))
+    page.locator('.reply-form button[type=submit]').click();expect(page.locator('.composer-status.error')).to_have_text('Try again')
+    expect(page.locator('.reply-form .pending-file')).to_have_count(1)
+    expect(page.locator('#reply-'+str(t['id']))).to_have_value('Screenshot feedback')
+    page.unroute('**/api/threads/*/replies');page.locator('.reply-form button[type=submit]').click()
+    expect(page.locator('.attachment')).to_have_count(2);expect(page.locator('.pending-file')).to_have_count(0)
+    assert len(ws.get_thread(t['id'])['messages'])==2
+    # Ordinary text paste continues through the textarea's normal browser path.
+    prevented=page.locator('#reply-'+str(t['id'])).evaluate('''el=>{
+      const data=new DataTransfer();data.setData('text/plain','ordinary text');
+      const event=new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true});el.dispatchEvent(event);return event.defaultPrevented;
+    }''')
+    assert prevented is False
+    page.reload();expect(page.locator('.attachment')).to_have_count(2)
+    page.locator('.attachment-name').first.click();expect(page.locator('#attachment-image')).to_be_visible()

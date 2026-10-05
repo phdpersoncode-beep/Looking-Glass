@@ -1,3 +1,4 @@
+import {createComposers} from './composer.mjs';
 import {mountHistory} from './history.mjs';
 import {formatJSON} from './json-format.mjs';
 import {basicSetup} from 'codemirror';
@@ -24,6 +25,7 @@ import {SVGRenderer} from 'three/addons/renderers/SVGRenderer.js';
 const $ = selector => document.querySelector(selector);
 const token = $('meta[name=looking-glass-token]').content;
 const root = $('.root-label').textContent;
+const composers=createComposers({token,api,onError:message=>notify(message,true)});
 const tabs = new Map();
 const HISTORY='looking-glass://history',ORIGINAL='looking-glass://thread/';
 async function readTab(path){
@@ -365,6 +367,7 @@ function threadScope(){return $('#thread-scope').checked?'all':'file';}
 const discussionCache=new Map();let lastThreadHTML='',lastThreadKey='',navigationIndex=[],indexTime=0;
 function renderDiscussions(data,key){
   currentThreads=data.threads;navigationIndex=data.index;indexTime=Date.now();
+  composers.prune(new Set(data.index.map(thread=>thread.id)));
   $('#thread-count').textContent=currentThreads.filter(t=>!t.resolved).length;
   previewThreads();const e=entry();
   if(view&&e&&!e.dirty)view.dispatch({effects:spansEffect.of(spansFor(currentThreads,e.content))});
@@ -375,6 +378,7 @@ function renderDiscussions(data,key){
     for(const form of $$('.reply-form')){const draft=drafts.get(form.closest('.thread').dataset.thread);if(draft)form.querySelector('textarea').value=draft;}
     if(focusId&&$('#threads').contains(document.getElementById(focusId))){const field=document.getElementById(focusId);field.focus({preventScroll:true});field.setSelectionRange(start,end);}
   }
+  for(const form of $$('.reply-form'))composers.render(form);
   filterThreads();
 }
 async function refreshThreads(useCache=false){
@@ -443,13 +447,14 @@ async function submitComment(event){
   event.preventDefault();if(!pending||postingComment)return;
   const selection=pending,body=$('#comment-body').value,author=$('#author').value;
   if(selection.path!==active||selection.content!==(selection.render_anchor?entry()?.content:view?.state.sliceDoc()))throw new Error('The document changed. Select the passage again before commenting.');
-  postingComment=true;$('#comment-submit').disabled=true;
+  postingComment=true;composers.setSending($('#comment-form'),true);
   try{
     await saveActive();const e=entry();if(selection!==pending||selection.path!==active||selection.content!==(selection.render_anchor?e.content:view?.state.sliceDoc()))throw new Error('The selected passage changed. Select it again.');
-    const result=await api('threads','POST',{path:selection.path,...(selection.render_anchor?{render_anchor:selection.render_anchor}:{start:selection.start,end:selection.end}),version:e.version,body,author});
+    const result=await composers.post('threads',{path:selection.path,...(selection.render_anchor?{render_anchor:selection.render_anchor}:{start:selection.start,end:selection.end}),version:e.version,body,author},$('#comment-form'));
+    composers.clear($('#comment-form'));
     if(active===selection.path){closeComment();activeThread=result.id;await refreshThreads();showThread(result.id);view?.focus();}
     notify('Discussion created');
-  }finally{postingComment=false;$('#comment-submit').disabled=false;}
+  }finally{postingComment=false;composers.setSending($('#comment-form'),false);}
 }
 
 function collapseJSON(editor){
@@ -723,15 +728,22 @@ document.addEventListener('click',guard(async event=>{
 }));
 document.addEventListener('submit',event=>{
   if(event.target.matches('.reply-form')){event.preventDefault();guard(async()=>{
-    const form=event.target,id=Number(form.closest('.thread').dataset.thread),field=form.querySelector('textarea'),body=field.value;
-    await api('threads/'+id+'/replies','POST',{author:$('#author').value,body});
-    // Clear only the submitted draft, not any text typed while it was sending.
-    const current=document.getElementById('reply-'+id);if(current?.value===body)current.value='';
-    await refreshThreads();notify('Reply added');
+    const form=event.target;if(composers.isSending(form))return;
+    const id=Number(form.closest('.thread').dataset.thread),field=form.querySelector('textarea'),body=field.value;
+    composers.setSending(form,true);composers.status(form,'Sending…');
+    try{
+      await composers.post('threads/'+id+'/replies',{author:$('#author').value,body},form);
+      composers.clear(form);
+      // Keep text entered while a reply was being sent.
+      const current=document.getElementById('reply-'+id);if(current?.value===body)current.value='';
+      await refreshThreads();showThread(id);notify('Reply added');
+    }catch(error){composers.status(form,error.message,true);throw error;}
+    finally{composers.setSending(form,false);}
+
   })();}
 });
 $('#comment-form').onsubmit=event=>{submitComment(event).catch(error=>{$('#comment-error').textContent=error.message;notify(error.message,true);});};
-$('#comment-dialog').addEventListener('close',()=>{if(!$('#comment-dialog').open&&pending?.path)pending=null;scheduleSelectionTools();});
+$('#comment-dialog').addEventListener('close',()=>{composers.clear($('#comment-form'));if(!$('#comment-dialog').open&&pending?.path)pending=null;scheduleSelectionTools();});
 $('#comment-cancel').onclick=()=>{closeComment();view?.focus();};
 $('#comment-body').addEventListener('keydown',event=>{if((event.ctrlKey||event.metaKey)&&event.key==='Enter'){event.preventDefault();$('#comment-form').requestSubmit();}});
 $('#selection-tools').onmousedown=event=>event.preventDefault();
@@ -817,7 +829,7 @@ $('#directory-choose').onclick=dialogGuard('#directory-error',async()=>{
   if([...tabs.values()].some(e=>e.dirty))throw new Error('Save or close unsaved tabs before you switch directories.');
   await api('workspace','POST',{path:$('#directory-path').value});location.reload();
 });
-window.addEventListener('beforeunload',event=>{if([...tabs.values()].some(e=>e.dirty)){event.preventDefault();event.returnValue='';}});
+window.addEventListener('beforeunload',event=>{if([...tabs.values()].some(e=>e.dirty)||composers.hasPending()){event.preventDefault();event.returnValue='';}});
 document.documentElement.dataset.theme=localStorage.getItem('looking-glass-theme')||'light';$('#theme').textContent=document.documentElement.dataset.theme==='dark'?'Light mode':'Dark mode';
 // Restore tab metadata only; unsaved text is never silently persisted over disk.
 let restored={tabs:[]};try{restored=JSON.parse(localStorage.getItem('looking-glass-tabs:'+root)||'{"tabs":[]}');if(Array.isArray(restored))restored={tabs:restored};}catch{}
@@ -837,16 +849,6 @@ guard(async()=>{
 })();
 setInterval(poll,2200);setInterval(()=>{if(!document.hidden)window.htmx.trigger('#file-tree','refresh');},12000);
 
-document.addEventListener('change',guard(async event=>{
-  if(!event.target.matches('.attach-files'))return;
-  const input=event.target,id=input.closest('.thread').dataset.thread;
-  input.disabled=true;
-  try{for(const file of input.files){
-    const body=new FormData();body.append('file',file);
-    const response=await fetch('/api/threads/'+id+'/attachments',{method:'POST',headers:{'X-Looking-Glass-Token':token},body});
-    if(!response.ok)throw new Error((await response.json()).error);
-  }await refreshThreads();notify('Files attached');}finally{input.disabled=false;input.value='';}
-}));
 
 function applyZen(){
   document.documentElement.classList.toggle('zen-mode',zenMode);

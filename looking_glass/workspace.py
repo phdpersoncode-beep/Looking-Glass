@@ -256,10 +256,10 @@ class Workspace:
             return [dict(row) for row in db.execute('SELECT id,path,start,resolved,anchor_status FROM threads ORDER BY path,start,id')]
 
     @staticmethod
-    def message(author, body):
+    def message(author, body, allow_empty=False):
         if not isinstance(author, str) or not author.strip() or len(author) > 120:
             raise Problem('An author label of 1–120 characters is required.')
-        if not isinstance(body, str) or not body.strip() or len(body) > 50000:
+        if not isinstance(body, str) or (not body.strip() and not allow_empty) or len(body) > 50000:
             raise Problem('A comment of 1–50,000 characters is required.')
         return author.strip(), body.strip()
 
@@ -335,8 +335,8 @@ class Workspace:
                                     content=''.join(lines[first-1:last]))
             return t
 
-    def create_thread(self, path, start, end, body, author, version):
-        author, body = self.message(author, body)
+    def create_thread(self, path, start, end, body, author, version, allow_empty=False):
+        author, body = self.message(author, body, allow_empty)
         with self.lock, self.connection() as db:
             content, current = self.text(path)
             if current != version:
@@ -368,9 +368,9 @@ class Workspace:
             raise Problem('Invalid or oversized rendered passage.')
         return anchor
 
-    def create_rendered_thread(self, path, anchor, body, author, version):
+    def create_rendered_thread(self, path, anchor, body, author, version, allow_empty=False):
         anchor = self.rendered_anchor(anchor)
-        author, body = self.message(author,body)
+        author, body = self.message(author,body,allow_empty)
         with self.lock, self.connection() as db:
             if self.path(path).suffix.lower() not in ('.html','.htm'):
                 raise Problem('Rendered anchors require an HTML file.')
@@ -385,8 +385,8 @@ class Workspace:
             db.execute('INSERT INTO messages(thread_id,author,body,origin_id) VALUES(?,?,?,?)', (identifier,author,body,origin))
         return self.get_thread(identifier)
 
-    def reply(self, identifier, body, author):
-        author, body = self.message(author, body)
+    def reply(self, identifier, body, author, allow_empty=False):
+        author, body = self.message(author, body, allow_empty)
         with self.lock:
             t = self.get_thread(identifier)
             provenance='captured'
@@ -452,6 +452,8 @@ class Workspace:
         with self.lock, self.connection() as db:
             if not db.execute('SELECT id FROM messages WHERE id=? AND thread_id=?', (message_id,identifier)).fetchone():
                 raise Problem('Comment not found.', 404)
+            for item in db.execute('SELECT storage_key FROM attachments WHERE message_id=?',(message_id,)):
+                (self.attachments.directory/item['storage_key']).unlink(missing_ok=True)
             db.execute('DELETE FROM messages WHERE id=?', (message_id,))
             if not db.execute('SELECT id FROM messages WHERE thread_id=?', (identifier,)).fetchone():
                 self._delete_attachment_files(db,identifier)

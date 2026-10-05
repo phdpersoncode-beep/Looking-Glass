@@ -8,17 +8,12 @@
   {% if thread.anchor_kind == 'rendered' %}<span class="muted">Rendered HTML passage</span>{% endif %}
   <blockquote data-action="jump">{{ thread.quote }}</blockquote>
   {% if thread.anchor_status != 'attached' %}<p class="anchor-warning">Passage needs reattachment.<button data-action="reattach">Attach to selection</button></p>{% endif %}
-  {% for message in thread.messages %}<div class="message"><div><strong>{{ message.author }}</strong><time>{{ message.created_at }}</time>{% if message.origin %}<button class="message-origin" data-action="message-original" data-message="{{ message.id }}" title="Context when this comment was added{{ ' (recovered)' if message.origin.provenance.startswith('recovered') else '' }}"><code>{{ message.commit_hash[:8] if message.commit_hash else 'saved' }}</code></button>{% endif %}<button class="delete-comment" data-action="delete-message" data-message="{{ message.id }}" aria-label="Delete comment" title="Delete comment">×</button></div><p>{{ message.body }}</p></div>{% endfor %}
-  <div class="attachments">
-    {% for item in thread.attachments %}<div class="attachment" data-attachment="{{ item.id }}">
-      <button data-action="download-attachment" title="Download attachment">{{ item.name }}</button>
-      {% if item.media_type.startswith('image/') %}<button data-action="preview-attachment" aria-label="Preview {{ item.name }}">▧</button>{% endif %}
-      <button data-action="rename-attachment" aria-label="Rename {{ item.name }}">✎</button><button data-action="delete-attachment" aria-label="Remove {{ item.name }}">×</button>
-    </div>{% endfor %}
-    <label class="attach-button">＋ Attach file<input type="file" class="attach-files" multiple aria-label="Attach files to thread {{ thread.id }}"></label>
-  </div>
+  {% for message in thread.messages %}<div class="message"><div><strong>{{ message.author }}</strong><time>{{ message.created_at }}</time>{% if message.origin %}<button class="message-origin" data-action="message-original" data-message="{{ message.id }}" title="Context when this comment was added{{ ' (recovered)' if message.origin.provenance.startswith('recovered') else '' }}"><code>{{ message.commit_hash[:8] if message.commit_hash else 'saved' }}</code></button>{% endif %}<button class="delete-comment" data-action="delete-message" data-message="{{ message.id }}" aria-label="Delete comment" title="Delete comment">×</button></div>{% if message.body %}<p>{{ message.body }}</p>{% endif %}
+    <div class="attachments">{% for item in thread.attachments if item.message_id == message.id %}{% include 'attachment.html' %}{% endfor %}</div>
+  </div>{% endfor %}
+  <div class="attachments">{% for item in thread.attachments if not item.message_id %}{% include 'attachment.html' %}{% endfor %}</div>
   <button class="delete-thread" data-action="delete-thread">Delete thread</button>
-  <form class="reply-form"><label class="sr-only" for="reply-{{ thread.id }}">Reply to thread {{ thread.id }}</label><textarea id="reply-{{ thread.id }}" rows="2" placeholder="Reply to this thread…" required></textarea><button type="submit">Reply ↗</button></form>
+  <form class="reply-form">{% with composer_id='reply-' ~ thread.id, composer_label='Reply to thread ' ~ thread.id, composer_rows=2, composer_placeholder='Reply or paste a screenshot…', attach_label='Attach files to thread ' ~ thread.id %}{% include 'composer.html' %}{% endwith %}<button type="submit">Reply ↗</button></form>
   </div>
 </article>
 {% endfor %}

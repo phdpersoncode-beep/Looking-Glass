@@ -24,7 +24,7 @@ def create_app(root):
 
     @app.before_request
     def protect():
-        if request.method=='POST' and request.path.endswith('/attachments'):
+        if request.method=='POST' and (request.path.endswith(('/attachments','/replies')) or request.path=='/api/threads'):
             request.max_content_length=65*1024*1024
         if request.path.startswith(('/api/', '/fragments/')):
             if not secrets.compare_digest(request.headers.get('X-Looking-Glass-Token',''), ws.token):
@@ -63,6 +63,33 @@ def create_app(root):
         if not isinstance(data,dict):
             raise Problem('Send a JSON object.')
         return data
+
+    def review_body():
+        if request.mimetype != 'multipart/form-data':
+            return body(), []
+        try:
+            data = json.loads(request.form.get('data',''))
+        except (TypeError,ValueError):
+            raise Problem('Send review data with the attachment files.')
+        if not isinstance(data,dict): raise Problem('Send a JSON object.')
+        files=request.files.getlist('files')
+        if len(files)>16: raise Problem('Attach at most 16 files per comment.')
+        for file in files: ws.attachments.name(file.filename)
+        return data,files
+
+    def save_review(create, files, new_thread=False):
+        # Roll back the new comment and its files on an upload failure. Keep the
+        # user's existing discussion untouched; the composer can retry safely.
+        with ws.lock:
+            thread=create(bool(files));message_id=thread['messages'][-1]['id']
+            try:
+                for file in files:
+                    ws.attachments.add(thread['id'],file.stream,file.filename,message_id)
+            except BaseException:
+                if new_thread: ws.delete_thread(thread['id'])
+                else: ws.delete_message(thread['id'],message_id)
+                raise
+            return ws.get_thread(thread['id'])
 
     @app.get('/')
     def index():
@@ -219,13 +246,13 @@ def create_app(root):
 
     @app.post('/api/threads')
     def new_thread():
-        data = body()
+        data,files = review_body()
         ws.path(data.get('path'))
         if Path(data['path']).suffix.lower() in ('.stl','.jsonl','.png','.jpg','.jpeg','.svg'):
             raise Problem('This viewer does not support annotations.')
         if 'render_anchor' in data:
-            return jsonify(ws.create_rendered_thread(data.get('path'),data['render_anchor'],data.get('body'),data.get('author'),data.get('version'))),201
-        return jsonify(ws.create_thread(data.get('path'),data.get('start'),data.get('end'),data.get('body'),data.get('author'),data.get('version'))),201
+            return jsonify(save_review(lambda empty:ws.create_rendered_thread(data.get('path'),data['render_anchor'],data.get('body'),data.get('author'),data.get('version'),allow_empty=empty),files,new_thread=True)),201
+        return jsonify(save_review(lambda empty:ws.create_thread(data.get('path'),data.get('start'),data.get('end'),data.get('body'),data.get('author'),data.get('version'),allow_empty=empty),files,new_thread=True)),201
 
     @app.get('/api/threads/<int:identifier>')
     def thread(identifier):
@@ -243,8 +270,8 @@ def create_app(root):
 
     @app.post('/api/threads/<int:identifier>/replies')
     def reply(identifier):
-        data = body()
-        return jsonify(ws.reply(identifier,data.get('body'),data.get('author'))),201
+        data,files = review_body()
+        return jsonify(save_review(lambda empty:ws.reply(identifier,data.get('body'),data.get('author'),allow_empty=empty),files)),201
 
     @app.patch('/api/threads/<int:identifier>')
     def update_thread(identifier):
@@ -258,7 +285,8 @@ def create_app(root):
         upload=request.files.get('file')
         if upload is None:
             raise Problem('Choose a file to attach.')
-        return jsonify(ws.attachments.add(identifier,upload.stream,request.form.get('name') or upload.filename)),201
+        message_id=ws.query_integer(request.form['message_id'],'Comment',1) if 'message_id' in request.form else None
+        return jsonify(ws.attachments.add(identifier,upload.stream,request.form.get('name') or upload.filename,message_id)),201
 
     @app.get('/api/attachments/<int:identifier>')
     def download_attachment(identifier):

@@ -19,6 +19,9 @@ class Attachments:
                 storage_key TEXT NOT NULL UNIQUE, name TEXT NOT NULL, size INTEGER NOT NULL,
                 media_type TEXT NOT NULL);
                 CREATE INDEX IF NOT EXISTS attachments_thread ON attachments(thread_id);''')
+            if 'message_id' not in {row['name'] for row in db.execute('PRAGMA table_info(attachments)')}:
+                db.execute('ALTER TABLE attachments ADD COLUMN message_id INTEGER REFERENCES messages(id) ON DELETE CASCADE')
+            db.execute('CREATE INDEX IF NOT EXISTS attachments_message ON attachments(message_id)')
 
     @staticmethod
     def name(value):
@@ -28,7 +31,7 @@ class Attachments:
 
     @staticmethod
     def public(row):
-        return {k:row[k] for k in ('id','thread_id','name','size','media_type')}
+        return {k:row[k] for k in ('id','thread_id','message_id','name','size','media_type')}
 
     def get(self, identifier):
         with self.ws.connection() as db:
@@ -36,7 +39,7 @@ class Attachments:
         if not row: raise Problem('Attachment not found.',404)
         return dict(row)
 
-    def add(self, thread_id, stream, name):
+    def add(self, thread_id, stream, name, message_id=None):
         name=self.name(name)
         with self.ws.connection() as db:
             if not db.execute('SELECT id FROM threads WHERE id=?',(thread_id,)).fetchone():
@@ -51,8 +54,10 @@ class Attachments:
             with self.ws.lock, self.ws.connection() as db:
                 if not db.execute('SELECT id FROM threads WHERE id=?',(thread_id,)).fetchone():
                     raise Problem('Thread not found.',404)
-                cursor=db.execute('INSERT INTO attachments(thread_id,storage_key,name,size,media_type) VALUES(?,?,?,?,?)',
-                                  (thread_id,key,name,size,IMAGE_TYPES.get(Path(name).suffix.lower(),'application/octet-stream')))
+                if message_id is not None and not db.execute('SELECT id FROM messages WHERE id=? AND thread_id=?',(message_id,thread_id)).fetchone():
+                    raise Problem('Comment not found in this thread.',404)
+                cursor=db.execute('INSERT INTO attachments(thread_id,storage_key,name,size,media_type,message_id) VALUES(?,?,?,?,?,?)',
+                                  (thread_id,key,name,size,IMAGE_TYPES.get(Path(name).suffix.lower(),'application/octet-stream'),message_id))
                 identifier=cursor.lastrowid
         except BaseException:
             path.unlink(missing_ok=True)

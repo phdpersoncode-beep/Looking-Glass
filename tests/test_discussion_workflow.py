@@ -87,3 +87,33 @@ def test_file_tree_revalidation_and_scan_failure(api, monkeypatch):
     (root/'note.txt').unlink(); (root/'new.txt').unlink()
     empty = c.get('/fragments/files', headers=conditional)
     assert empty.status_code == 200 and b'No files in this directory.' in empty.data
+
+def test_multipart_comments_and_message_owned_attachments(api,monkeypatch):
+    import json
+    root,ws,c,h,t=api
+    route=f'/api/threads/{t["id"]}/replies'
+    payload={'author':'Agent','body':''}
+    r=c.post(route,headers=h,data={'data':json.dumps(payload),'files':[(io.BytesIO(b'png'),'screenshot.png'),(io.BytesIO(b'mesh'),'model.stl')]})
+    assert r.status_code==201
+    thread=r.json;message=thread['messages'][-1]
+    assert message['body']=='' and len(thread['attachments'])==2
+    assert all(a['message_id']==message['id'] for a in thread['attachments'])
+    assert c.post(route,headers=h,json=payload).status_code==400
+    other=ws.create_thread('note.txt',0,9,'Other','Tester',ws.read('note.txt')['version'])
+    assert c.post(f'/api/threads/{other["id"]}/attachments',headers=h,data={'message_id':str(message['id']),'file':(io.BytesIO(b'x'),'a.png')}).status_code==404
+    assert len(list(ws.attachments.directory.iterdir()))==2
+    c.delete(f'/api/threads/{t["id"]}/messages/{message["id"]}',headers=h)
+    assert len(ws.get_thread(t['id'])['messages'])==1 and not list(ws.attachments.directory.iterdir())
+    # A failed second file removes the new reply, its first upload, and its origin.
+    import looking_glass.attachments as attachments
+    monkeypatch.setattr(attachments,'MAX_ATTACHMENT',2)
+    failed=c.post(route,headers=h,data={'data':json.dumps({'author':'Agent','body':'Retry safely'}),'files':[(io.BytesIO(b'ok'),'ok.txt'),(io.BytesIO(b'large'),'large.png')]})
+    assert failed.status_code==413 and len(ws.get_thread(t['id'])['messages'])==1
+    assert not list(ws.attachments.directory.iterdir())
+    version=ws.read('note.txt')['version'];data={'path':'note.txt','start':0,'end':9,'author':'Agent','body':'','version':version}
+    failed=c.post('/api/threads',headers=h,data={'data':json.dumps(data),'files':(io.BytesIO(b'large'),'large.png')})
+    assert failed.status_code==413 and len(ws.threads())==2
+    successful=c.post('/api/threads',headers=h,data={'data':json.dumps(data),'files':(io.BytesIO(b'ok'),'small.png')})
+    assert successful.status_code==201 and successful.json['messages'][0]['body']==''
+    assert successful.json['attachments'][0]['message_id']==successful.json['messages'][0]['id']
+    assert c.post(route,data={'data':json.dumps(payload),'files':(io.BytesIO(b'x'),'a.png')}).status_code==401

@@ -152,7 +152,7 @@ def test_rendered_html_discussions(tmp_path):
             assert t['anchor_kind']=='rendered' and t['quote']=='Hello world & friends.'
             assert frame.locator('body').evaluate("()=>CSS.highlights.get('looking-glass-passages').size")==1
             page.locator('.reply-form textarea').fill('A sidebar reply.')
-            page.locator('.reply-form button').click()
+            page.locator('.reply-form button[type=submit]').click()
             expect(page.get_by_text('A sidebar reply.',exact=True)).to_be_visible()
             select('#later')
             page.keyboard.press('Control+Enter')
@@ -337,7 +337,7 @@ def test_end_to_end(tmp_path):
         assert len(reply['messages'])==2
         page.get_by_text('Yes. I would add a concrete example.',exact=True).wait_for()
         page.locator('.reply-form textarea').fill('Add the example in the next editing pass.')
-        page.locator('.reply-form button').click()
+        page.locator('.reply-form button[type=submit]').click()
         page.get_by_text('Add the example in the next editing pass.',exact=True).wait_for()
         assert len(agent('read',str(id))['messages'])==3
         drag_passage('Select this passage',reverse=True)

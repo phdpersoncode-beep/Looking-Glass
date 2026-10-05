@@ -1,0 +1,6 @@
+<div class="attachment" data-attachment="{{ item.id }}">
+  <button class="attachment-name" data-action="{{ 'preview-attachment' if item.media_type.startswith('image/') else 'download-attachment' }}" {% if item.media_type.startswith('image/') %}aria-label="Preview {{ item.name }}"{% endif %} title="{{ item.name }}">{{ item.name }}</button>
+  <details class="attachment-options"><summary aria-label="Options for {{ item.name }}">⋯</summary><div>
+    <button data-action="download-attachment">Download</button><button data-action="rename-attachment" aria-label="Rename {{ item.name }}">Rename</button><button data-action="delete-attachment" aria-label="Remove {{ item.name }}">Remove</button>
+  </div></details>
+</div>
