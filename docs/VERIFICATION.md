@@ -15,6 +15,8 @@ Three feature commits were published separately to
   module were verified in the package contents. Installed frontend versions
   match `package-lock.json`.
 - Light/dark graph and composer screenshots were inspected at 1440×960.
+- The new history, deleted-context, and clipboard/retry browser cases are
+  explicitly parametrized for both Chromium and Firefox in continuous integration.
 
 New checks cover split/merge lanes, stable first-parent colors, branch filtering,
 read-only history, pagination, unsaved draft retention, exact uncommitted source,
