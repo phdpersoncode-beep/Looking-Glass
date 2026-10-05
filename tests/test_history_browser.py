@@ -36,6 +36,7 @@ def test_deleted_file_discussion_opens_original_context(workspace_page):
     expect(page.locator('.original-banner')).to_contain_text(t['commit_hash'][:8])
     expect(page.locator('.cm-content')).to_contain_text('Original passage.')
     assert page.locator('.cm-content').get_attribute('contenteditable')=='false'
+    expect(page.locator('#selection-tools')).not_to_be_visible()
     expect(page.locator('#save')).to_be_disabled();expect(page.locator('#annotate')).to_be_disabled()
     page.reload();expect(page.locator('#document-name')).to_have_text('Original · note.txt')
     (root/'note.txt').unlink();ws.get_thread(t['id'])
@@ -44,6 +45,8 @@ def test_deleted_file_discussion_opens_original_context(workspace_page):
     page.locator('.message-origin').click();expect(page.locator('.cm-content')).to_contain_text('Original passage.')
     page.locator('#reply-'+str(t['id'])).fill('Still discussable');page.locator('.reply-form button[type=submit]').click()
     expect(page.locator('.message p')).to_have_text(['Keep this discussion','Still discussable'])
+    page.wait_for_timeout(2400)  # The next active-tab poll must stay quiet.
+    expect(page.locator('#notice.error')).not_to_be_visible()
 
 def paste_image(page,selector):
     page.locator(selector).evaluate('''el=>{
