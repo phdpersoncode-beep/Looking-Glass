@@ -51,8 +51,13 @@ def test_deleted_file_discussion_opens_original_context(workspace_page):
 def paste_image(page,selector):
     page.locator(selector).evaluate('''el=>{
       const bytes=Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j1ioAAAAASUVORK5CYII='),c=>c.charCodeAt(0));
-      const data=new DataTransfer();data.items.add(new File([bytes],'image.png',{type:'image/png'}));
-      el.dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true}));
+      const file=new File([bytes],'image.png',{type:'image/png'}),data=new DataTransfer();data.items.add(file);
+      const event=new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true});
+      // Firefox constructs its own empty store instead of using the supplied one
+      // (Mozilla bug 2027025). Populate the event's actual store before dispatch.
+      if(!event.clipboardData.items.length)event.clipboardData.items.add(file);
+      if(event.clipboardData.files.length!==1)throw new Error('Paste fixture has no image');
+      el.dispatchEvent(event);
     }''')
 
 @pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
@@ -85,7 +90,10 @@ def test_clipboard_image_new_thread_reply_and_retry(workspace_page):
     # Ordinary text paste continues through the textarea's normal browser path.
     prevented=page.locator('#reply-'+str(t['id'])).evaluate('''el=>{
       const data=new DataTransfer();data.setData('text/plain','ordinary text');
-      const event=new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true});el.dispatchEvent(event);return event.defaultPrevented;
+      const event=new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true});
+      if(!event.clipboardData.getData('text/plain'))event.clipboardData.setData('text/plain','ordinary text');
+      if(event.clipboardData.getData('text/plain')!=='ordinary text')throw new Error('Paste fixture has no text');
+      el.dispatchEvent(event);return event.defaultPrevented;
     }''')
     assert prevented is False
     page.reload();expect(page.locator('.attachment')).to_have_count(2)
