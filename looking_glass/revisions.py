@@ -12,7 +12,10 @@ class Revisions:
 
     def git(self, *args, env=None, check=True):
         environment = {**os.environ, **(env or {}), 'GIT_LITERAL_PATHSPECS':'1'}
-        p = subprocess.run(['git', '-C', str(self.ws.root), *args], capture_output=True, env=environment)
+        try:
+            p = subprocess.run(['git', '-C', str(self.ws.root), *args], capture_output=True, env=environment, timeout=15)
+        except subprocess.TimeoutExpired as error:
+            raise Problem('Git took too long. Try a smaller history selection.', 503) from error
         if check and p.returncode:
             raise Problem(p.stderr.decode('utf-8', errors='replace').strip() or 'Git command failed.')
         return p
@@ -49,6 +52,50 @@ class Revisions:
             raise Problem('This directory already belongs to a Git repository.')
         self.git('init')
         return self.status()
+
+    def history(self, branches=None, limit=100, offset=0, tips=None):
+        """Bounded read-only history across local and fetched remote branches.
+
+        Subsequent pages use the original tips so a concurrent commit cannot
+        shift the offset and duplicate or drop rows.
+        """
+        limit = self.ws.query_integer(limit, 'Limit', 1, 200)
+        offset = self.ws.query_integer(offset, 'Offset', 0, 100000)
+        if not self.root():
+            return dict(repository=False, branches=[], commits=[], tips=[], next_offset=None)
+        raw = self.git('for-each-ref', '--format=%(refname)%00%(objectname)%00%(symref)',
+                       'refs/heads', 'refs/remotes').stdout.decode('utf-8', errors='replace')
+        refs = []
+        for line in raw.splitlines():
+            ref, sha, symbolic = line.split('\0')
+            if not symbolic:
+                refs.append(dict(ref=ref, name=ref.removeprefix('refs/heads/').removeprefix('refs/remotes/'), commit=sha))
+        known = {r['ref']:r['commit'] for r in refs}
+        if branches is not None and (not isinstance(branches, list) or any(b not in known for b in branches)):
+            raise Problem('Choose branches from the repository branch list.')
+        if tips is None:
+            tips = list(dict.fromkeys(known[b] for b in branches)) if branches is not None else list(dict.fromkeys(known.values()))
+            head = self.git('rev-parse', '--verify', 'HEAD', check=False)
+            if branches is None and head.returncode == 0:
+                tips = list(dict.fromkeys([head.stdout.decode().strip(), *tips]))
+        else:
+            import re
+            if len(tips) > 1000 or any(not re.fullmatch(r'[0-9a-f]{40}|[0-9a-f]{64}', tip) for tip in tips):
+                raise Problem('Invalid history cursor.')
+        if not tips:
+            return dict(repository=True, branches=refs, commits=[], tips=[], next_offset=None)
+        # NUL fields handle multiline bodies, tabs, and unusual author names.
+        fmt = '%H%x00%P%x00%an%x00%ae%x00%cn%x00%ce%x00%cI%x00%s%x00%B%x00'
+        raw = self.git('log', '--date-order', f'--max-count={limit+1}', f'--skip={offset}',
+                       f'--format={fmt}', *tips, '--').stdout.decode('utf-8', errors='replace')
+        fields = raw.split('\0'); commits = []
+        for i in range(0, len(fields)-1, 9):
+            sha, parents, author, email, committer, committer_email, date, subject, message = fields[i:i+9]
+            commits.append(dict(hash=sha.strip(), parents=parents.split(), author=author, author_email=email,
+                                committer=committer, committer_email=committer_email, date=date,
+                                subject=subject, message=message.rstrip()))
+        return dict(repository=True, branches=refs, commits=commits[:limit], tips=tips,
+                    next_offset=offset+limit if len(commits)>limit else None)
 
     def baseline(self, path):
         """Read HEAD without touching the index, including outside open files."""

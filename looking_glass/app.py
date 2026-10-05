@@ -274,6 +274,12 @@ def create_app(root):
     def git_baseline():
         return jsonify(git.baseline(request.args.get('path')))
 
+    @app.get('/api/git/history')
+    def git_history():
+        branches = request.args.getlist('branch') if 'branch' in request.args else None
+        return jsonify(git.history(branches, request.args.get('limit', 100), request.args.get('offset', 0),
+                                   request.args.getlist('tip') if 'tip' in request.args else None))
+
     @app.delete('/api/threads/<int:identifier>')
     def delete_thread(identifier):
         return jsonify(ws.delete_thread(identifier))
