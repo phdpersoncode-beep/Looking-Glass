@@ -79,6 +79,8 @@ class Workspace:
 
         from .attachments import Attachments
         self.attachments = Attachments(self)
+        from .origins import Origins
+        self.origins = Origins(self)
 
     @contextmanager
     def connection(self):
@@ -231,14 +233,17 @@ class Workspace:
                         raise
             rows = db.execute('SELECT * FROM threads' + (' WHERE path=?' if path else '') + ' ORDER BY start,id', (path,) if path else ()).fetchall()
             messages, attachments = {}, {}
+            origins = self.origins.public(db,path)
             suffix = ' WHERE thread_id IN (SELECT id FROM threads WHERE path=?)' if path else ''
             for message in db.execute('SELECT * FROM messages'+suffix+' ORDER BY id',(path,) if path else ()):
-                messages.setdefault(message['thread_id'],[]).append(dict(message))
+                messages.setdefault(message['thread_id'],[]).append({**dict(message), 'origin':origins.get(message['origin_id']), 'commit_hash':origins.get(message['origin_id'],{}).get('commit_hash')})
             for item in db.execute('SELECT * FROM attachments'+suffix+' ORDER BY id',(path,) if path else ()):
                 attachments.setdefault(item['thread_id'],[]).append(self.attachments.public(item))
             result = []
             for row in rows:
                 t = dict(row)
+                t['origin'] = origins.get(t['origin_id'])
+                t['commit_hash'] = (t['origin'] or {}).get('commit_hash')
                 t['render_anchor'] = json.loads(t['render_anchor']) if t['render_anchor'] else None
                 t['resolved'] = bool(t['resolved'])
                 t['messages'] = messages.get(t['id'],[])
@@ -248,7 +253,7 @@ class Workspace:
 
     def thread_index(self):
         with self.connection() as db:
-            return [dict(row) for row in db.execute('SELECT id,path,start,resolved FROM threads ORDER BY path,start,id')]
+            return [dict(row) for row in db.execute('SELECT id,path,start,resolved,anchor_status FROM threads ORDER BY path,start,id')]
 
     @staticmethod
     def message(author, body):
@@ -286,7 +291,7 @@ class Workspace:
         if summary == 'true':
             page = [dict(id=t['id'], path=t['path'], quote=t['quote'], resolved=t['resolved'],
                          anchor_status=t['anchor_status'], anchor_kind=t['anchor_kind'],
-                         created_at=t['created_at'], message_count=len(t['messages']),
+                         commit_hash=t['commit_hash'], origin=t['origin'], created_at=t['created_at'], message_count=len(t['messages']),
                          last_message={**t['messages'][-1], 'body':t['messages'][-1]['body'][:240]})
                     for t in page]
         return dict(threads=page, total=total, limit=limit, offset=offset,
@@ -341,7 +346,9 @@ class Workspace:
             self.reconcile(db, path, content)
             cursor = db.execute('INSERT INTO threads(path,start,end,quote) VALUES(?,?,?,?)', (path,start,end,content[start:end]))
             identifier = cursor.lastrowid
-            db.execute('INSERT INTO messages(thread_id,author,body) VALUES(?,?,?)', (identifier,author,body))
+            origin = self.origins.capture(db,path,content,start,end,content[start:end])
+            db.execute('UPDATE threads SET origin_id=? WHERE id=?',(origin,identifier))
+            db.execute('INSERT INTO messages(thread_id,author,body,origin_id) VALUES(?,?,?,?)', (identifier,author,body,origin))
         return self.get_thread(identifier)
 
     def get_thread(self, identifier):
@@ -373,14 +380,31 @@ class Workspace:
             self.reconcile(db,path,content)
             cursor = db.execute("INSERT INTO threads(path,start,end,quote,anchor_kind,render_anchor) VALUES(?,0,0,?,'rendered',?)", (path,anchor['quote'],json.dumps(anchor)))
             identifier = cursor.lastrowid
-            db.execute('INSERT INTO messages(thread_id,author,body) VALUES(?,?,?)', (identifier,author,body))
+            origin = self.origins.capture(db,path,content,0,0,anchor['quote'],anchor)
+            db.execute('UPDATE threads SET origin_id=? WHERE id=?',(origin,identifier))
+            db.execute('INSERT INTO messages(thread_id,author,body,origin_id) VALUES(?,?,?,?)', (identifier,author,body,origin))
         return self.get_thread(identifier)
 
     def reply(self, identifier, body, author):
         author, body = self.message(author, body)
-        self.get_thread(identifier)
-        with self.lock, self.connection() as db:
-            db.execute('INSERT INTO messages(thread_id,author,body) VALUES(?,?,?)', (identifier,author,body))
+        with self.lock:
+            t = self.get_thread(identifier)
+            provenance='captured'
+            try:
+                content, _ = self.text(t['path'])
+                start,end,quote,render_anchor = t['start'],t['end'],t['quote'],t['render_anchor']
+                if t['anchor_kind']=='source' and content[start:end]!=quote:
+                    raise Problem('Missing passage.',404)
+            except Problem as error:
+                if error.status not in (404,415): raise
+                provenance='inherited'
+                original=self.origins.read(identifier)
+                content=original['content'];origin=original['origin']
+                start,end,quote,render_anchor=origin['start'],origin['end'],origin['quote'],origin['render_anchor']
+            with self.connection() as db:
+                origin=self.origins.capture(db,t['path'],content,start,end,quote,render_anchor,provenance=provenance,
+                                            metadata=self.origins.metadata(t['path'],t['origin']))
+                db.execute('INSERT INTO messages(thread_id,author,body,origin_id) VALUES(?,?,?,?)', (identifier,author,body,origin))
         return self.get_thread(identifier)
 
     def update_thread(self, identifier, resolved=None, start=None, end=None, version=None, render_anchor=None, render_attached=None):
@@ -421,6 +445,7 @@ class Workspace:
             self._delete_attachment_files(db,identifier)
             db.execute('DELETE FROM messages WHERE thread_id=?', (identifier,))
             db.execute('DELETE FROM threads WHERE id=?', (identifier,))
+            self.origins.collect(db)
         return dict(deleted=True)
 
     def delete_message(self, identifier, message_id):
@@ -431,6 +456,7 @@ class Workspace:
             if not db.execute('SELECT id FROM messages WHERE thread_id=?', (identifier,)).fetchone():
                 self._delete_attachment_files(db,identifier)
                 db.execute('DELETE FROM threads WHERE id=?', (identifier,))
+            self.origins.collect(db)
         return dict(deleted=True)
 
     def _delete_attachment_files(self, db, identifier):

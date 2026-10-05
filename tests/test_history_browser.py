@@ -23,3 +23,22 @@ def test_history_tab_filter_and_draft(workspace_page):
     page.locator('.tab-name',has_text='note.txt').click();expect(page.locator('.cm-content')).to_contain_text('draft')
     expect(page.locator('#dirty')).to_contain_text('Unsaved')
     assert (root/'note.txt').read_text()=='Original passage.\n'
+
+def test_deleted_file_discussion_opens_original_context(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    history_repo.__wrapped__(root);f=ws.read('note.txt')
+    t=ws.create_thread('note.txt',0,8,'Keep this discussion','Altay',f['version'])
+    page.goto(url);open_file(page,'note.txt')
+    page.locator('.original-context').click();expect(page.locator('#document-name')).to_have_text('Original · note.txt')
+    expect(page.locator('.original-banner')).to_contain_text(t['commit_hash'][:8])
+    expect(page.locator('.cm-content')).to_contain_text('Original passage.')
+    assert page.locator('.cm-content').get_attribute('contenteditable')=='false'
+    expect(page.locator('#save')).to_be_disabled();expect(page.locator('#annotate')).to_be_disabled()
+    page.reload();expect(page.locator('#document-name')).to_have_text('Original · note.txt')
+    (root/'note.txt').unlink();ws.get_thread(t['id'])
+    page.locator('#thread-scope').check();page.locator('.jump').click()
+    expect(page.locator('#document-name')).to_have_text('Original · note.txt')
+    page.locator('.message-origin').click();expect(page.locator('.cm-content')).to_contain_text('Original passage.')
+    page.locator('#reply-'+str(t['id'])).fill('Still discussable');page.locator('.reply-form button[type=submit]').click()
+    expect(page.locator('.message p')).to_have_text(['Keep this discussion','Still discussable'])

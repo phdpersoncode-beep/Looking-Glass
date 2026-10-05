@@ -25,7 +25,18 @@ const $ = selector => document.querySelector(selector);
 const token = $('meta[name=looking-glass-token]').content;
 const root = $('.root-label').textContent;
 const tabs = new Map();
-const HISTORY='looking-glass://history';
+const HISTORY='looking-glass://history',ORIGINAL='looking-glass://thread/';
+async function readTab(path){
+  if(path===HISTORY)return {content:'',version:null,kind:'history'};
+  if(path.startsWith(ORIGINAL)){
+    const match=path.slice(ORIGINAL.length).match(/^(\d+)\/original(?:\/(\d+))?$/);if(!match)throw new Error('Invalid context tab.');
+    const file=await api('threads/'+match[1]+(match[2]?'/messages/'+match[2]:'')+'/original');
+    return {content:file.content,version:file.origin.snapshot_hash,sourcePath:file.path,origin:file.origin,kind:'original'};
+  }
+  return ext(path)==='stl'||isImage(path)?{content:'',version:null}:api('file?'+new URLSearchParams({path}));
+}
+function openOriginal(id,message){return openFile(ORIGINAL+id+'/original'+(message?'/'+message:''));}
+function discussionPath(){const e=entry();return e?.kind==='original'?e.sourcePath:e?.kind==='history'?null:active;}
 let expandedFolders=new Set();try{expandedFolders=new Set(JSON.parse(localStorage.getItem('looking-glass-folders:'+root)||'[]'));}catch{}
 let zenMode=localStorage.getItem('looking-glass-zen')==='true',zenCollapsed=false;
 let collapsedThreads=new Set();try{collapsedThreads=new Set(JSON.parse(localStorage.getItem('looking-glass-collapsed-threads:'+root)||'[]'));}catch{}
@@ -215,7 +226,7 @@ function renderTabs(){
   $('#tabs').replaceChildren();
   [...tabs.values()].sort((a,b)=>Number(b.pinned)-Number(a.pinned)).forEach(e=>{
     const tab=document.createElement('div');tab.className='tab'+(e.path===active?' selected':'');tab.dataset.path=e.path;
-    const open=document.createElement('button');open.className='tab-name';open.title=e.path;open.textContent=(e.pinned?'⌖ ':'')+(e.kind==='history'?'Commit history':e.path.split('/').pop())+(e.dirty?' •':'');open.onclick=guard(()=>openFile(e.path));
+    const open=document.createElement('button');open.className='tab-name';open.title=e.path;open.textContent=(e.pinned?'⌖ ':'')+(e.kind==='history'?'Commit history':e.kind==='original'?'Original · '+e.sourcePath.split('/').pop():e.path.split('/').pop())+(e.dirty?' •':'');open.onclick=guard(()=>openFile(e.path));
     const pin=document.createElement('button');pin.className='tab-control';pin.title=e.pinned?'Unpin tab':'Pin tab';pin.setAttribute('aria-label',pin.title);pin.textContent=e.pinned?'◆':'◇';pin.onclick=()=>{e.pinned=!e.pinned;renderTabs();remember();};
     const close=document.createElement('button');close.className='tab-control';close.title='Close tab';close.setAttribute('aria-label','Close '+e.path);close.textContent='×';close.onclick=guard(()=>closeTab(e.path));
     tab.append(open,pin,close);
@@ -260,8 +271,8 @@ function highlightMarkdown(preview){
 }
 function language(path){switch(ext(path)){case'md':case'markdown':return markdown({extensions:[TaskList,Table],codeLanguages:codeLanguage});case'py':return python();case'sh':case'bash':return shellLanguage;case'html':case'htm':return html();case'json':return json();default:return [];}}
 function makeState(e){
-  const prose=['md','markdown','txt'].includes(ext(e.path));
-  return EditorState.create({doc:e.content,extensions:[EditorState.lineSeparator.of(e.diskContent.includes('\r\n')?'\r\n':'\n'),basicSetup,language(e.path),syntaxHighlighting(colors),spanField,gitField,gitSlot.of([]),
+  const docPath=e.sourcePath||e.path,prose=['md','markdown','txt'].includes(ext(docPath));
+  return EditorState.create({doc:e.content,extensions:[EditorState.lineSeparator.of(e.diskContent.includes('\r\n')?'\r\n':'\n'),basicSetup,language(docPath),...(e.kind==='original'?[EditorState.readOnly.of(true),EditorView.editable.of(false)]:[]),syntaxHighlighting(colors),spanField,gitField,gitSlot.of([]),
     themeSlot.of(theme()),liveSlot.of(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables]:[]),
     ...(prose?[EditorView.lineWrapping,EditorView.theme({'.cm-scroller':{fontFamily:'var(--prose)',fontSize:'var(--prose-font-size)'},'.cm-content':{maxWidth:'850px',margin:'0 auto',width:'100%'},'.cm-lineNumbers, .cm-foldGutter':{display:'none'}})]:[]),
     keymap.of([{key:'Mod-s',run:()=>{guard(saveActive)();return true;}},{key:'Mod-Enter',run:()=>{guard(startComment)();return true;}},{key:'Mod-f',run:openSearchPanel},{key:'Mod-h',run:openSearchPanel},indentWithTab]),
@@ -279,19 +290,29 @@ async function openFile(path){
     let e=tabs.get(path);
     if(!e){
       const type=ext(path);
-      const file=path===HISTORY?{content:'',version:null,kind:'history'}:type==='stl'||isImage(path)?{content:'',version:null}:await api('file?'+new URLSearchParams({path}));
+      const file=await readTab(path);
       e={path,...file,diskContent:file.content,dirty:false,conflict:null,pinned:false,state:null,mode:type==='md'||type==='markdown'?'live':type==='html'||type==='htm'?'rendered':'source'};
       tabs.set(path,e);
     }
     view?.destroy();view=null;cleanup();cleanup=()=>{};active=path;activeThread=null;currentThreads=[];
     $('#surface').replaceChildren();renderTabs();revealFile(path);updateToolbar();remember();
     if(e.kind==='history')cleanup=mountHistory($('#surface'),e.history??={},api);
+    else if(e.kind==='original')mountOriginal(e);
     else if(isImage(path))await mountImage(e);
     else if(ext(path)==='stl')await mountSTL(e);
     else if(ext(path)==='jsonl')mountJSONL(e);
     else mountDocument(e);
     await refreshThreads();notify('');
   }finally{switching=false;if(queuedFile){const next=queuedFile;queuedFile=null;queueMicrotask(()=>guard(()=>openFile(next))());}}
+}
+function mountOriginal(e){
+  closeComment();renderedPreview=null;renderedSelection=null;
+  const banner=document.createElement('div');banner.className='original-banner';
+  const label=document.createElement('p');label.textContent=(e.origin.provenance.startsWith('recovered')?'Recovered context':'Original reviewed content')+' · '+(e.origin.commit_hash?.slice(0,8)||'No Git commit')+' · Read only';
+  const quote=document.createElement('blockquote');quote.textContent=e.origin.quote;banner.append(label,quote);$('#surface').append(banner);
+  const parent=document.createElement('div');parent.id='editor';parent.className='original-editor';$('#surface').append(parent);
+  view=new EditorView({state:e.state||makeState(e),parent});
+  if(!e.origin.render_anchor){const from=toUnits(e.content,e.origin.start),to=toUnits(e.content,e.origin.end);if(from<to&&to<=view.state.doc.length)view.dispatch({selection:{anchor:from,head:to},effects:EditorView.scrollIntoView(from,{y:'center'})});}
 }
 function mountDocument(e){
   closeComment();
@@ -315,17 +336,17 @@ function mountDocument(e){
 }
 async function refreshBaseline(){const editor=view,path=active;if(!editor)return;const baseline=await api('git/baseline?'+new URLSearchParams({path}));if(view===editor&&active===path)editor.dispatch({effects:[baselineEffect.of(baseline.content),gitSlot.reconfigure(baseline.content===null?[]:gitGutter)]});}
 function updateToolbar(){
-  const e=entry(), type=e?ext(e.path):'', viewer=e?.kind==='history'||['stl','jsonl'].includes(type)||isImage(e?.path||'');
+  const e=entry(), type=e?ext(e.path):'', viewer=!!e?.kind||['stl','jsonl'].includes(type)||isImage(e?.path||'');
   $('#json-fold-controls').hidden=type!=='json';
   $('#download-file').hidden=!['html','htm','jsonl'].includes(type);
-  $('#document-name').textContent=e?.kind==='history'?'Commit history':e?.path||'Open a file';$('#dirty').textContent=e?.dirty?' · Unsaved':'';
+  $('#document-name').textContent=e?.kind==='history'?'Commit history':e?.kind==='original'?'Original · '+e.sourcePath:e?.path||'Open a file';$('#dirty').textContent=e?.dirty?' · Unsaved':'';
   $('#save').disabled=!e||viewer||!e.dirty||saving;$('#annotate').disabled=!e||viewer||!(renderedPreview?renderedSelection:view&&!view.state.selection.main.empty);
   const mode=$('#mode');const modes=type==='md'||type==='markdown'?[['live','Live Markdown'],['source','Raw source'],['preview','Reading preview']]:type==='html'||type==='htm'?[['rendered','Rendered HTML'],['source','HTML source']]:[['source',viewer?'Viewer':'Source']];
   if(mode.dataset.path!==active){mode.replaceChildren(...modes.map(([value,label])=>{const opt=document.createElement('option');opt.value=value;opt.textContent=label;return opt;}));mode.dataset.path=active||'';}
   const html=type==='html'||type==='htm', toggle=$('#html-toggle');
-  mode.hidden=!e||modes.length===1||html;if(e)mode.value=e.mode;
+  mode.hidden=!e||!!e.kind||modes.length===1||html;if(e)mode.value=e.mode;
   toggle.hidden=!e||!html;toggle.querySelectorAll('span').forEach(s=>s.classList.toggle('active',s.dataset.mode===e?.mode));
-  $('#file-info').textContent=e?(e.kind==='history'?'Local branches and fetched remote branches':viewer?type.toUpperCase()+' viewer':Array.from(e.content).length.toLocaleString()+' characters · UTF-8'):'Choose a file from the sidebar';
+  $('#file-info').textContent=e?(e.kind==='original'?'Read only · '+(e.origin.commit_hash||'No Git commit') :e.kind==='history'?'Local branches and fetched remote branches':viewer?type.toUpperCase()+' viewer':Array.from(e.content).length.toLocaleString()+' characters · UTF-8'):'Choose a file from the sidebar';
   $('#conflict').hidden=!e?.conflict;
   if(e?.conflict)$('#conflict span').textContent=e.conflict.deleted?'This file was deleted or became unavailable on disk. Copy your draft before closing it.':'Changed on disk. Your unsaved edits are preserved. Compare and merge before saving.';
   scheduleSelectionTools();
@@ -357,14 +378,14 @@ function renderDiscussions(data,key){
   filterThreads();
 }
 async function refreshThreads(useCache=false){
-  const path=active,scope=threadScope(),generation=++refreshNumber,key=scope+':'+(path||'');
+  const current=active,path=discussionPath(),scope=threadScope(),generation=++refreshNumber,key=scope+':'+(path||'');
   const cached=discussionCache.get(key);
   if(useCache&&cached)renderDiscussions(cached.data,key);
   const response=await fetch('/api/discussions?'+new URLSearchParams({path:path||'',scope}),{headers:{'X-Looking-Glass-Token':token,...(cached?{'If-None-Match':cached.etag}:{})}});
   if(!response.ok&&response.status!==304)throw new Error((await response.json()).error);
   const data=response.status===304?cached.data:await response.json();
   if(response.status!==304){discussionCache.set(key,{data,etag:response.headers.get('ETag')});if(discussionCache.size>8)discussionCache.delete(discussionCache.keys().next().value);}
-  if(active!==path||scope!==threadScope()||generation!==refreshNumber)return;
+  if(active!==current||scope!==threadScope()||generation!==refreshNumber)return;
   renderDiscussions(data,key);
 }
 async function getNavigationIndex(){
@@ -380,7 +401,8 @@ function showThread(id){
 }
 async function jump(id,target=null){
   let t=target||currentThreads.find(t=>t.id===id);if(!t)return;
-  if(t.path!==active){showThread(id);try{await openFile(t.path);}catch(error){notify(error.message,true);return;}}
+  if(t.anchor_status==='needs_reattachment'||tabs.get(t.path)?.conflict?.deleted){await openOriginal(id);showThread(id);notify('Showing original reviewed content.');return;}
+  if(t.path!==active){showThread(id);try{await openFile(t.path);}catch(error){if(error.status===404){await openOriginal(id);showThread(id);return;}notify(error.message,true);return;}}
   t=currentThreads.find(item=>item.id===id)||t;
   showThread(id);
   if(t.anchor_kind==='rendered'){
@@ -408,7 +430,7 @@ function navigate(direction){
   });return navigationQueue;
 }
 async function startComment(){
-  const e=entry();if(!e)return;
+  const e=entry();if(!e||e.kind)return;
   if(renderedPreview&&renderedSelection)pending={path:e.path,render_anchor:renderedSelection.anchor,quote:renderedSelection.anchor.quote,content:e.content};
   else{if(!view||view.state.selection.main.empty)return;const {from,to}=view.state.selection.main;pending={path:e.path,start:selectionPoints(view.state,from),end:selectionPoints(view.state,to),quote:view.state.sliceDoc(from,to),content:view.state.sliceDoc()};}
   const location=selectionLocation();
@@ -560,7 +582,7 @@ async function poll(){
   if(polling||saving||switching||document.hidden)return;polling=true;
   try{
     for(const e of [...tabs.values()]){
-      if(e.kind==='history')continue;
+      if(e.kind)continue;
       try{
         const requestedVersion=e.version;
         if(ext(e.path)==='stl'||isImage(e.path)){
@@ -671,6 +693,7 @@ document.addEventListener('click',guard(async event=>{
   const id=Number(action.closest('.thread').dataset.thread),t=currentThreads.find(t=>t.id===id);
   if(action.dataset.action==='collapse-thread'){if(zenMode)zenCollapsed=true;else collapsedThreads.add(id);rememberCollapsed();filterThreads();return;}
   if(action.dataset.action==='expand-thread'){showThread(id);return;}
+  if(action.dataset.action==='original'||action.dataset.action==='message-original'){await openOriginal(id,action.dataset.message);showThread(id);return;}
   if(action.dataset.action.endsWith('-attachment')){
     const attachmentId=Number(action.closest('[data-attachment]').dataset.attachment),item=t.attachments.find(a=>a.id===attachmentId);
     if(action.dataset.action==='rename-attachment'){const name=prompt('Attachment name',item.name);if(name!==null){await api('attachments/'+attachmentId,'PATCH',{name});await refreshThreads();}return;}
@@ -693,7 +716,7 @@ document.addEventListener('click',guard(async event=>{
     notify(whole?'Thread deleted':'Comment deleted');
   }
   if(action.dataset.action==='reattach'){
-    if(t.path!==active){await jump(id);notify('Select the new passage in this file, then attach the thread.');return;}
+    if(t.path!==active){await openFile(t.path);showThread(id);notify('Select the new passage in this file, then attach the thread.');return;}
     if(t.anchor_kind==='rendered'){if(!renderedSelection)throw new Error('Select the new passage in the rendered report first.');await saveActive();await api('threads/'+id,'PATCH',{render_anchor:renderedSelection.anchor,version:entry().version});await refreshThreads();await jump(id);return;}
     if(!view||view.state.selection.main.empty)throw new Error('Select the new passage in the editor first.');const {from,to}=view.state.selection.main;const start=selectionPoints(view.state,from),end=selectionPoints(view.state,to);await saveActive();await api('threads/'+id,'PATCH',{start,end,version:entry().version});await refreshThreads();await jump(id);
   }
@@ -802,7 +825,7 @@ guard(async()=>{
   switching=true;
   try{
     const results=await Promise.allSettled((restored.tabs||[]).map(async item=>{
-      const type=ext(item.path),file=item.path===HISTORY?{content:'',version:null,kind:'history'}:type==='stl'||isImage(item.path)?{content:'',version:null}:await api('file?'+new URLSearchParams({path:item.path}));
+      const file=await readTab(item.path);
       return {path:item.path,...file,diskContent:file.content,dirty:false,conflict:null,pinned:!!item.pinned,state:null,mode:item.mode||'source'};
     }));
     for(const result of results)if(result.status==='fulfilled')tabs.set(result.value.path,result.value);

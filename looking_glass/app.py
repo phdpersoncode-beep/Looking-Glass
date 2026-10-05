@@ -233,6 +233,14 @@ def create_app(root):
             return jsonify(ws.thread_context(identifier, request.args['context_lines']))
         return jsonify(ws.get_thread(identifier))
 
+    @app.get('/api/threads/<int:identifier>/original')
+    def original_thread(identifier):
+        return jsonify(ws.origins.read(identifier))
+
+    @app.get('/api/threads/<int:identifier>/messages/<int:message_id>/original')
+    def original_message(identifier, message_id):
+        return jsonify(ws.origins.read(identifier,message_id))
+
     @app.post('/api/threads/<int:identifier>/replies')
     def reply(identifier):
         data = body()
