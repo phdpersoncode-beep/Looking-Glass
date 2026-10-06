@@ -44,7 +44,7 @@ export function mountHistory(host,state,api,callbacks={}){
     state.discussionIndex=index;
     for(const node of panel.querySelectorAll('[data-discussion-kind]')){
       const count=index.filter(t=>!t.resolved&&t.anchor_kind===node.dataset.discussionKind&&t.target_ref===node.dataset.discussionRef).length;
-      node.textContent=count?'◯ '+count:'';node.hidden=!count;node.title=`${count} open discussions`;
+      node.replaceChildren();if(count){const icon=document.createElementNS('http://www.w3.org/2000/svg','svg');icon.setAttribute('width','12');icon.setAttribute('height','12');icon.setAttribute('viewBox','0 0 20 20');icon.setAttribute('aria-hidden','true');const path=document.createElementNS(icon.namespaceURI,'path');path.setAttribute('d','M3 3h14v10H8l-5 4z');path.setAttribute('fill','none');path.setAttribute('stroke','currentColor');path.setAttribute('stroke-width','1.4');icon.append(path);node.append(icon,document.createTextNode(String(count)));}node.hidden=!count;node.title=`${count} open discussions`;
     }
   }
   function count(kind,ref){const badge=el('span','history-discussion-count');badge.dataset.discussionKind=kind;badge.dataset.discussionRef=ref;return badge;}
@@ -66,7 +66,7 @@ export function mountHistory(host,state,api,callbacks={}){
     list.replaceChildren();list.style.setProperty('--graph-width',width+'px');
     const tips=new Map();for(const b of state.branches){if(!tips.has(b.commit))tips.set(b.commit,[]);tips.get(b.commit).push(b);}
     for(const {commit,column,edges,color:laneColor} of rows){
-      const row=el('div','commit-row');row.tabIndex=0;row.dataset.commit=commit.hash;row.setAttribute('role','listitem');row.title=commit.message;
+      const row=el('div','commit-row'),select=el('button','commit-select');select.type='button';select.setAttribute('aria-label','Discuss commit '+commit.hash.slice(0,8)+' '+commit.subject);row.dataset.commit=commit.hash;row.setAttribute('role','listitem');row.title=commit.message;
       const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('width',width);svg.setAttribute('height',60);svg.setAttribute('aria-hidden','true');
       for(const edge of edges){const line=document.createElementNS(svg.namespaceURI,'path'),x=16+edge.from*18,y=16+edge.to*18,top=edge.half==='top';
         line.setAttribute('d',top?`M ${x} 0 C ${x} 18 ${y} 12 ${y} 30`:`M ${x} 30 C ${x} 48 ${y} 42 ${y} 60`);line.setAttribute('fill','none');line.setAttribute('stroke',color(edge.key));line.setAttribute('stroke-width','1.6');svg.append(line);
@@ -78,9 +78,9 @@ export function mountHistory(host,state,api,callbacks={}){
       const date=el('time','',new Date(commit.date).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'}));date.dateTime=commit.date;
       meta.append(author,el('code','',commit.hash.slice(0,8)),date,count('commit',commit.hash));
       const badges=el('span','branch-badges');for(const branch of tips.get(commit.hash)||[]){const badge=el('button','branch-badge',branch.name);badge.type='button';badge.style.setProperty('--branch-color',color(branch.ref));badge.setAttribute('aria-label','Discuss branch '+branch.name);badge.title='View discussions on branch '+branch.name;badge.append(count('branch',branch.ref));badge.onclick=event=>{event.stopPropagation();selectTarget(branchTarget(branch));};badges.append(badge);}
-      content.append(subject,meta);row.append(svg,content,badges);
+      content.append(subject,meta);select.append(svg,content);row.append(select,badges);
       row.onclick=()=>selectTarget({kind:'commit',ref:commit.hash,commit_hash:commit.hash,label:'Commit '+commit.hash.slice(0,8)+' · '+commit.subject});
-      row.onkeydown=event=>{if(event.target===row&&['Enter',' '].includes(event.key)){event.preventDefault();row.click();}};list.append(row);
+      list.append(row);
     }
     if(!rows.length)list.append(el('p','history-empty',state.repository===false?'This workspace has no Git repository.':state.selection?.length===0?'Choose a branch to see its history.':'No commits yet.'));
     updateCounts();if(state.target)selectTarget(state.target,false);

@@ -8,9 +8,16 @@ export function tokenPositions(tokens, source) {
   function locate(items,from,to) {
     let cursor=from;
     for(const token of items||[]) {
-      const raw=token.raw||'',at=raw?source.indexOf(raw,cursor):-1;
-      const found=at>=cursor&&at+raw.length<=to;
-      const start=found?at:cursor,end=found?at+raw.length:to;
+      const raw=token.raw||'';let at=raw?source.indexOf(raw,cursor):-1,size=raw.length;
+      if(raw&&(at<cursor||at+size>to)&&/[\n|]/.test(raw)){
+        // Block quotes/list continuations insert prefixes between token lines;
+        // GFM table lexing removes the backslash from escaped cell pipes.
+        const pattern=[...raw].map(ch=>ch==='\n'?'\\n(?:[ \t]*>[ \t]?)*[ \t]*':ch==='|'?'\\\\?\\|':ch.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('');
+        const match=new RegExp(pattern).exec(source.slice(cursor,to));
+        if(match){at=cursor+match.index;size=match[0].length;}
+      }
+      const found=at>=cursor&&at+size<=to;
+      const start=found?at:cursor,end=found?at+size:to;
       if(found)positions.set(token,{from:start,to:end});
       if(token.tokens)locate(token.tokens,start,end);
       if(token.items)locate(token.items,start,end);
@@ -59,7 +66,17 @@ function visibleMap(raw,from,text,code=false) {
     if(code&&part==='\n')part=' ';
     value+=part;for(let j=0;j<part.length;j++)map.push({from:from+start,to:from+i});
   }
-  const at=value.indexOf(text);return at<0?null:map.slice(at,at+text.length);
+  let at=value.indexOf(text);if(at>=0)return map.slice(at,at+text.length);
+  // Preserve source coordinates while removing structural continuation prefixes.
+  for(const pattern of [/\n(?:[ \t]*>[ \t]?)+[ \t]*/g,/\n[ \t]+/g]){
+    let projected='',projectedMap=[],cursor=0;
+    for(const match of value.matchAll(pattern)){
+      const end=match.index+1;projected+=value.slice(cursor,end);projectedMap=projectedMap.concat(map.slice(cursor,end));cursor=match.index+match[0].length;
+    }
+    projected+=value.slice(cursor);projectedMap=projectedMap.concat(map.slice(cursor));
+    at=projected.indexOf(text);if(at>=0)return projectedMap.slice(at,at+text.length);
+  }
+  return null;
 }
 
 export function mountMappedMarkdown(host,source,offset=0,decorate=()=>{}) {
@@ -79,7 +96,14 @@ export function mountMappedMarkdown(host,source,offset=0,decorate=()=>{}) {
   }
   leaves.forEach(register);
   function boundary(node,at,end) {
-    if(node.nodeType!==Node.TEXT_NODE)return null;
+    if(node.nodeType!==Node.TEXT_NODE){
+      const children=[...node.childNodes],candidates=end?children.slice(0,at).reverse():children.slice(at);
+      for(const child of candidates){
+        if(child.nodeType===Node.TEXT_NODE){const value=boundary(child,end?child.length:0,end);if(value!==null)return value;}
+        else{const walker=document.createTreeWalker(child,NodeFilter.SHOW_TEXT),texts=[];let text;while((text=walker.nextNode()))if(nodes.has(text))texts.push(text);const target=end?texts.at(-1):texts[0];if(target)return boundary(target,end?target.length:0,end);}
+      }
+      return null;
+    }
     const map=nodes.get(node);if(!map?.length)return null;
     if(end)return at===0?map[0].from:map[Math.min(at,map.length)-1].to;
     return at===map.length?map.at(-1).to:map[at]?.from;

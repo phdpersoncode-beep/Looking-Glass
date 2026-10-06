@@ -20,3 +20,5 @@ Use one feature branch. Update this checklist and commit/push after each impleme
 Rendered Markdown/table browser checks cover exact source anchors, repeated cells, entities, Unicode, CRLF, persistent highlights, and preview navigation.
 
 Git-discussion checks cover commit/branch creation, full-reference validation, branch moves/deletion, replies with immutable context, attachments, resolve/delete, history selection, navigation, and reload persistence. Backend: 46 tests pass; frontend: 4 tests pass. Chromium regression checks pass, including the new history workflow.
+
+Final review also covers multiline block quotes/list continuations, escaped table pipes, highlighted code-block discussions, actual table-source edits, invalid-source recovery, and keyboard-accessible commit selection.

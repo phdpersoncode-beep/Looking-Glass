@@ -30,12 +30,16 @@ def test_live_table_annotations_and_explicit_source_edit(workspace_page):
     page.locator('.md-table .passage-highlight').click();expect(page.locator('.thread.active')).to_be_visible()
     page.get_by_role('button',name='Edit table source',exact=True).click()
     expect(page.locator('.cm-content')).to_contain_text('| **width** | `12` |')
+    page.locator('.cm-line',has_text='| **width** | `12` |').click();page.keyboard.press('End')
+    page.keyboard.press('ArrowLeft');page.keyboard.press('ArrowLeft');page.keyboard.press('ArrowLeft')
+    page.keyboard.press('Shift+ArrowLeft');page.keyboard.press('Shift+ArrowLeft');page.keyboard.insert_text('24')
+    page.keyboard.press('Control+s');expect(page.locator('#dirty')).to_have_text('')
     page.get_by_role('button',name='Done editing table',exact=True).click()
     expect(page.locator('.md-table .passage-highlight')).to_have_text('width')
     page.locator('#mode').select_option('preview')
     expect(page.locator('.markdown-preview .passage-highlight')).to_have_text('width')
     page.locator('.thread blockquote').click();expect(page.locator('#mode')).to_have_value('preview')
-    assert (root/'table.md').read_text()==text
+    assert (root/'table.md').read_text()==text.replace('`12`','`24`')
 
 
 def test_preview_discussions_repeated_text_entities_unicode_and_navigation(workspace_page):
@@ -96,3 +100,31 @@ def test_mermaid_live_preview_source_edit_and_invalid_diagram(workspace_page):
     page.locator('#refresh-files').click();open_file(page,'bad.md')
     expect(page.locator('.diagram-error')).to_contain_text('Unable to render diagram')
     expect(page.locator('.diagram-error')).to_contain_text('this is not a diagram')
+
+
+def test_preview_multiline_quote_list_escaped_pipe_and_code_annotations(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    text='> First line\n> second line\n\n- One\n  continued\n\n| Key | Value |\n| --- | --- |\n| A\\|B | other |\n\n```python\nx = 1\ny = 2\n```\n'
+    (root/'cases.md').write_text(text)
+    page.goto(url);open_file(page,'cases.md');page.locator('#mode').select_option('preview')
+    for selector,quote in [('.markdown-preview blockquote p','First line\n> second line'),('.markdown-preview li','One\n  continued'),('.markdown-preview tbody td:first-child','A\\|B'),('.markdown-preview pre code','x = 1\ny = 2\n')]:
+        select_text(page,selector);expect(page.locator('#annotate')).to_be_enabled();page.locator('#annotate').click()
+        page.locator('#comment-body').fill('Review '+quote);page.locator('#comment-submit').click()
+        expect(page.locator('.thread')).to_have_count(len(ws.threads()))
+        assert ws.threads()[-1]['quote']==quote
+    expect(page.locator('.markdown-preview .passage-highlight')).to_have_count(4)
+    assert (root/'cases.md').read_text()==text
+
+
+def test_table_done_control_survives_temporarily_invalid_source(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,_=workspace_page
+    (root/'edit.md').write_text('# Table\n\n| Name | Value |\n| --- | --- |\n| width | 12 |\n')
+    page.goto(url);open_file(page,'edit.md')
+    page.get_by_role('button',name='Edit table source').click()
+    page.locator('.cm-line',has_text='| --- | --- |').click();page.keyboard.press('Home')
+    page.keyboard.press('Shift+End');page.keyboard.insert_text('temporarily invalid separator')
+    expect(page.get_by_role('button',name='Done editing table')).to_be_visible()
+    page.keyboard.press('Control+z')
+    page.get_by_role('button',name='Done editing table').click();expect(page.locator('.md-table table')).to_be_visible()

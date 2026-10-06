@@ -126,7 +126,7 @@ const theme = () => EditorView.theme({
 
 const blockSourceEffect=StateEffect.define();
 const blockEditing=StateField.define({create:()=>null,update(value,tr){
-  if(value)value={from:tr.changes.mapPos(value.from),to:tr.changes.mapPos(value.to)};
+  if(value)value={...value,from:tr.changes.mapPos(value.from),to:tr.changes.mapPos(value.to)};
   for(const effect of tr.effects)if(effect.is(blockSourceEffect))value=effect.value;
   return value;
 }});
@@ -136,7 +136,7 @@ class MarkdownTable extends WidgetType {
   toDOM(v){
     const el=document.createElement('div');el.className='md-table';
     const edit=document.createElement('button');edit.className='markdown-source-edit';edit.textContent='Edit source';edit.setAttribute('aria-label','Edit table source');
-    edit.onclick=()=>{v.dispatch({effects:blockSourceEffect.of({from:this.from,to:this.from+this.source.length}),selection:{anchor:this.from}});v.focus();};
+    edit.onclick=()=>{v.dispatch({effects:blockSourceEffect.of({from:this.from,to:this.from+this.source.length,kind:'table'}),selection:{anchor:this.from}});v.focus();};
     const table=document.createElement('div');el.append(edit,table);
     const rendered=mountMappedMarkdown(table,this.source,this.from);rendered.highlight(this.spans,this.focused);markdownViews.add(rendered);el._markdown=rendered;
     return el;
@@ -156,19 +156,20 @@ function renderMermaid(host,source){
   (diagramsModule??=import('/static/mermaid.js')).then(module=>module.renderDiagram(host,source)).catch(error=>{if(!host.isConnected)return;host.classList.add('diagram-error');host.removeAttribute('role');host.textContent='Unable to render diagram: '+error.message;const raw=document.createElement('pre');raw.textContent=source;host.append(raw);});
 }
 class MermaidDiagram extends WidgetType {
-  constructor(source,from,to){super();this.source=source;this.from=from;this.to=to;}
-  eq(other){return this.source===other.source&&this.from===other.from&&this.to===other.to;}
-  toDOM(v){const el=document.createElement('div');el.className='md-diagram';const edit=document.createElement('button');edit.className='markdown-source-edit';edit.textContent='Edit source';edit.setAttribute('aria-label','Edit diagram source');edit.onclick=()=>{v.dispatch({effects:blockSourceEffect.of({from:this.from,to:this.to}),selection:{anchor:this.from}});v.focus();};const diagram=document.createElement('div');el.append(edit,diagram);queueMicrotask(()=>renderMermaid(diagram,this.source));return el;}
+  constructor(source,from,to){super();this.source=source;this.from=from;this.to=to;this.theme=document.documentElement.dataset.theme;}
+  eq(other){return this.source===other.source&&this.from===other.from&&this.to===other.to&&this.theme===other.theme;}
+  toDOM(v){const el=document.createElement('div');el.className='md-diagram';const edit=document.createElement('button');edit.className='markdown-source-edit';edit.textContent='Edit source';edit.setAttribute('aria-label','Edit diagram source');edit.onclick=()=>{v.dispatch({effects:blockSourceEffect.of({from:this.from,to:this.to,kind:'diagram'}),selection:{anchor:this.from}});v.focus();};const diagram=document.createElement('div');el.append(edit,diagram);queueMicrotask(()=>renderMermaid(diagram,this.source));return el;}
   ignoreEvent(){return true;}
 }
 function markdownDiagrams(preview){for(const code of preview.querySelectorAll('pre code.language-mermaid')){const source=code.textContent;renderMermaid(code.parentElement,source);}}
 function tableDecorations(state){
   const ranges=[],editing=state.field(blockEditing),spans=state.field(spanField);
+  if(editing)ranges.push(Decoration.widget({block:true,side:-1,widget:new MarkdownSourceControl(editing.kind||'table')}).range(Math.min(editing.from,state.doc.length)));
   syntaxTree(state).iterate({enter(node){
     const diagram=node.name==='FencedCode'&&/^(`{3,}|~{3,})\s*mermaid\s*$/i.test(state.doc.lineAt(node.from).text.trim());
     if(node.name!=='Table'&&!diagram)return;
-    if(editing&&editing.from<=node.to&&editing.to>=node.from){ranges.push(Decoration.widget({block:true,side:-1,widget:new MarkdownSourceControl(diagram?'diagram':'table')}).range(node.from));return false;}
-    if(diagram){const first=state.doc.lineAt(node.from),last=state.doc.lineAt(node.to);const source=state.doc.sliceString(first.to+1,last.from);ranges.push(Decoration.replace({block:true,widget:new MermaidDiagram(source,node.from,node.to)}).range(node.from,node.to));return false;}
+    if(editing&&editing.from<=node.to&&editing.to>=node.from)return false;
+    if(diagram){const first=state.doc.lineAt(node.from),last=state.doc.lineAt(node.to);const closed=/^(`{3,}|~{3,})\s*$/.test(last.text.trim());const source=state.doc.sliceString(Math.min(first.to+1,state.doc.length),closed?last.from:node.to);ranges.push(Decoration.replace({block:true,widget:new MermaidDiagram(source,node.from,node.to)}).range(node.from,node.to));return false;}
     ranges.push(Decoration.replace({block:true,widget:new MarkdownTable(state.doc.sliceString(node.from,node.to),node.from,spans.filter(s=>s.from<node.to&&s.to>node.from))}).range(node.from,node.to));return false;
   }});
   return Decoration.set(ranges,true);
@@ -308,14 +309,20 @@ function codeLanguage(info){switch(info.trim().split(/\s+/)[0].toLowerCase()){
 function highlightMarkdown(preview){
   for(const block of preview.querySelectorAll('pre code')){
     const language=codeLanguage(block.className.replace(/^language-/,''));if(!language)continue;
-    const target=block.querySelector('.md-mapped-text')||block;
-    const source=target.textContent,fragment=document.createDocumentFragment();let at=0;
-    highlightTree(language.parser.parse(source),classHighlighter,(from,to,classes)=>{
-      if(from>at)fragment.append(document.createTextNode(source.slice(at,from)));
-      const span=document.createElement('span');span.className=classes;span.textContent=source.slice(from,to);fragment.append(span);at=to;
-    });
-    if(at<source.length)fragment.append(document.createTextNode(source.slice(at)));
-    target.replaceChildren(fragment);
+    // Color individual text nodes so source mappings and discussion marks stay
+    // intact. Replacing the entire code block would erase passage highlights.
+    for(const span of block.querySelectorAll('span'))if([...span.classList].some(name=>name.startsWith('tok-')))span.replaceWith(...span.childNodes);
+    const source=block.textContent,tokens=[];
+    highlightTree(language.parser.parse(source),classHighlighter,(from,to,classes)=>tokens.push({from,to,classes}));
+    const walker=document.createTreeWalker(block,NodeFilter.SHOW_TEXT),nodes=[];let node,position=0;
+    while((node=walker.nextNode())){nodes.push({node,from:position,to:position+node.length});position+=node.length;}
+    for(const {node,from,to} of nodes){const fragment=document.createDocumentFragment();let at=from;
+      for(const token of tokens){if(token.to<=from||token.from>=to)continue;const start=Math.max(from,token.from),end=Math.min(to,token.to);
+        if(start>at)fragment.append(document.createTextNode(source.slice(at,start)));
+        const span=document.createElement('span');span.className=token.classes;span.textContent=source.slice(start,end);fragment.append(span);at=end;
+      }
+      if(at<to)fragment.append(document.createTextNode(source.slice(at,to)));node.replaceWith(fragment);
+    }
   }
 }
 function language(path){switch(ext(path)){case'md':case'markdown':return markdown({extensions:[TaskList,Table],codeLanguages:codeLanguage});case'py':return python();case'sh':case'bash':return shellLanguage;case'html':case'htm':return html();case'json':return json();default:return [];}}
