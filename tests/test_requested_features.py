@@ -42,9 +42,12 @@ def test_markdown_tables(workspace_page):
     expect(page.locator('.md-table code')).to_have_text('12')
     assert page.locator('.md-table td').last.evaluate('el=>getComputedStyle(el).textAlign').endswith('right')
     page.locator('.md-table td').first.click()
+    expect(page.locator('.md-table table')).to_be_visible()
+    page.get_by_role('button',name='Edit table source',exact=True).click()
     expect(page.locator('.md-table')).to_have_count(0)
     expect(page.locator('.cm-content')).to_contain_text('| Name | Value |')
-    page.keyboard.press('Control+End');expect(page.locator('.md-table table')).to_be_visible()
+    page.get_by_role('button',name='Done editing table',exact=True).click()
+    expect(page.locator('.md-table table')).to_be_visible()
     page.locator('#mode').select_option('preview');expect(page.locator('.markdown-preview table')).to_be_visible()
     page.locator('#mode').select_option('source');expect(page.locator('.md-table')).to_have_count(0)
     assert (root/'table.md').read_text()==original

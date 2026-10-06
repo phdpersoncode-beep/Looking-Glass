@@ -1,6 +1,7 @@
 import {createComposers} from './composer.mjs';
 import {mountHistory} from './history.mjs';
 import {formatJSON} from './json-format.mjs';
+import {mountMappedMarkdown} from './markdown-render.mjs';
 import {basicSetup} from 'codemirror';
 import {EditorState, StateEffect, StateField, Compartment, Text, RangeSet} from '@codemirror/state';
 import {EditorView, Decoration, ViewPlugin, keymap, WidgetType, gutter, GutterMarker} from '@codemirror/view';
@@ -51,6 +52,12 @@ let polling = false, saving = false, switching = false, refreshNumber = 0, queue
 let selectingText = false, selectionFrame = 0, postingComment = false;
 let jsonlSearch = null;
 let renderedPreview=null,renderedSelection=null,renderedJump=null;
+const markdownViews=new Set();
+function markdownSelection(){for(const rendered of markdownViews){if(rendered.host.isConnected){const selection=rendered.selection();if(selection)return selection;}}return null;}
+function markdownSpans(){const e=entry();return view?view.state.field(spanField):e?spansFor(currentThreads,e.content).map(span=>({...span,from:toRawUnits(e.content,span.from),to:toRawUnits(e.content,span.to)})):[];}
+function refreshMarkdownHighlights(){const spans=markdownSpans();for(const rendered of markdownViews){if(rendered.host.isConnected)rendered.highlight(spans,activeThread);else markdownViews.delete(rendered);}}
+function toRawUnits(text,units){let at=0;for(let i=0;i<text.length;i++){if(at===units)return i;if(text[i]==='\r'&&text[i+1]==='\n')i++;at++;}return text.length;}
+
 function previewMessage(type,data={}){const preview=renderedPreview;if(preview?.ready)preview.frame.contentWindow.postMessage({lookingGlass:preview.channel,type,...data},'*');}
 function previewThreads(){previewMessage('threads',{threads:currentThreads.filter(t=>t.path===active&&t.anchor_kind==='rendered').map(t=>({id:t.id,render_anchor:t.render_anchor,resolved:t.resolved})),active:activeThread});}
 let fontStep = Math.max(-4,Math.min(12,Number(localStorage.getItem('looking-glass-font-step'))||0));
@@ -117,22 +124,40 @@ const theme = () => EditorView.theme({
   '.cm-panel input, .cm-panel button':{color:'var(--text)',background:'var(--paper)'}
 },{dark:document.documentElement.dataset.theme === 'dark'});
 
+const tableSourceEffect=StateEffect.define();
+const tableEditing=StateField.define({create:()=>null,update(value,tr){
+  if(value)value={from:tr.changes.mapPos(value.from),to:tr.changes.mapPos(value.to)};
+  for(const effect of tr.effects)if(effect.is(tableSourceEffect))value=effect.value;
+  return value;
+}});
 class MarkdownTable extends WidgetType {
-  constructor(source,from){super();this.source=source;this.from=from;}
-  eq(other){return this.source===other.source&&this.from===other.from;}
-  toDOM(v){const el=document.createElement('div');el.className='md-table';el.innerHTML=DOMPurify.sanitize(marked.parse(this.source));el.title='Click to edit table source';el.onmousedown=event=>{event.preventDefault();v.dispatch({selection:{anchor:this.from}});v.focus();};return el;}
+  constructor(source,from,spans){super();this.source=source;this.from=from;this.spans=spans;this.focused=activeThread;}
+  eq(other){return this.source===other.source&&this.from===other.from&&this.focused===other.focused&&JSON.stringify(this.spans)===JSON.stringify(other.spans);}
+  toDOM(v){
+    const el=document.createElement('div');el.className='md-table';
+    const edit=document.createElement('button');edit.className='markdown-source-edit';edit.textContent='Edit source';edit.setAttribute('aria-label','Edit table source');
+    edit.onclick=()=>{v.dispatch({effects:tableSourceEffect.of({from:this.from,to:this.from+this.source.length}),selection:{anchor:this.from}});v.focus();};
+    const table=document.createElement('div');el.append(edit,table);
+    const rendered=mountMappedMarkdown(table,this.source,this.from);rendered.highlight(this.spans,this.focused);markdownViews.add(rendered);el._markdown=rendered;
+    return el;
+  }
+  destroy(el){markdownViews.delete(el._markdown);}
+  ignoreEvent(){return true;}
+}
+class TableSourceControl extends WidgetType {
+  toDOM(v){const el=document.createElement('div');el.className='markdown-source-controls';const done=document.createElement('button');done.textContent='Done editing table';done.onclick=()=>{v.dispatch({effects:tableSourceEffect.of(null)});v.focus();};el.append(done);return el;}
   ignoreEvent(){return true;}
 }
 function tableDecorations(state){
-  const ranges=[],selection=state.selection.main;
+  const ranges=[],editing=state.field(tableEditing),spans=state.field(spanField);
   syntaxTree(state).iterate({enter(node){
     if(node.name!=='Table')return;
-    if(selection.from<=node.to&&selection.to>=node.from)return false;
-    ranges.push(Decoration.replace({block:true,widget:new MarkdownTable(state.sliceDoc(node.from,node.to),node.from)}).range(node.from,node.to));return false;
+    if(editing&&editing.from<=node.to&&editing.to>=node.from){ranges.push(Decoration.widget({block:true,side:-1,widget:new TableSourceControl()}).range(node.from));return false;}
+    ranges.push(Decoration.replace({block:true,widget:new MarkdownTable(state.doc.sliceString(node.from,node.to),node.from,spans.filter(s=>s.from<node.to&&s.to>node.from))}).range(node.from,node.to));return false;
   }});
   return Decoration.set(ranges,true);
 }
-const liveTables=StateField.define({create:tableDecorations,update:(_value,tr)=>tableDecorations(tr.state),provide:field=>EditorView.decorations.from(field)});
+const liveTables=[tableEditing,StateField.define({create:tableDecorations,update:(_value,tr)=>tableDecorations(tr.state),provide:field=>EditorView.decorations.from(field)})];
 class Bullet extends WidgetType {toDOM(){const el=document.createElement('span');el.textContent='• ';return el;}}
 class TaskCheckbox extends WidgetType {
   constructor(checked,from){super();this.checked=checked;this.from=from;}
@@ -146,6 +171,7 @@ function liveDecorations(v, activeRange) {
   syntaxTree(v.state).iterate({
     enter(node){
       const name=node.name, a=node.from, b=node.to;
+      if(name==='Table')return false;
       if(b<=a) return;
       const line=doc.lineAt(a), isActive=line.from<=activeTo && line.to>=activeFrom;
       if(/^ATXHeading[1-6]$/.test(name)) ranges.push(Decoration.line({class:'md-heading md-h'+name.slice(-1)}).range(line.from));
@@ -199,6 +225,7 @@ function spansFor(threads,text){return threads.filter(t=>t.path===active&&t.anch
 function selectionLocation(){
   if(entry()?.kind)return null;
   if(renderedPreview&&renderedSelection){const frame=renderedPreview.frame.getBoundingClientRect(),rect=renderedSelection.rect;const coords={left:frame.left+rect.left,right:frame.left+rect.right,top:frame.top+rect.top,bottom:frame.top+rect.bottom};if(coords.bottom<frame.top||coords.top>frame.bottom)return null;return {coords,bounds:frame,from:0,to:0};}
+  const md=markdownSelection();if(md){const bounds=$('#surface').getBoundingClientRect();return {coords:md.rect,bounds,from:md.from,to:md.to};}
   if(!view||view.state.selection.main.empty)return null;
   const {head,from,to}=view.state.selection.main;
   const coords=view.coordsAtPos(head,head===to?-1:1),bounds=view.scrollDOM.getBoundingClientRect();
@@ -219,7 +246,7 @@ function scheduleSelectionTools(){
     const location=selectionLocation();
     button.hidden=!location||selectingText||$('#comment-dialog').open;
     if(!button.hidden){
-      const span=view?.state.field(spanField).find(s=>s.from<location.to&&s.to>location.from);
+      const span=markdownSpans().find(s=>s.from<location.to&&s.to>location.from);
       const show=$('#selection-thread');show.hidden=!span;show.dataset.thread=span?.id||'';
       placeNearSelection(button,location);
     }
@@ -265,13 +292,14 @@ function codeLanguage(info){switch(info.trim().split(/\s+/)[0].toLowerCase()){
 function highlightMarkdown(preview){
   for(const block of preview.querySelectorAll('pre code')){
     const language=codeLanguage(block.className.replace(/^language-/,''));if(!language)continue;
-    const source=block.textContent,fragment=document.createDocumentFragment();let at=0;
+    const target=block.querySelector('.md-mapped-text')||block;
+    const source=target.textContent,fragment=document.createDocumentFragment();let at=0;
     highlightTree(language.parser.parse(source),classHighlighter,(from,to,classes)=>{
       if(from>at)fragment.append(document.createTextNode(source.slice(at,from)));
       const span=document.createElement('span');span.className=classes;span.textContent=source.slice(from,to);fragment.append(span);at=to;
     });
     if(at<source.length)fragment.append(document.createTextNode(source.slice(at)));
-    block.replaceChildren(fragment);
+    target.replaceChildren(fragment);
   }
 }
 function language(path){switch(ext(path)){case'md':case'markdown':return markdown({extensions:[TaskList,Table],codeLanguages:codeLanguage});case'py':return python();case'sh':case'bash':return shellLanguage;case'html':case'htm':return html();case'json':return json();default:return [];}}
@@ -340,7 +368,8 @@ function mountDocument(e){
     cleanup=()=>{renderedPreview=null;renderedSelection=null;renderedJump=null;};
     $('#surface').append(frame);
   }else if(e.mode==='preview'){
-    const preview=document.createElement('div');preview.className='markdown-preview';preview.innerHTML=DOMPurify.sanitize(marked.parse(e.content));highlightMarkdown(preview);$('#surface').append(preview);
+    const preview=document.createElement('div');preview.className='markdown-preview';$('#surface').append(preview);
+    const rendered=mountMappedMarkdown(preview,e.content,0,highlightMarkdown);markdownViews.add(rendered);cleanup=()=>markdownViews.delete(rendered);
   }else{
     const parent=document.createElement('div');parent.id='editor';if(['md','markdown','txt'].includes(ext(e.path)))parent.className='prose-editor';$('#surface').append(parent);view=new EditorView({state:e.state||makeState(e),parent});
     view.dispatch({effects:[themeSlot.reconfigure(theme()),liveSlot.reconfigure(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables]:[])]});
@@ -355,7 +384,7 @@ function updateToolbar(){
   $('#json-fold-controls').hidden=type!=='json';
   $('#download-file').hidden=!['html','htm','jsonl'].includes(type);
   $('#document-name').textContent=e?.kind==='history'?'Commit history':e?.kind==='original'?'Original · '+e.sourcePath:e?.path||'Open a file';$('#dirty').textContent=e?.dirty?' · Unsaved':'';
-  $('#save').disabled=!e||viewer||!e.dirty||saving;$('#annotate').disabled=!e||viewer||!(renderedPreview?renderedSelection:view&&!view.state.selection.main.empty);
+  $('#save').disabled=!e||viewer||!e.dirty||saving;$('#annotate').disabled=!e||viewer||!(renderedPreview?renderedSelection:markdownSelection()||view&&!view.state.selection.main.empty);
   const mode=$('#mode');const modes=type==='md'||type==='markdown'?[['live','Live Markdown'],['source','Raw source'],['preview','Reading preview']]:type==='html'||type==='htm'?[['rendered','Rendered HTML'],['source','HTML source']]:[['source',viewer?'Viewer':'Source']];
   if(mode.dataset.path!==active){mode.replaceChildren(...modes.map(([value,label])=>{const opt=document.createElement('option');opt.value=value;opt.textContent=label;return opt;}));mode.dataset.path=active||'';}
   const html=type==='html'||type==='htm', toggle=$('#html-toggle');
@@ -392,7 +421,7 @@ function renderDiscussions(data,key){
     if(focusId&&$('#threads').contains(document.getElementById(focusId))){const field=document.getElementById(focusId);field.focus({preventScroll:true});field.setSelectionRange(start,end);}
   }
   for(const form of $$('.reply-form'))composers.render(form);
-  filterThreads();
+  filterThreads();refreshMarkdownHighlights();
 }
 async function refreshThreads(useCache=false){
   const current=active,path=discussionPath(),scope=threadScope(),generation=++refreshNumber,key=scope+':'+(path||'');
@@ -417,7 +446,7 @@ async function getNavigationIndex(){
 function filterThreads(){if(zenMode&&!currentThreads.some(t=>t.id===activeThread&&(!t.resolved||$('#show-resolved').checked))){activeThread=currentThreads.find(t=>!t.resolved||$('#show-resolved').checked)?.id||null;zenCollapsed=false;}$$('.thread').forEach(t=>{t.hidden=t.dataset.resolved==='true'&&!$('#show-resolved').checked;t.classList.toggle('active',Number(t.dataset.thread)===activeThread);t.classList.toggle('collapsed',zenMode?(Number(t.dataset.thread)!==activeThread||zenCollapsed):collapsedThreads.has(Number(t.dataset.thread)));t.querySelector('[data-action=collapse-thread]')?.setAttribute('aria-expanded',String(!t.classList.contains('collapsed')));const reply=t.querySelector('.reply-form');if(reply)reply.hidden=Number(t.dataset.thread)!==activeThread;});}
 function showThread(id){
   activeThread=id;zenCollapsed=false;if(!zenMode){collapsedThreads.delete(id);rememberCollapsed();}filterThreads();
-  previewThreads();
+  previewThreads();refreshMarkdownHighlights();
   if(view)view.dispatch({effects:spansEffect.of(view.state.field(spanField))});
   $('.thread[data-thread="'+id+'"]')?.scrollIntoView({block:'nearest'});
 }
@@ -433,6 +462,7 @@ async function jump(id,target=null){
     previewMessage('jump',{id});return;
   }
   if(t.anchor_status!=='attached'){notify('This passage needs reattachment. Select the new passage and click “Attach to selection”.');return;}
+  if(entry().mode==='preview'&&[...markdownViews].some(rendered=>rendered.host.isConnected&&rendered.jump(toRawUnits(entry().content,toUnits(entry().content,t.start)),toRawUnits(entry().content,toUnits(entry().content,t.end)))))return;
   if(!view){entry().mode='source';mountDocument(entry());view.dispatch({effects:spansEffect.of(spansFor(currentThreads,entry().content))});}
   const span=view.state.field(spanField).find(s=>s.id===id);
   if(entry().dirty&&!span){notify('Save your draft before navigating to this passage. Its local anchor is unavailable.');return;}
@@ -454,6 +484,7 @@ function navigate(direction){
 async function startComment(){
   const e=entry();if(!e||e.kind)return;
   if(renderedPreview&&renderedSelection)pending={path:e.path,render_anchor:renderedSelection.anchor,quote:renderedSelection.anchor.quote,content:e.content};
+  else if(markdownSelection()){const selected=markdownSelection(),text=view?view.state.sliceDoc():e.content;const start=view?selectionPoints(view.state,selected.from):Array.from(text.slice(0,selected.from)).length,end=view?selectionPoints(view.state,selected.to):Array.from(text.slice(0,selected.to)).length;pending={path:e.path,start,end,quote:Array.from(text).slice(start,end).join(''),content:text,markdown:true};}
   else{if(!view||view.state.selection.main.empty)return;const {from,to}=view.state.selection.main;pending={path:e.path,start:selectionPoints(view.state,from),end:selectionPoints(view.state,to),quote:view.state.sliceDoc(from,to),content:view.state.sliceDoc()};}
   const location=selectionLocation();
   $('#selected-quote').textContent=pending.quote;$('#comment-body').value='';$('#comment-error').textContent='';$('#comment-dialog').show();
@@ -464,10 +495,10 @@ async function startComment(){
 async function submitComment(event){
   event.preventDefault();if(!pending||postingComment)return;
   const selection=pending,body=$('#comment-body').value,author=$('#author').value;
-  if(selection.path!==active||selection.content!==(selection.render_anchor?entry()?.content:view?.state.sliceDoc()))throw new Error('The document changed. Select the passage again before commenting.');
+  if(selection.path!==active||selection.content!==(selection.render_anchor||selection.markdown&&!view?entry()?.content:view?.state.sliceDoc()))throw new Error('The document changed. Select the passage again before commenting.');
   postingComment=true;composers.setSending($('#comment-form'),true);
   try{
-    await saveActive();const e=entry();if(selection!==pending||selection.path!==active||selection.content!==(selection.render_anchor?e.content:view?.state.sliceDoc()))throw new Error('The selected passage changed. Select it again.');
+    await saveActive();const e=entry();if(selection!==pending||selection.path!==active||selection.content!==(selection.render_anchor||selection.markdown&&!view?e.content:view?.state.sliceDoc()))throw new Error('The selected passage changed. Select it again.');
     const result=await composers.post('threads',{path:selection.path,...(selection.render_anchor?{render_anchor:selection.render_anchor}:{start:selection.start,end:selection.end}),version:e.version,body,author},$('#comment-form'));
     composers.clear($('#comment-form'));
     if(active===selection.path){closeComment();activeThread=result.id;await refreshThreads();showThread(result.id);view?.focus();}
@@ -684,7 +715,7 @@ document.addEventListener('click',event=>{
 });
 document.addEventListener('htmx:responseError',event=>notify('Sidebar request failed: '+event.detail.xhr.status,true));
 function beginSelection(event){
-  if(event.button===0&&event.target.closest?.('#editor')){selectingText=true;scheduleSelectionTools();}
+  if(event.button===0&&event.target.closest?.('#editor,.markdown-preview')){selectingText=true;scheduleSelectionTools();}
 }
 function settleSelection(){
   if(!selectingText)return;selectingText=false;
@@ -701,15 +732,18 @@ for(const type of ['pointermove','mousemove'])window.addEventListener(type,event
 },true);
 window.addEventListener('blur',settleSelection);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)settleSelection();});
+document.addEventListener('selectionchange',()=>{updateToolbar();scheduleSelectionTools();});
 document.addEventListener('scroll',scheduleSelectionTools,true);
 window.addEventListener('resize',()=>{scheduleSelectionTools();if($('#comment-dialog').open){const location=selectionLocation();if(location)placeNearSelection($('#comment-dialog'),location);}});
 document.addEventListener('keydown',event=>{
   if((event.ctrlKey||event.metaKey)&&event.altKey&&!event.shiftKey&&event.key.toLowerCase()==='z'){event.preventDefault();event.stopPropagation();toggleZen();return;}
+  if((event.ctrlKey||event.metaKey)&&event.key==='Enter'&&markdownSelection()&&!$('#comment-dialog').open){event.preventDefault();guard(startComment)();return;}
   if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='p'){event.preventDefault();event.stopPropagation();guard(showQuickOpen)();}
   if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='f'&&jsonlSearch&&!document.querySelector('dialog:modal')){event.preventDefault();jsonlSearch();}
   if(event.key==='Escape'&&$('#comment-dialog').open){event.preventDefault();closeComment();view?.focus();}
 },true);
 document.addEventListener('click',guard(async event=>{
+  const anchor=event.target.closest('[data-anchor]');if(anchor&&!window.getSelection()?.toString()){showThread(Number(anchor.dataset.anchor));return;}
   const file=event.target.closest('.file-entry');if(file)await openFile(file.dataset.path);
   const close=event.target.closest('[data-close]');if(close)close.closest('dialog').close();
   const action=event.target.closest('[data-action]');if(!action)return;
