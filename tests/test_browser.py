@@ -441,6 +441,9 @@ def test_end_to_end(tmp_path):
         fallback.goto(url)
         for name in ('tetrahedron-ascii.stl','tetrahedron-binary.stl'):
             fallback.locator(f'.file-entry[data-path="{name}"]').click()
+            # Size preflight is asynchronous; wait for the requested tab before
+            # inspecting a renderer that the previous file may still own.
+            expect(fallback.locator('#document-name')).to_have_text(name)
             expect(fallback.locator('.stl-stats')).to_contain_text('Software preview')
             expect(fallback.locator('.stl-view svg path').first).to_be_visible()
             svg=fallback.locator('.stl-view svg')

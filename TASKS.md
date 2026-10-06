@@ -22,3 +22,5 @@ Rendered Markdown/table browser checks cover exact source anchors, repeated cell
 Git-discussion checks cover commit/branch creation, full-reference validation, branch moves/deletion, replies with immutable context, attachments, resolve/delete, history selection, navigation, and reload persistence. Backend: 46 tests pass; frontend: 4 tests pass. Chromium regression checks pass, including the new history workflow.
 
 Final review also covers multiline block quotes/list continuations, escaped table pipes, highlighted code-block discussions, actual table-source edits, invalid-source recovery, and keyboard-accessible commit selection.
+
+Local verification is complete: 46 backend tests, 4 frontend tests, and all 35 Chromium browser tests pass. The frontend rebuild and Python wheel build also pass. The 3D-viewer regression waits for the requested file after asynchronous size preflight before inspecting its renderer.
