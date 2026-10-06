@@ -90,3 +90,5 @@ dialog:modal{margin:auto}.directory-list{height:260px;overflow:auto;margin-top:8
 .file-size-warning{max-width:620px;margin:70px auto;padding:28px;border:1px solid var(--border);border-radius:8px;overflow-wrap:anywhere}.file-size-warning h2{font-size:18px;margin:0 0 16px}.file-size-warning button{margin-top:16px}
 
 .md-table{position:relative;user-select:text}.markdown-source-edit{display:block;margin:4px 0 8px auto;font:10px var(--font-sans);color:var(--muted);border:0}.markdown-source-controls{padding:6px 28px;text-align:right;font:11px var(--font-sans)}.md-table .passage-highlight,.markdown-preview .passage-highlight{box-decoration-break:clone}.md-mapped-text{white-space:inherit}
+
+.md-diagram{padding:12px 28px}.mermaid-diagram{padding:16px;overflow:auto;text-align:center;color:var(--muted);font:11px var(--font-sans);min-height:70px}.mermaid-diagram svg{display:block;margin:auto;max-width:100%;height:auto}.diagram-error{text-align:left;color:#c08340}.diagram-error pre{white-space:pre-wrap;font:11px var(--mono)}

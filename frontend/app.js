@@ -124,10 +124,10 @@ const theme = () => EditorView.theme({
   '.cm-panel input, .cm-panel button':{color:'var(--text)',background:'var(--paper)'}
 },{dark:document.documentElement.dataset.theme === 'dark'});
 
-const tableSourceEffect=StateEffect.define();
-const tableEditing=StateField.define({create:()=>null,update(value,tr){
+const blockSourceEffect=StateEffect.define();
+const blockEditing=StateField.define({create:()=>null,update(value,tr){
   if(value)value={from:tr.changes.mapPos(value.from),to:tr.changes.mapPos(value.to)};
-  for(const effect of tr.effects)if(effect.is(tableSourceEffect))value=effect.value;
+  for(const effect of tr.effects)if(effect.is(blockSourceEffect))value=effect.value;
   return value;
 }});
 class MarkdownTable extends WidgetType {
@@ -136,7 +136,7 @@ class MarkdownTable extends WidgetType {
   toDOM(v){
     const el=document.createElement('div');el.className='md-table';
     const edit=document.createElement('button');edit.className='markdown-source-edit';edit.textContent='Edit source';edit.setAttribute('aria-label','Edit table source');
-    edit.onclick=()=>{v.dispatch({effects:tableSourceEffect.of({from:this.from,to:this.from+this.source.length}),selection:{anchor:this.from}});v.focus();};
+    edit.onclick=()=>{v.dispatch({effects:blockSourceEffect.of({from:this.from,to:this.from+this.source.length}),selection:{anchor:this.from}});v.focus();};
     const table=document.createElement('div');el.append(edit,table);
     const rendered=mountMappedMarkdown(table,this.source,this.from);rendered.highlight(this.spans,this.focused);markdownViews.add(rendered);el._markdown=rendered;
     return el;
@@ -144,20 +144,36 @@ class MarkdownTable extends WidgetType {
   destroy(el){markdownViews.delete(el._markdown);}
   ignoreEvent(){return true;}
 }
-class TableSourceControl extends WidgetType {
-  toDOM(v){const el=document.createElement('div');el.className='markdown-source-controls';const done=document.createElement('button');done.textContent='Done editing table';done.onclick=()=>{v.dispatch({effects:tableSourceEffect.of(null)});v.focus();};el.append(done);return el;}
+class MarkdownSourceControl extends WidgetType {
+  constructor(kind='table'){super();this.kind=kind;}
+  eq(other){return this.kind===other.kind;}
+  toDOM(v){const el=document.createElement('div');el.className='markdown-source-controls';const done=document.createElement('button');done.textContent='Done editing '+this.kind;done.onclick=()=>{v.dispatch({effects:blockSourceEffect.of(null)});v.focus();};el.append(done);return el;}
   ignoreEvent(){return true;}
 }
+let diagramsModule=null;
+function renderMermaid(host,source){
+  host.dataset.diagramSource=source;host.classList.add('mermaid-diagram');host.setAttribute('role','img');host.setAttribute('aria-label','Mermaid diagram');host.textContent='Rendering diagram…';
+  (diagramsModule??=import('/static/mermaid.js')).then(module=>module.renderDiagram(host,source)).catch(error=>{if(!host.isConnected)return;host.classList.add('diagram-error');host.removeAttribute('role');host.textContent='Unable to render diagram: '+error.message;const raw=document.createElement('pre');raw.textContent=source;host.append(raw);});
+}
+class MermaidDiagram extends WidgetType {
+  constructor(source,from,to){super();this.source=source;this.from=from;this.to=to;}
+  eq(other){return this.source===other.source&&this.from===other.from&&this.to===other.to;}
+  toDOM(v){const el=document.createElement('div');el.className='md-diagram';const edit=document.createElement('button');edit.className='markdown-source-edit';edit.textContent='Edit source';edit.setAttribute('aria-label','Edit diagram source');edit.onclick=()=>{v.dispatch({effects:blockSourceEffect.of({from:this.from,to:this.to}),selection:{anchor:this.from}});v.focus();};const diagram=document.createElement('div');el.append(edit,diagram);queueMicrotask(()=>renderMermaid(diagram,this.source));return el;}
+  ignoreEvent(){return true;}
+}
+function markdownDiagrams(preview){for(const code of preview.querySelectorAll('pre code.language-mermaid')){const source=code.textContent;renderMermaid(code.parentElement,source);}}
 function tableDecorations(state){
-  const ranges=[],editing=state.field(tableEditing),spans=state.field(spanField);
+  const ranges=[],editing=state.field(blockEditing),spans=state.field(spanField);
   syntaxTree(state).iterate({enter(node){
-    if(node.name!=='Table')return;
-    if(editing&&editing.from<=node.to&&editing.to>=node.from){ranges.push(Decoration.widget({block:true,side:-1,widget:new TableSourceControl()}).range(node.from));return false;}
+    const diagram=node.name==='FencedCode'&&/^(`{3,}|~{3,})\s*mermaid\s*$/i.test(state.doc.lineAt(node.from).text.trim());
+    if(node.name!=='Table'&&!diagram)return;
+    if(editing&&editing.from<=node.to&&editing.to>=node.from){ranges.push(Decoration.widget({block:true,side:-1,widget:new MarkdownSourceControl(diagram?'diagram':'table')}).range(node.from));return false;}
+    if(diagram){const first=state.doc.lineAt(node.from),last=state.doc.lineAt(node.to);const source=state.doc.sliceString(first.to+1,last.from);ranges.push(Decoration.replace({block:true,widget:new MermaidDiagram(source,node.from,node.to)}).range(node.from,node.to));return false;}
     ranges.push(Decoration.replace({block:true,widget:new MarkdownTable(state.doc.sliceString(node.from,node.to),node.from,spans.filter(s=>s.from<node.to&&s.to>node.from))}).range(node.from,node.to));return false;
   }});
   return Decoration.set(ranges,true);
 }
-const liveTables=[tableEditing,StateField.define({create:tableDecorations,update:(_value,tr)=>tableDecorations(tr.state),provide:field=>EditorView.decorations.from(field)})];
+const liveTables=[blockEditing,StateField.define({create:tableDecorations,update:(_value,tr)=>tableDecorations(tr.state),provide:field=>EditorView.decorations.from(field)})];
 class Bullet extends WidgetType {toDOM(){const el=document.createElement('span');el.textContent='• ';return el;}}
 class TaskCheckbox extends WidgetType {
   constructor(checked,from){super();this.checked=checked;this.from=from;}
@@ -171,7 +187,7 @@ function liveDecorations(v, activeRange) {
   syntaxTree(v.state).iterate({
     enter(node){
       const name=node.name, a=node.from, b=node.to;
-      if(name==='Table')return false;
+      if(name==='Table'||name==='FencedCode'&&/^(`{3,}|~{3,})\s*mermaid\s*$/i.test(doc.lineAt(a).text.trim()))return false;
       if(b<=a) return;
       const line=doc.lineAt(a), isActive=line.from<=activeTo && line.to>=activeFrom;
       if(/^ATXHeading[1-6]$/.test(name)) ranges.push(Decoration.line({class:'md-heading md-h'+name.slice(-1)}).range(line.from));
@@ -369,7 +385,7 @@ function mountDocument(e){
     $('#surface').append(frame);
   }else if(e.mode==='preview'){
     const preview=document.createElement('div');preview.className='markdown-preview';$('#surface').append(preview);
-    const rendered=mountMappedMarkdown(preview,e.content,0,highlightMarkdown);markdownViews.add(rendered);cleanup=()=>markdownViews.delete(rendered);
+    const rendered=mountMappedMarkdown(preview,e.content,0,highlightMarkdown);markdownViews.add(rendered);markdownDiagrams(preview);cleanup=()=>markdownViews.delete(rendered);
   }else{
     const parent=document.createElement('div');parent.id='editor';if(['md','markdown','txt'].includes(ext(e.path)))parent.className='prose-editor';$('#surface').append(parent);view=new EditorView({state:e.state||makeState(e),parent});
     view.dispatch({effects:[themeSlot.reconfigure(theme()),liveSlot.reconfigure(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables]:[])]});
@@ -819,7 +835,7 @@ $('#thread-scope').onchange=guard(async()=>{localStorage.setItem('looking-glass-
 async function setMode(value){const e=entry();syncState();e.mode=value;view?.destroy();view=null;mountDocument(e);await refreshThreads();remember();}
 $('#mode').onchange=guard(()=>setMode($('#mode').value));
 $('#html-toggle').onclick=guard(()=>setMode(entry().mode==='rendered'?'source':'rendered'));
-$('#theme').onclick=()=>{const value=document.documentElement.dataset.theme==='light'?'dark':'light';document.documentElement.dataset.theme=value;localStorage.setItem('looking-glass-theme',value);$('#theme').textContent=value==='dark'?'Light mode':'Dark mode';if(view)view.dispatch({effects:themeSlot.reconfigure(theme())});};
+$('#theme').onclick=()=>{const value=document.documentElement.dataset.theme==='light'?'dark':'light';document.documentElement.dataset.theme=value;localStorage.setItem('looking-glass-theme',value);$('#theme').textContent=value==='dark'?'Light mode':'Dark mode';if(view)view.dispatch({effects:themeSlot.reconfigure(theme())});if(entry()?.mode==='preview'){$$('.mermaid-diagram').forEach(host=>{const source=host.dataset.diagramSource;if(source)renderMermaid(host,source);});}};
 $('#font-smaller').onclick=()=>{fontStep=Math.max(-4,fontStep-1);localStorage.setItem('looking-glass-font-step',fontStep);applyFontSize();};
 $('#font-larger').onclick=()=>{fontStep=Math.min(12,fontStep+1);localStorage.setItem('looking-glass-font-step',fontStep);applyFontSize();};
 applyFontSize();

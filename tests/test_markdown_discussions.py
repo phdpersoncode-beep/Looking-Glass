@@ -76,3 +76,23 @@ def test_loading_and_oversized_warning(workspace_page):
     expect(page.locator('.file-size-warning')).to_contain_text('300.0 MiB')
     expect(page.locator('.file-size-warning')).to_contain_text('8 MiB')
     expect(page.locator('#html-preview')).to_have_count(0)
+
+
+def test_mermaid_live_preview_source_edit_and_invalid_diagram(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,_=workspace_page
+    (root/'diagram.md').write_text('# Flow\n\n```mermaid\nflowchart TD\n A[Read] --> B[Discuss]\n```\n\nEnd.\n')
+    page.goto(url);open_file(page,'diagram.md')
+    expect(page.locator('.md-diagram svg')).to_be_visible(timeout=20000)
+    expect(page.locator('.md-diagram')).to_contain_text('Discuss')
+    page.get_by_role('button',name='Edit diagram source').click()
+    expect(page.locator('.cm-content')).to_contain_text('flowchart TD')
+    page.get_by_role('button',name='Done editing diagram').click()
+    expect(page.locator('.md-diagram svg')).to_be_visible()
+    page.locator('#mode').select_option('preview');expect(page.locator('.markdown-preview svg')).to_be_visible()
+    page.locator('#theme').click();expect(page.locator('.markdown-preview svg')).to_be_visible()
+    page.locator('#mode').select_option('source');expect(page.locator('.cm-content')).to_contain_text('```mermaid')
+    (root/'bad.md').write_text('# Invalid\n\n```mermaid\nthis is not a diagram\n```\n')
+    page.locator('#refresh-files').click();open_file(page,'bad.md')
+    expect(page.locator('.diagram-error')).to_contain_text('Unable to render diagram')
+    expect(page.locator('.diagram-error')).to_contain_text('this is not a diagram')

@@ -1,3 +1,4 @@
+import gzip
 import hashlib
 import secrets
 import time
@@ -101,6 +102,19 @@ def create_app(root):
         # Versioned asset URLs bypass copies cached before a rebuild.
         version = max(int((Path(app.static_folder)/name).stat().st_mtime) for name in ('app.js', 'style.css'))
         return render_template('index.html', root=str(ws.root), token=ws.token, version=version)
+
+    @app.get('/static/mermaid.js')
+    def diagram_asset():
+        # Serve the locally built, compressed optional renderer. Ordinary
+        # clients without gzip support still receive JavaScript source.
+        asset = Path(app.static_folder)/'mermaid.js.gz'
+        if 'gzip' in request.accept_encodings:
+            response = send_file(asset, mimetype='text/javascript')
+            response.headers['Content-Encoding'] = 'gzip'
+        else:
+            response = Response(gzip.decompress(asset.read_bytes()), mimetype='text/javascript')
+        response.headers['Vary'] = 'Accept-Encoding'
+        return response
 
     @app.get('/fragments/files')
     def tree():
