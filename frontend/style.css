@@ -98,3 +98,5 @@ dialog:modal{margin:auto}.directory-list{height:260px;overflow:auto;margin-top:8
 .history-discussion-count{display:inline-flex;align-items:center;gap:4px}
 
 .history-view .commit-select{display:flex;flex:1;align-items:center;min-width:0;border:0;padding:0;border-radius:0;text-align:left;font:inherit;white-space:normal}.history-view .commit-select:hover{background:transparent}.history-view .commit-select:focus-visible{outline:2px solid var(--purple)}
+
+#file-tree{overflow-x:hidden}.file-entry{min-width:0;white-space:nowrap;word-break:normal}.file-name,.folder-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.file-folder>summary{display:flex;align-items:center;gap:7px;min-width:0;list-style:none}.file-folder>summary::-webkit-details-marker{display:none}.file-folder>summary::before{content:"";flex-shrink:0;width:6px;height:6px;border-right:1px solid currentColor;border-bottom:1px solid currentColor;transform:rotate(-45deg);margin:0 3px;color:var(--muted)}.file-folder[open]>summary::before{transform:rotate(45deg)}

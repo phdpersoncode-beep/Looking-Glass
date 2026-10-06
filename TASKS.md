@@ -13,7 +13,7 @@ Use one feature branch. Update this checklist and commit/push after each impleme
 
 ## Additional requests
 
-- [ ] Keep explorer filenames/folder names on one line with ellipsis and full-name hover hints at narrow widths.
+- [x] Keep explorer filenames/folder names on one line with ellipsis and full-name hover hints at narrow widths.
 - [ ] Add a minimal expandable contents bar pinned above live Markdown, generated from headings and closed after navigation.
 - [ ] Make the explorer collapse-all control larger and consistent with discussion controls.
 - [ ] Add a simple left-chevron explorer toggle with a way to restore the sidebar.
@@ -32,3 +32,5 @@ Git-discussion checks cover commit/branch creation, full-reference validation, b
 Final review also covers multiline block quotes/list continuations, escaped table pipes, highlighted code-block discussions, actual table-source edits, invalid-source recovery, and keyboard-accessible commit selection.
 
 Local verification is complete: 46 backend tests, 4 frontend tests, and all 35 Chromium browser tests pass. The frontend rebuild and Python wheel build also pass. The 3D-viewer regression waits for the requested file after asynchronous size preflight before inspecting its renderer.
+
+Narrow-explorer verification covers nested files and folder names at the 120 px minimum width, single-line truncation, full-path hints, and keyboard resizing.

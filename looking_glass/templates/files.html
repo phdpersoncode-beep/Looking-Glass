@@ -1,9 +1,9 @@
 {% macro entries(branch, prefix='') %}
 {% for name, item in branch.items()|sort %}{% if item is mapping %}
-<details class="file-folder" data-directory="{{ prefix }}{{ name }}"><summary>{{ name }}</summary><div class="folder-children">{{ entries(item, prefix ~ name ~ '/') }}</div></details>
+<details class="file-folder" data-directory="{{ prefix }}{{ name }}"><summary title="{{ prefix }}{{ name }}"><span class="folder-name">{{ name }}</span></summary><div class="folder-children">{{ entries(item, prefix ~ name ~ '/') }}</div></details>
 {% endif %}{% endfor %}
 {% for name, path in branch.items()|sort %}{% if path is string %}
-<button class="file-entry" data-path="{{ path }}" title="{{ path }}"><span class="file-type">{% if path.endswith('.md') %}M↓{% elif path.endswith('.py') %}Py{% elif path.endswith('.stl') %}△{% elif path.endswith('.html') %}◇{% elif path.endswith('.jsonl') %}{ }{% else %}≡{% endif %}</span><span>{{ name }}</span></button>
+<button class="file-entry" data-path="{{ path }}" title="{{ path }}"><span class="file-type">{% if path.endswith('.md') %}M↓{% elif path.endswith('.py') %}Py{% elif path.endswith('.stl') %}△{% elif path.endswith('.html') %}◇{% elif path.endswith('.jsonl') %}{ }{% else %}≡{% endif %}</span><span class="file-name">{{ name }}</span></button>
 {% endif %}{% endfor %}
 {% endmacro %}
 {{ entries(tree) }}
