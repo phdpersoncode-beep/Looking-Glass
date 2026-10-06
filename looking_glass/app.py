@@ -9,7 +9,7 @@ from flask import Flask, Response, jsonify, render_template, request, send_file
 from werkzeug.exceptions import HTTPException
 
 from .revisions import Revisions
-from .workspace import Problem, Workspace, directories
+from .workspace import Problem, Workspace, directories, MAX_TEXT, MAX_BINARY
 from .instructions import agent_instructions as instructions_text
 from .projects import register_project
 
@@ -202,7 +202,7 @@ def create_app(root):
                  '.jpeg':'image/jpeg', '.svg':'image/svg+xml'}
         if p.suffix.lower() not in types:
             raise Problem('Choose an STL, PNG, JPEG, or SVG file.')
-        if p.stat().st_size > 64*1024*1024:
+        if p.stat().st_size > MAX_BINARY:
             raise Problem('Binary viewer files are limited to 64 MiB.',413)
         return send_file(p, mimetype=types[p.suffix.lower()], as_attachment=True)
 
@@ -210,7 +210,8 @@ def create_app(root):
     def file_stat():
         p = ws.path(request.args.get('path'))
         info = p.stat()
-        return jsonify(version=f'{info.st_mtime_ns}:{info.st_size}',size=info.st_size)
+        limit = MAX_BINARY if p.suffix.lower() in ('.stl','.png','.jpg','.jpeg','.svg') else MAX_TEXT
+        return jsonify(version=f'{info.st_mtime_ns}:{info.st_size}',size=info.st_size,limit=limit,too_large=info.st_size > limit)
 
     @app.post('/api/preview')
     def make_preview():
@@ -218,6 +219,8 @@ def create_app(root):
         ws.path(data.get('path'))
         if Path(data['path']).suffix.lower() not in ('.html','.htm') or not isinstance(data.get('content'),str):
             raise Problem('Choose an HTML document.')
+        if len(data['content'].encode('utf-8')) > MAX_TEXT:
+            raise Problem('This HTML file is too large to render. The limit is 8 MiB.',413)
         # A separate short-lived capability reads only this preview. It is never
         # the API token, which report scripts must not receive in their URL.
         key = secrets.token_urlsafe(24)

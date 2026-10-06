@@ -35,10 +35,12 @@ async function readTab(path){
     const file=await api('threads/'+match[1]+(match[2]?'/messages/'+match[2]:'')+'/original');
     return {content:file.content,version:file.origin.snapshot_hash,sourcePath:file.path,origin:file.origin,kind:'original'};
   }
+  const info=await api('stat?'+new URLSearchParams({path}));
+  if(info.too_large)return {...info,content:'',kind:'oversized'};
   return ext(path)==='stl'||isImage(path)?{content:'',version:null}:api('file?'+new URLSearchParams({path}));
 }
 function openOriginal(id,message){return openFile(ORIGINAL+id+'/original'+(message?'/'+message:''));}
-function discussionPath(){const e=entry();return e?.kind==='original'?e.sourcePath:e?.kind==='history'?null:active;}
+function discussionPath(){const e=entry();return e?.kind==='original'?e.sourcePath:e?.kind==='history'||e?.kind==='oversized'?null:active;}
 let expandedFolders=new Set();try{expandedFolders=new Set(JSON.parse(localStorage.getItem('looking-glass-folders:'+root)||'[]'));}catch{}
 let zenMode=localStorage.getItem('looking-glass-zen')==='true',zenCollapsed=false;
 let collapsedThreads=new Set();try{collapsedThreads=new Set(JSON.parse(localStorage.getItem('looking-glass-collapsed-threads:'+root)||'[]'));}catch{}
@@ -301,12 +303,21 @@ async function openFile(path){
     $('#surface').replaceChildren();renderTabs();revealFile(path);updateToolbar();remember();
     if(e.kind==='history')cleanup=mountHistory($('#surface'),e.history??={},api);
     else if(e.kind==='original')mountOriginal(e);
+    else if(e.kind==='oversized')mountOversized(e);
     else if(isImage(path))await mountImage(e);
     else if(ext(path)==='stl')await mountSTL(e);
     else if(ext(path)==='jsonl')mountJSONL(e);
     else mountDocument(e);
     await refreshThreads();notify('');
   }finally{switching=false;if(queuedFile){const next=queuedFile;queuedFile=null;queueMicrotask(()=>guard(()=>openFile(next))());}}
+}
+function mountOversized(e){
+  const warning=document.createElement('div');warning.className='file-size-warning';warning.setAttribute('role','alert');
+  const title=document.createElement('h2');title.textContent='This file is too large to open';
+  const message=document.createElement('p');message.textContent=`${e.path} is ${(e.size/1048576).toFixed(1)} MiB. The limit for this viewer is ${e.limit/1048576} MiB.`;
+  const hint=document.createElement('p');hint.className='muted';hint.textContent='For HTML reports, keep large datasets in separate files instead of embedding them.';
+  const retry=document.createElement('button');retry.textContent='Check again';retry.onclick=guard(async()=>{tabs.delete(e.path);active=null;await openFile(e.path);});
+  warning.append(title,message,hint,retry);$('#surface').append(warning);
 }
 function mountOriginal(e){
   closeComment();renderedPreview=null;renderedSelection=null;

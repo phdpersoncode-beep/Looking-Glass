@@ -12,6 +12,7 @@ from pathlib import Path
 from .anchors import relocate
 
 MAX_TEXT = 8 * 1024 * 1024
+MAX_BINARY = 64 * 1024 * 1024
 EXCLUDED = {'.git', '.looking-glass', 'node_modules', '.venv', '__pycache__', '.pytest_cache'}
 
 
@@ -147,8 +148,13 @@ class Workspace:
     def bytes(self, path):
         p = self.path(path)
         if p.stat().st_size > MAX_TEXT:
-            raise Problem('Text files are limited to 8 MiB. STL files may be up to 64 MiB.', 413)
-        return p.read_bytes()
+            raise Problem('This file is too large to open. Text and HTML files are limited to 8 MiB.', 413)
+        # A writer may grow the file between stat and read. Bound the allocation.
+        with p.open('rb') as file:
+            raw = file.read(MAX_TEXT + 1)
+        if len(raw) > MAX_TEXT:
+            raise Problem('This file is too large to open. Text and HTML files are limited to 8 MiB.', 413)
+        return raw
 
     def text(self, path):
         raw = self.bytes(path)

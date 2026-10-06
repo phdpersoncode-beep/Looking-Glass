@@ -8,7 +8,7 @@ Use one feature branch. Update this checklist and commit/push after each impleme
 - [ ] Show and create passage discussions in Markdown reading preview.
 - [x] Show an elegant loading indicator in the discussion sidebar.
 - [ ] Render Mermaid diagrams in live Markdown using local assets.
-- [ ] Reject oversized files before reading/rendering and show a clear UI warning.
+- [x] Reject oversized files before reading/rendering and show a clear UI warning.
 - [x] Enlarge and clarify expand/collapse-all controls for files and threads.
 
 ## Verification
