@@ -2,7 +2,7 @@
 
 Use one feature branch. Update this checklist and commit/push after each implementation.
 
-- [ ] Put icon-only resolve/reopen and delete controls together in thread headers.
+- [x] Put icon-only resolve/reopen and delete controls together in thread headers.
 - [ ] Add discussions anchored to specific Git commits and branches in history.
 - [ ] Keep live Markdown tables rendered for selection/annotation; provide explicit source editing and visible highlights.
 - [ ] Show and create passage discussions in Markdown reading preview.
