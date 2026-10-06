@@ -13,6 +13,7 @@ looking-glass projects show /absolute/path/to/project
 looking-glass agent --root /absolute/path/to/project list --status open
 looking-glass agent search 'shebang' --status open --author Altay
 looking-glass agent read 2 --context-lines 10
+looking-glass agent reattach 2 --quote 'Exact replacement passage'
 looking-glass agent reply 2 --author OpenCode --body 'My explanation.'
 looking-glass agent instructions
 looking-glass agent --help
@@ -42,6 +43,34 @@ Summaries include IDs, paths, quotes, state, message count, and the last message
 with its body limited to 240 characters. Use `--full` for complete messages.
 `read` includes current passage context with 10 surrounding lines by default.
 Commands print JSON; `instructions` prints text. Errors use stderr and a nonzero exit code.
+
+## Repairing source anchors
+
+Read the discussion and its original review context before deciding which current
+passage replaces the old one. Then use:
+
+```bash
+looking-glass agent reattach 32 --quote 'The 8/8 dev/test split is accepted.'
+looking-glass agent reattach 32 --quote 'Repeated passage' --occurrence 2
+```
+
+`reattach` uses the thread's existing file, finds the exact quote, and sends its
+Unicode offsets and current file hash through `PATCH /threads/32`. A repeated
+quote requires a one-based `--occurrence`. Empty/missing/ambiguous quotes and stale
+file versions fail without changing the anchor. Reattachment preserves comments,
+attachments, immutable original context, and open/resolved state. It also repairs
+an already attached thread pointing at the wrong passage. It never edits the file.
+Rendered HTML threads require selecting visible text in the browser; source quotes
+cannot reliably identify script-generated rendered content.
+
+After a file edit, automatic source reconciliation shares work across all its
+threads. Unchanged ranges and unique exact quotes remain attached. Repeated quotes
+need unique context; a changed quote additionally needs unique unchanged context
+on both sides and substantial surviving text. Character diffs and searches have
+per-file work limits. Deleted, uncertain, or over-budget matches become
+`needs_reattachment`, retaining their last quote and original review context.
+Polling an unchanged file does not retry failed matches. Use `reattach` once the
+replacement is clear; ask for guidance if the discussion does not establish it.
 
 ## Markdown bodies and shell quoting
 

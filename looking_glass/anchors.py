@@ -45,18 +45,19 @@ class AnchorMapper:
         self.prefix, self.suffix = common_edges(old, new)
         self.diff_work = MAX_DIFF_WORK
         self.search_work = MAX_SEARCH_WORK
-        self._hits, self._similarity, self._mapped = {}, {}, {}
+        self._hits, self._old_hits, self._similarity, self._mapped = {}, {}, {}, {}
 
-    def hits(self, quote):
-        if quote not in self._hits:
+    def hits(self, quote, original=False):
+        text, cache = (self.old, self._old_hits) if original else (self.new, self._hits)
+        if quote not in cache:
             # Two hits suffice to reject ambiguity. Do not allocate all matches
             # for a short quote in a repetitive multi-megabyte document.
-            cost = 2 * len(self.new)
+            cost = 2 * len(text)
             if cost > self.search_work:
                 return None
             self.search_work -= cost
-            self._hits[quote] = occurrences(self.new, quote, limit=2)
-        return self._hits[quote]
+            cache[quote] = occurrences(text, quote, limit=2)
+        return cache[quote]
 
     def similar(self, old, new):
         key = old, new
@@ -101,12 +102,15 @@ class AnchorMapper:
         exact = self.hits(quote)
         if exact is None:
             return None
-        if len(exact) == 1 and len(quote.strip()) >= 8:
+        original = self.hits(quote, original=True) if len(exact) == 1 else None
+        if original is not None and len(original) == 1 and len(exact) == 1 and len(quote.strip()) >= 8:
             return exact[0], exact[0] + len(quote)
         # Repeated/short quotes need unique surrounding context, rather than
         # whichever identical passage a character diff happened to choose.
         supported = self.hits(before + quote + after)
-        if supported is not None and len(supported) == 1:
+        original_context = self.hits(before + quote + after, original=True) if supported else None
+        if (supported is not None and len(supported) == 1
+                and original_context is not None and len(original_context) == 1):
             at = supported[0] + len(before)
             return at, at + len(quote)
         if exact:

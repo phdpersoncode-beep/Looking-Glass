@@ -134,7 +134,7 @@ def test_every_command_has_help_and_examples(capsys):
     import pytest
     from looking_glass.cli import main
     commands=[[],['serve'],['projects'],['projects','list'],['projects','show'],['agent']]
-    commands += [['agent',name] for name in ('list','search','read','create','reply','resolve','reopen','delete','instructions')]
+    commands += [['agent',name] for name in ('list','search','read','create','reattach','reply','resolve','reopen','delete','instructions')]
     for command in commands:
         with pytest.raises(SystemExit) as error:
             main([*command,'--help'])
@@ -171,3 +171,94 @@ def test_markdown_body_file_and_stdin(tmp_path):
         assert 'backticks' in help and '--body-file' in help and '--body-stdin' in help
     finally:
         server.shutdown();worker.join(timeout=5);server.server_close()
+
+
+def test_agent_reattach_repairs_failed_and_wrong_anchors(tmp_path):
+    import threading
+    from werkzeug.serving import make_server
+    from looking_glass.app import create_app
+    from looking_glass.workspace import Workspace
+
+    old = 'Before\nThe original reviewed passage.\nAfter\n'
+    path = tmp_path / 'notes.md'; path.write_text(old, encoding='utf-8')
+    app = create_app(tmp_path); ws = app.extensions['workspace']
+    server = make_server('127.0.0.1', 0, app, threaded=True)
+    worker = threading.Thread(target=server.serve_forever, daemon=True); worker.start()
+    command = [sys.executable, '-m', 'looking_glass.cli', 'agent', '--root', str(tmp_path),
+               '--url', f'http://127.0.0.1:{server.server_port}']
+    def run(*args, ok=True):
+        result = subprocess.run([*command, *args], capture_output=True, text=True, timeout=5)
+        assert (result.returncode == 0) == ok, result.stderr
+        return json.loads(result.stdout) if ok else result.stderr
+
+    try:
+        thread = run('create', 'notes.md', '--quote', 'The original reviewed passage.', '--body', 'Review')
+        identifier = str(thread['id'])
+        run('reply', identifier, '--body', 'Keep this conversation.')
+        run('resolve', identifier)
+        messages = run('read', identifier)['messages']
+        replacement = '🪞 Intended replacement.\nSecond line.'
+        new = 'Rewritten introduction\n' + replacement + '\nOther passage\n' + replacement + '\n'
+        path.write_text(new, encoding='utf-8')
+        assert run('read', identifier)['anchor_status'] == 'needs_reattachment'
+        for quote in ('', 'Missing passage', replacement):
+            assert 'Quote is empty, missing, or ambiguous' in run('reattach', identifier, '--quote', quote, ok=False)
+            assert ws.get_thread(thread['id'])['anchor_status'] == 'needs_reattachment'
+        for occurrence in ('0', '-1', '3'):
+            assert 'Occurrence is out of range' in run('reattach', identifier, '--quote', replacement,
+                                                      '--occurrence', occurrence, ok=False)
+        repaired = run('reattach', identifier, '--quote', replacement, '--occurrence', '2')
+        assert repaired['start'] == new.rindex(replacement) and repaired['quote'] == replacement
+        assert repaired['anchor_status'] == 'attached' and repaired['resolved']
+        assert repaired['messages'] == messages and repaired['origin'] == thread['origin']
+        assert ws.origins.read(thread['id'])['content'] == old
+        assert path.read_text(encoding='utf-8') == new
+        # Correct an attached but unintended passage through the same command.
+        corrected = run('reattach', identifier, '--quote', 'Other passage')
+        assert corrected['start'] == new.index('Other passage') and corrected['resolved']
+        assert corrected['messages'] == messages
+        assert Workspace(tmp_path).get_thread(thread['id']) == corrected
+        missing = run('reattach', '999', '--quote', 'Other passage', ok=False)
+        assert 'Thread not found' in missing
+        path.unlink()
+        assert 'File no longer exists' in run('reattach', identifier, '--quote', 'Other passage', ok=False)
+
+        (tmp_path / 'report.html').write_text('<p>Visible passage</p>')
+        report = ws.read('report.html')
+        rendered = ws.create_rendered_thread('report.html', dict(quote='Visible passage', prefix='', suffix=''),
+                                            'Review', 'Agent', report['version'])
+        assert 'Rendered HTML anchors require' in run('reattach', str(rendered['id']),
+                                                     '--quote', 'Visible passage', ok=False)
+    finally:
+        server.shutdown(); worker.join(timeout=5); server.server_close()
+
+
+def test_agent_reattach_rejects_a_file_change_between_read_and_patch(tmp_path, monkeypatch, capsys):
+    import threading
+    import pytest
+    from werkzeug.serving import make_server
+    from looking_glass.app import create_app
+    from looking_glass import cli
+
+    path = tmp_path / 'notes.md'; path.write_text('The original passage.\nA replacement passage.')
+    app = create_app(tmp_path); ws = app.extensions['workspace']
+    source = ws.read('notes.md')
+    thread = ws.create_thread('notes.md', 0, 21, 'Review', 'Agent', source['version'])
+    server = make_server('127.0.0.1', 0, app, threaded=True)
+    worker = threading.Thread(target=server.serve_forever, daemon=True); worker.start()
+    original = cli.api
+    def racing_api(root, url, route, *args, **kwargs):
+        result = original(root, url, route, *args, **kwargs)
+        if route.startswith('file?'):
+            path.write_text('A newer, unrelated document.')
+        return result
+    monkeypatch.setattr(cli, 'api', racing_api)
+    try:
+        with pytest.raises(SystemExit) as error:
+            cli.main(['agent', '--root', str(tmp_path), '--url', f'http://127.0.0.1:{server.server_port}',
+                      'reattach', str(thread['id']), '--quote', 'A replacement passage.'])
+        assert error.value.code == 1 and 'Selection is stale' in capsys.readouterr().err
+        final = ws.get_thread(thread['id'])
+        assert final['quote'] == thread['quote'] and final['anchor_status'] == 'needs_reattachment'
+    finally:
+        server.shutdown(); worker.join(timeout=5); server.server_close()

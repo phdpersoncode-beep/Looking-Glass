@@ -45,6 +45,13 @@ def test_repeated_quote_requires_unique_context():
     assert mapped_quote('left ' + quote + ' right', quote + '\n' + quote, quote) is None
 
 
+def test_deleted_duplicate_is_not_moved_to_the_remaining_copy():
+    quote = 'Review this repeated passage.'
+    old = 'First section\n' + quote + '\n' + 'x' * 100 + '\nSecond section\n' + quote + '\nEnd'
+    new = 'Replacement section\n' + 'x' * 100 + '\nSecond section\n' + quote + '\nEnd'
+    assert mapped_quote(old, new, quote) is None
+
+
 def test_unique_exact_quote_survives_large_move_without_a_diff(monkeypatch):
     import looking_glass.anchors as anchors
     def forbidden(*args, **kwargs):

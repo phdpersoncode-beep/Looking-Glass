@@ -35,6 +35,21 @@ def project_status(project):
         return {**project, 'reachable':False, 'error':str(e)}
 
 
+def source_selection(parser, file, quote, occurrence):
+    from .anchors import occurrences
+    if occurrence is not None and occurrence < 1:
+        parser.error('Occurrence is out of range; use a one-based positive number.')
+    # Only enumerate enough hits to establish uniqueness or reach the chosen one.
+    hits = occurrences(file['content'], quote, limit=occurrence if occurrence is not None else 2)
+    if not quote or not hits or (len(hits) > 1 and occurrence is None):
+        parser.error('Quote is empty, missing, or ambiguous. Provide --occurrence for a repeated quote.')
+    occurrence = occurrence if occurrence is not None else 1
+    if occurrence > len(hits):
+        parser.error('Occurrence is out of range.')
+    start = hits[occurrence-1]
+    return dict(start=start, end=start+len(quote), version=file['version'])
+
+
 def build_parser():
     parser = argparse.ArgumentParser(
         prog='looking-glass', description='Open local projects and review anchored discussions with coding agents.',
@@ -94,9 +109,16 @@ def build_parser():
     create = command(operations, 'create', 'Create a discussion anchored to an exact source passage.',
                      'looking-glass agent create notes.md --quote "A passage" --author Agent --body "Please explain."')
     create.add_argument('path', help='Workspace-relative text file path, or canonical absolute outside path.')
-    create.add_argument('--quote', required=True, help='Exact nonempty source passage; must be unique unless --occurrence is set.')
-    create.add_argument('--occurrence', type=int, help='One-based occurrence to select when the quote repeats.')
     create.add_argument('--author', default='Agent', help='Comment author label (default: Agent).')
+    reattach = command(operations, 'reattach', 'Reattach an existing source thread to an exact current passage.',
+                       'looking-glass agent reattach 4 --quote "The replacement passage"',
+                       'Read the discussion and original context before choosing the replacement. '
+                       'Keep messages, original review context, and resolved/open state. '
+                       'Rendered HTML threads must be reattached by selecting visible text in the browser.')
+    reattach.add_argument('id', type=int, help='Thread ID from list, search, or read, including an already attached thread.')
+    for op in (create, reattach):
+        op.add_argument('--quote', required=True, help='Exact nonempty source passage; must be unique unless --occurrence is set.')
+        op.add_argument('--occurrence', type=int, help='One-based occurrence to select when the quote repeats.')
 
     reply = command(operations, 'reply', 'Append a comment to an existing thread.',
                     'looking-glass agent reply 4 --author Agent --body "Here is my explanation."')
@@ -167,6 +189,13 @@ def main(argv=None):
             result = call('threads?' + urlencode(query))
         elif args.operation == 'read':
             result = call(f'threads/{args.id}?' + urlencode({'context_lines':args.context_lines}))
+        elif args.operation == 'reattach':
+            thread = call(f'threads/{args.id}')
+            if thread['anchor_kind'] != 'source':
+                parser.error('Rendered HTML anchors require selecting the replacement text in the browser.')
+            file = call('file?' + urlencode({'path':thread['path']}))
+            selection = source_selection(parser, file, args.quote, args.occurrence)
+            result = call(f'threads/{args.id}', 'PATCH', selection)
         elif args.operation in ('create', 'reply'):
             if args.body_file is not None and str(args.body_file) != '-':
                 message_body = args.body_file.expanduser().read_text(encoding='utf-8')
@@ -178,17 +207,9 @@ def main(argv=None):
                 result = call(f'threads/{args.id}/replies', 'POST', dict(body=message_body, author=args.author))
                 print(json.dumps(result, indent=2, ensure_ascii=False))
                 return
-            from .anchors import occurrences
             file = call('file?' + urlencode({'path':args.path}))
-            hits = occurrences(file['content'], args.quote)
-            if not args.quote or not hits or (len(hits) > 1 and args.occurrence is None):
-                parser.error('Quote is empty, missing, or ambiguous. Provide --occurrence for a repeated quote.')
-            occurrence = args.occurrence if args.occurrence is not None else 1
-            if not 1 <= occurrence <= len(hits):
-                parser.error('Occurrence is out of range.')
-            start = hits[occurrence-1]
-            result = call('threads', 'POST', dict(path=args.path, start=start, end=start+len(args.quote),
-                                                 version=file['version'], author=args.author, body=message_body))
+            selection = source_selection(parser, file, args.quote, args.occurrence)
+            result = call('threads', 'POST', dict(path=args.path, **selection, author=args.author, body=message_body))
         elif args.operation == 'delete':
             route = f'threads/{args.id}' + (f'/messages/{args.message}' if args.message is not None else '')
             result = call(route, 'DELETE')
