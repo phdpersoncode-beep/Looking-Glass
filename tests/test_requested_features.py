@@ -151,6 +151,7 @@ def test_resizable_file_explorer(workspace_page):
     assert nested.bounding_box()['height']<36
     assert nested.locator('.file-name').evaluate('el=>el.scrollWidth>el.clientWidth && getComputedStyle(el).textOverflow==="ellipsis"')
     assert summary.locator('.folder-name').evaluate('el=>el.scrollWidth>el.clientWidth && getComputedStyle(el).whiteSpace==="nowrap"')
+    assert page.locator('#agent-open').evaluate('el=>el.getBoundingClientRect().right<=document.querySelector(".file-sidebar").getBoundingClientRect().right')
     separator.focus()
     page.keyboard.press('End');expect(separator).to_have_attribute('aria-valuenow','600')
     assert page.locator('.document-panel').bounding_box()['width']>=350

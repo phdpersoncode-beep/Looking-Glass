@@ -31,7 +31,7 @@ Git-discussion checks cover commit/branch creation, full-reference validation, b
 
 Final review also covers multiline block quotes/list continuations, escaped table pipes, highlighted code-block discussions, actual table-source edits, invalid-source recovery, and keyboard-accessible commit selection.
 
-Local verification is complete: 46 backend tests, 4 frontend tests, and all 35 Chromium browser tests pass. The frontend rebuild and Python wheel build also pass. The 3D-viewer regression waits for the requested file after asynchronous size preflight before inspecting its renderer.
+Local verification of the original eight requests passed: 46 backend tests, 4 frontend tests, and all 35 Chromium browser tests. The frontend rebuild and Python wheel build also pass. The 3D-viewer regression waits for the requested file after asynchronous size preflight before inspecting its renderer.
 
 Narrow-explorer verification covers nested files and folder names at the 120 px minimum width, single-line truncation, full-path hints, and keyboard resizing.
 
@@ -40,3 +40,5 @@ Explorer visibility persists across reloads while retaining its width, folder ex
 The 30 px live-Markdown contents bar lists formatted ATX/setext headings, excludes fenced-code headings, tracks current drafts, navigates exact source positions (including CRLF), and closes on selection, Escape, or outside clicks. Browser checks cover pinned positioning, navigation, mode/file changes, and documents without headings.
 
 JSONL entry arrows and raw-pane keyboard arrows navigate entries with boundary states and row counts. Detail scroll retention works for arrows, row clicks, search, and rapid changes; shorter/malformed entries clamp naturally. New explorer/contents/JSONL regressions run in Chromium and Firefox in CI; focused local Chromium checks and JSON folding pass.
+
+Final local verification after all thirteen requests: 38 Chromium browser tests, 46 backend tests, and 4 frontend tests pass; frontend assets rebuild and the Python package builds successfully. Visual review confirms the minimal contents bar and narrow explorer layout; the footer action also truncates within the narrow sidebar and retains its full hover label.

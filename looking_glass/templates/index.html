@@ -23,7 +23,7 @@
     <div class="root-label" title="{{ root }}">{{ root }}</div>
     <label class="sr-only" for="file-filter">Filter files</label><input id="file-filter" class="file-filter" placeholder="Find a file…">
     <div id="file-tree" hx-get="/fragments/files" hx-trigger="load, refresh" hx-sync="this:queue last" hx-swap="innerHTML"></div>
-    <div class="sidebar-foot"><button id="agent-open">Agent instructions</button></div>
+    <div class="sidebar-foot"><button id="agent-open" title="Agent instructions">Agent instructions</button></div>
   </aside>
   <section class="document-panel">
     <nav id="tabs" aria-label="Open documents"></nav>
