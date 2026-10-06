@@ -1,0 +1,6 @@
+<div class="composer-input">
+  <label class="sr-only" for="{{ composer_id }}">{{ composer_label }}</label><textarea id="{{ composer_id }}" rows="{{ composer_rows }}" required placeholder="{{ composer_placeholder }}"></textarea>
+  <button class="attach-trigger" type="button" aria-label="{{ attach_label }}" title="Attach files or paste a screenshot"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 13 7-7a3 3 0 0 1 4 4L9 20a5 5 0 0 1-7-7L13 2a7 7 0 0 1 10 10L12 23" transform="translate(1 0) scale(.85)" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></button>
+  <input type="file" class="attach-files" multiple hidden aria-label="{{ attach_label }}">
+</div>
+<div class="pending-files" aria-live="polite" hidden></div><p class="composer-status" role="status" hidden></p>

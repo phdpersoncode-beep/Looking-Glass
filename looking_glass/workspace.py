@@ -44,6 +44,7 @@ class Workspace:
         if not self.root.is_dir():
             raise Problem('Choose a directory.')
         self.lock = threading.RLock()
+        self._fingerprints = {}
         self.meta = self.root / '.looking-glass'
         self.meta.mkdir(mode=0o700, exist_ok=True)
         token_file = self.meta / 'token'
@@ -64,15 +65,22 @@ class Workspace:
                     id INTEGER PRIMARY KEY, path TEXT NOT NULL, start INTEGER NOT NULL,
                     end INTEGER NOT NULL, quote TEXT NOT NULL, anchor_status TEXT NOT NULL DEFAULT 'attached',
                     resolved INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+                CREATE INDEX IF NOT EXISTS threads_path ON threads(path);
                 CREATE TABLE IF NOT EXISTS messages(
                     id INTEGER PRIMARY KEY, thread_id INTEGER NOT NULL REFERENCES threads(id),
                     author TEXT NOT NULL, body TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
             ''')
+            db.execute('CREATE INDEX IF NOT EXISTS messages_thread ON messages(thread_id)')
             columns = {row['name'] for row in db.execute('PRAGMA table_info(threads)')}
             if 'anchor_kind' not in columns:
                 db.execute("ALTER TABLE threads ADD COLUMN anchor_kind TEXT NOT NULL DEFAULT 'source'")
             if 'render_anchor' not in columns:
                 db.execute('ALTER TABLE threads ADD COLUMN render_anchor TEXT')
+
+        from .attachments import Attachments
+        self.attachments = Attachments(self)
+        from .origins import Origins
+        self.origins = Origins(self)
 
     @contextmanager
     def connection(self):
@@ -121,7 +129,12 @@ class Workspace:
 
     def files(self):
         found = []
-        for directory, dirs, names in os.walk(self.root):
+        def scan_error(error):
+            # A failed scan is not an empty workspace. Let the client retain
+            # its last successful tree and report the failure.
+            raise error
+
+        for directory, dirs, names in os.walk(self.root, onerror=scan_error):
             dirs[:] = sorted(d for d in dirs if d not in EXCLUDED and not (Path(directory)/d).is_symlink())
             for name in sorted(names):
                 file = Path(directory) / name
@@ -148,7 +161,9 @@ class Workspace:
 
     def reconcile(self, db, path, content):
         row = db.execute('SELECT content FROM snapshots WHERE path=?', (path,)).fetchone()
-        if row and row['content'] != content:
+        if row and row['content'] == content:
+            return
+        if row:
             for t in db.execute("SELECT * FROM threads WHERE path=? AND anchor_status='attached' AND anchor_kind='source'", (path,)).fetchall():
                 mapped = relocate(row['content'], content, t['start'], t['end'])
                 if mapped:
@@ -161,14 +176,27 @@ class Workspace:
 
     def read(self, path):
         with self.lock, self.connection() as db:
+            before = self.fingerprint(path)
             content, version = self.text(path)
             self.reconcile(db, path, content)
+            if before == self.fingerprint(path):
+                self._fingerprints[path] = (before, version)
             return dict(path=path, content=content, version=version)
+
+    def fingerprint(self, path):
+        info = self.path(path).stat()
+        return (info.st_dev,info.st_ino,info.st_size,info.st_mtime_ns,info.st_ctime_ns)
+
+    def unchanged(self, path, version):
+        with self.lock:
+            cached = self._fingerprints.get(path)
+            return bool(cached and cached[1] == version and cached[0] == self.fingerprint(path))
 
     def save(self, path, content, version):
         if not isinstance(content, str) or len(content.encode('utf-8')) > MAX_TEXT or '\x00' in content:
             raise Problem('Invalid or oversized text content.')
         with self.lock, self.connection() as db:
+            self._fingerprints.pop(path,None)
             p = self.path(path)
             old, current_version = self.text(path)
             if current_version != version:
@@ -191,10 +219,10 @@ class Workspace:
             self.reconcile(db, path, content)
             return dict(path=path, content=content, version=digest(content.encode('utf-8')))
 
-    def threads(self, path=None):
+    def threads(self, path=None, reconcile=True):
         with self.lock, self.connection() as db:
-            paths = [path] if path else [r[0] for r in db.execute('SELECT DISTINCT path FROM threads')]
-            for name in paths:
+            paths = ([path] if path else [r[0] for r in db.execute('SELECT DISTINCT path FROM threads')]) if reconcile else []
+            for name in paths if reconcile else []:
                 try:
                     content, _ = self.text(name)
                     self.reconcile(db, name, content)
@@ -204,20 +232,34 @@ class Workspace:
                     else:
                         raise
             rows = db.execute('SELECT * FROM threads' + (' WHERE path=?' if path else '') + ' ORDER BY start,id', (path,) if path else ()).fetchall()
+            messages, attachments = {}, {}
+            origins = self.origins.public(db,path)
+            suffix = ' WHERE thread_id IN (SELECT id FROM threads WHERE path=?)' if path else ''
+            for message in db.execute('SELECT * FROM messages'+suffix+' ORDER BY id',(path,) if path else ()):
+                messages.setdefault(message['thread_id'],[]).append({**dict(message), 'origin':origins.get(message['origin_id']), 'commit_hash':origins.get(message['origin_id'],{}).get('commit_hash')})
+            for item in db.execute('SELECT * FROM attachments'+suffix+' ORDER BY id',(path,) if path else ()):
+                attachments.setdefault(item['thread_id'],[]).append(self.attachments.public(item))
             result = []
             for row in rows:
                 t = dict(row)
+                t['origin'] = origins.get(t['origin_id'])
+                t['commit_hash'] = (t['origin'] or {}).get('commit_hash')
                 t['render_anchor'] = json.loads(t['render_anchor']) if t['render_anchor'] else None
                 t['resolved'] = bool(t['resolved'])
-                t['messages'] = [dict(m) for m in db.execute('SELECT * FROM messages WHERE thread_id=? ORDER BY id', (t['id'],))]
+                t['messages'] = messages.get(t['id'],[])
+                t['attachments'] = attachments.get(t['id'],[])
                 result.append(t)
             return result
 
+    def thread_index(self):
+        with self.connection() as db:
+            return [dict(row) for row in db.execute('SELECT id,path,start,resolved,anchor_status FROM threads ORDER BY path,start,id')]
+
     @staticmethod
-    def message(author, body):
+    def message(author, body, allow_empty=False):
         if not isinstance(author, str) or not author.strip() or len(author) > 120:
             raise Problem('An author label of 1–120 characters is required.')
-        if not isinstance(body, str) or not body.strip() or len(body) > 50000:
+        if not isinstance(body, str) or (not body.strip() and not allow_empty) or len(body) > 50000:
             raise Problem('A comment of 1–50,000 characters is required.')
         return author.strip(), body.strip()
 
@@ -249,7 +291,7 @@ class Workspace:
         if summary == 'true':
             page = [dict(id=t['id'], path=t['path'], quote=t['quote'], resolved=t['resolved'],
                          anchor_status=t['anchor_status'], anchor_kind=t['anchor_kind'],
-                         created_at=t['created_at'], message_count=len(t['messages']),
+                         commit_hash=t['commit_hash'], origin=t['origin'], created_at=t['created_at'], message_count=len(t['messages']),
                          last_message={**t['messages'][-1], 'body':t['messages'][-1]['body'][:240]})
                     for t in page]
         return dict(threads=page, total=total, limit=limit, offset=offset,
@@ -293,8 +335,8 @@ class Workspace:
                                     content=''.join(lines[first-1:last]))
             return t
 
-    def create_thread(self, path, start, end, body, author, version):
-        author, body = self.message(author, body)
+    def create_thread(self, path, start, end, body, author, version, allow_empty=False):
+        author, body = self.message(author, body, allow_empty)
         with self.lock, self.connection() as db:
             content, current = self.text(path)
             if current != version:
@@ -304,7 +346,9 @@ class Workspace:
             self.reconcile(db, path, content)
             cursor = db.execute('INSERT INTO threads(path,start,end,quote) VALUES(?,?,?,?)', (path,start,end,content[start:end]))
             identifier = cursor.lastrowid
-            db.execute('INSERT INTO messages(thread_id,author,body) VALUES(?,?,?)', (identifier,author,body))
+            origin = self.origins.capture(db,path,content,start,end,content[start:end])
+            db.execute('UPDATE threads SET origin_id=? WHERE id=?',(origin,identifier))
+            db.execute('INSERT INTO messages(thread_id,author,body,origin_id) VALUES(?,?,?,?)', (identifier,author,body,origin))
         return self.get_thread(identifier)
 
     def get_thread(self, identifier):
@@ -324,9 +368,9 @@ class Workspace:
             raise Problem('Invalid or oversized rendered passage.')
         return anchor
 
-    def create_rendered_thread(self, path, anchor, body, author, version):
+    def create_rendered_thread(self, path, anchor, body, author, version, allow_empty=False):
         anchor = self.rendered_anchor(anchor)
-        author, body = self.message(author,body)
+        author, body = self.message(author,body,allow_empty)
         with self.lock, self.connection() as db:
             if self.path(path).suffix.lower() not in ('.html','.htm'):
                 raise Problem('Rendered anchors require an HTML file.')
@@ -336,14 +380,31 @@ class Workspace:
             self.reconcile(db,path,content)
             cursor = db.execute("INSERT INTO threads(path,start,end,quote,anchor_kind,render_anchor) VALUES(?,0,0,?,'rendered',?)", (path,anchor['quote'],json.dumps(anchor)))
             identifier = cursor.lastrowid
-            db.execute('INSERT INTO messages(thread_id,author,body) VALUES(?,?,?)', (identifier,author,body))
+            origin = self.origins.capture(db,path,content,0,0,anchor['quote'],anchor)
+            db.execute('UPDATE threads SET origin_id=? WHERE id=?',(origin,identifier))
+            db.execute('INSERT INTO messages(thread_id,author,body,origin_id) VALUES(?,?,?,?)', (identifier,author,body,origin))
         return self.get_thread(identifier)
 
-    def reply(self, identifier, body, author):
-        author, body = self.message(author, body)
-        self.get_thread(identifier)
-        with self.lock, self.connection() as db:
-            db.execute('INSERT INTO messages(thread_id,author,body) VALUES(?,?,?)', (identifier,author,body))
+    def reply(self, identifier, body, author, allow_empty=False):
+        author, body = self.message(author, body, allow_empty)
+        with self.lock:
+            t = self.get_thread(identifier)
+            provenance='captured'
+            try:
+                content, _ = self.text(t['path'])
+                start,end,quote,render_anchor = t['start'],t['end'],t['quote'],t['render_anchor']
+                if t['anchor_kind']=='source' and content[start:end]!=quote:
+                    raise Problem('Missing passage.',404)
+            except Problem as error:
+                if error.status not in (404,415): raise
+                provenance='inherited'
+                original=self.origins.read(identifier)
+                content=original['content'];origin=original['origin']
+                start,end,quote,render_anchor=origin['start'],origin['end'],origin['quote'],origin['render_anchor']
+            with self.connection() as db:
+                origin=self.origins.capture(db,t['path'],content,start,end,quote,render_anchor,provenance=provenance,
+                                            metadata=self.origins.metadata(t['path'],t['origin']))
+                db.execute('INSERT INTO messages(thread_id,author,body,origin_id) VALUES(?,?,?,?)', (identifier,author,body,origin))
         return self.get_thread(identifier)
 
     def update_thread(self, identifier, resolved=None, start=None, end=None, version=None, render_anchor=None, render_attached=None):
@@ -381,15 +442,25 @@ class Workspace:
         with self.lock, self.connection() as db:
             if not db.execute('SELECT id FROM threads WHERE id=?', (identifier,)).fetchone():
                 raise Problem('Thread not found.', 404)
+            self._delete_attachment_files(db,identifier)
             db.execute('DELETE FROM messages WHERE thread_id=?', (identifier,))
             db.execute('DELETE FROM threads WHERE id=?', (identifier,))
+            self.origins.collect(db)
         return dict(deleted=True)
 
     def delete_message(self, identifier, message_id):
         with self.lock, self.connection() as db:
             if not db.execute('SELECT id FROM messages WHERE id=? AND thread_id=?', (message_id,identifier)).fetchone():
                 raise Problem('Comment not found.', 404)
+            for item in db.execute('SELECT storage_key FROM attachments WHERE message_id=?',(message_id,)):
+                (self.attachments.directory/item['storage_key']).unlink(missing_ok=True)
             db.execute('DELETE FROM messages WHERE id=?', (message_id,))
             if not db.execute('SELECT id FROM messages WHERE thread_id=?', (identifier,)).fetchone():
+                self._delete_attachment_files(db,identifier)
                 db.execute('DELETE FROM threads WHERE id=?', (identifier,))
+            self.origins.collect(db)
         return dict(deleted=True)
+
+    def _delete_attachment_files(self, db, identifier):
+        for row in db.execute('SELECT storage_key FROM attachments WHERE thread_id=?',(identifier,)):
+            (self.attachments.directory/row['storage_key']).unlink(missing_ok=True)

@@ -97,12 +97,16 @@ def build_parser():
     create.add_argument('--quote', required=True, help='Exact nonempty source passage; must be unique unless --occurrence is set.')
     create.add_argument('--occurrence', type=int, help='One-based occurrence to select when the quote repeats.')
     create.add_argument('--author', default='Agent', help='Comment author label (default: Agent).')
-    create.add_argument('--body', required=True, help='Comment text. Quote it as one shell argument.')
+
     reply = command(operations, 'reply', 'Append a comment to an existing thread.',
                     'looking-glass agent reply 4 --author Agent --body "Here is my explanation."')
     reply.add_argument('id', type=int, help='Thread ID from list, search, or create.')
     reply.add_argument('--author', default='Agent', help='Comment author label (default: Agent).')
-    reply.add_argument('--body', required=True, help='Reply text. Quote it as one shell argument.')
+    for op in (create, reply):
+        bodies = op.add_mutually_exclusive_group(required=True)
+        bodies.add_argument('--body', help='Literal text. Use single shell quotes for Markdown: double quotes execute backticks and $(...).')
+        bodies.add_argument('--body-file', type=Path, help='Read UTF-8 text from a file; use - for standard input.')
+        bodies.add_argument('--body-stdin', action='store_true', help='Read text from standard input. Use a quoted here-document to preserve backticks.')
     for name in ('resolve', 'reopen'):
         op = command(operations, name,
                      'Mark a completed thread as resolved.' if name == 'resolve' else 'Mark a resolved thread as open again.',
@@ -163,7 +167,17 @@ def main(argv=None):
             result = call('threads?' + urlencode(query))
         elif args.operation == 'read':
             result = call(f'threads/{args.id}?' + urlencode({'context_lines':args.context_lines}))
-        elif args.operation == 'create':
+        elif args.operation in ('create', 'reply'):
+            if args.body_file is not None and str(args.body_file) != '-':
+                message_body = args.body_file.expanduser().read_text(encoding='utf-8')
+            elif args.body_stdin or args.body_file is not None:
+                message_body = sys.stdin.read()
+            else:
+                message_body = args.body
+            if args.operation == 'reply':
+                result = call(f'threads/{args.id}/replies', 'POST', dict(body=message_body, author=args.author))
+                print(json.dumps(result, indent=2, ensure_ascii=False))
+                return
             from .anchors import occurrences
             file = call('file?' + urlencode({'path':args.path}))
             hits = occurrences(file['content'], args.quote)
@@ -174,9 +188,7 @@ def main(argv=None):
                 parser.error('Occurrence is out of range.')
             start = hits[occurrence-1]
             result = call('threads', 'POST', dict(path=args.path, start=start, end=start+len(args.quote),
-                                                 version=file['version'], author=args.author, body=args.body))
-        elif args.operation == 'reply':
-            result = call(f'threads/{args.id}/replies', 'POST', dict(body=args.body, author=args.author))
+                                                 version=file['version'], author=args.author, body=message_body))
         elif args.operation == 'delete':
             route = f'threads/{args.id}' + (f'/messages/{args.message}' if args.message is not None else '')
             result = call(route, 'DELETE')

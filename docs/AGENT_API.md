@@ -43,6 +43,23 @@ with its body limited to 240 characters. Use `--full` for complete messages.
 `read` includes current passage context with 10 surrounding lines by default.
 Commands print JSON; `instructions` prints text. Errors use stderr and a nonzero exit code.
 
+## Markdown bodies and shell quoting
+
+`create` and `reply` accept exactly one of `--body`, `--body-file FILE`, or
+`--body-stdin`. `--body-file -` also reads standard input. Files use UTF-8.
+Bash executes backticks and `$(...)` inside double quotes before the CLI sees
+anything. Use single quotes for short literal text, or a file/quoted here-document:
+
+````bash
+looking-glass agent reply 2 --body-file explanation.md
+looking-glass agent reply 2 --body-stdin <<'MARKDOWN'
+Use `width` as the named parameter.
+```python
+width = 12
+```
+MARKDOWN
+````
+
 ## HTTP API
 
 Each request needs the `X-Looking-Glass-Token` header. Its value is the contents
@@ -54,18 +71,31 @@ There are no built-in model calls or automatic editing passes.
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET | `/threads?path=welcome.md` | List threads; omit `path` for all files |
+| GET | `/threads/1/original` | Exact saved review source and anchor metadata |
+| GET | `/threads/1/messages/2/original` | Saved source when that comment was added |
 | GET | `/threads/1` | Read one thread and all messages |
 | POST | `/threads` | Create an anchored thread |
 | POST | `/threads/1/replies` | Append a reply |
 | PATCH | `/threads/1` | Resolve/reopen or reattach |
 | DELETE | `/threads/1` | Delete a thread and all its comments |
 | DELETE | `/threads/1/messages/2` | Delete one comment; remove an empty thread |
+| POST | `/threads/1/attachments` | Upload a multipart `file` field (up to 64 MiB) |
+| GET | `/attachments/1` | Download the original attachment bytes |
+| PATCH | `/attachments/1` | Rename with `{"name":"feedback.json"}` |
+| DELETE | `/attachments/1` | Remove an attachment |
 | GET | `/file?path=welcome.md` | Read current disk text and version |
 | PUT | `/file` | Save with a required current version hash |
 | GET | `/workspace` | Workspace root and available file paths |
 | GET | `/project` | Workspace root only, for inexpensive identity checks |
 | GET | `/agent-instructions` | Copyable instructions for this workspace and server |
+| GET | `/git/history?limit=100` | Paged branch graph metadata and commit messages |
 | GET | `/git/baseline?path=welcome.md` | Last committed text for editor gutter markers |
+
+Paths above are relative to `/api`. Full thread responses include `attachments`
+with `id`, `thread_id`, `name`, `size`, and `media_type`. Display names can change;
+download bytes remain unchanged. Attachments belong to the thread, survive server
+restarts, and are removed when the thread or its last message is deleted. All four
+attachment endpoints require the same token as other API requests.
 
 ### Thread queries and context
 
@@ -157,3 +187,45 @@ Errors are JSON objects with an `error` string. `409` means the disk file or
 selection became stale; read the file again and reconcile deliberately. `401`
 means the token is missing or invalid. `403` means an origin/path is forbidden.
 `404` means a file/thread is missing. Invalid input returns `400`.
+
+
+### Commit anchors and original context
+
+Thread and message objects include `commit_hash` and small `origin` metadata.
+The hash records HEAD when the discussion/comment was captured. An immutable,
+compressed source snapshot preserves the exact reviewed content, including
+uncommitted changes and untracked files. Reattachment changes the live anchor;
+it never overwrites the original. File deletion keeps discussions and replies.
+The two `/original` routes return `{path,content,origin}`, with original quote,
+positions, rendered quote context, commit hash, and snapshot hash. They require
+the local token and do not read or restore the working file.
+
+Legacy discussions are marked `recovered` (last observed source) or
+`recovered_quote` (only the quote survived). Their hash is captured at migration,
+not an invented historical commit. Without Git or a first commit, the hash is
+null and the review snapshot still survives. A reply on a missing passage uses
+`inherited` context and records the current HEAD. Runtime-generated HTML text is
+retained as quote/prefix/suffix; the snapshot preserves the HTML source.
+
+### Comments with files
+
+`POST /threads` and `POST /threads/1/replies` also accept multipart form data:
+a `data` field containing the existing JSON request, and repeated `files` fields.
+A comment may have an empty body when it includes a file. Maximum: 16 files and
+64 MiB combined, with multipart framing allowed by the request limit. On a file
+failure, the new comment and its partial uploads are removed so a retry is safe.
+Attachment metadata includes nullable `message_id`: legacy/thread-level files
+have null; files sent with a comment belong to that comment. Deleting a comment
+removes its own files. The standalone attachment endpoint accepts an optional
+`message_id` form field, verified to belong to the target thread.
+
+### Git graph pagination
+
+`GET /git/history` returns local and fetched remote `branches`, `commits`, `tips`,
+and `next_offset`. Commits include parents, author/committer identities, date,
+short subject, and full message. Use repeated `branch=refs/heads/name` parameters
+to select branches. The default includes all branches and detached HEAD.
+For the next page, repeat the returned `tip` hashes and send `offset=next_offset`;
+this freezes the traversal while new commits are made. The limit is 1–200
+(default 100). History is newest first with ancestry order preserved. No fetch,
+checkout, index mutation, or automatic commit occurs.

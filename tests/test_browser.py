@@ -17,7 +17,7 @@ from werkzeug.serving import make_server
 from looking_glass.app import create_app
 from looking_glass.workspace import Workspace
 
-pytestmark = pytest.mark.skipif(not os.environ.get('LOOKING_GLASS_BROWSER'), reason='Set LOOKING_GLASS_BROWSER to run the browser workflow')
+pytestmark = [pytest.mark.browser, pytest.mark.skipif(not os.environ.get('LOOKING_GLASS_BROWSER'), reason='Set LOOKING_GLASS_BROWSER to run the browser workflow')]
 
 
 def test_review_workflow_features(tmp_path):
@@ -152,7 +152,7 @@ def test_rendered_html_discussions(tmp_path):
             assert t['anchor_kind']=='rendered' and t['quote']=='Hello world & friends.'
             assert frame.locator('body').evaluate("()=>CSS.highlights.get('looking-glass-passages').size")==1
             page.locator('.reply-form textarea').fill('A sidebar reply.')
-            page.locator('.reply-form button').click()
+            page.locator('.reply-form button[type=submit]').click()
             expect(page.get_by_text('A sidebar reply.',exact=True)).to_be_visible()
             select('#later')
             page.keyboard.press('Control+Enter')
@@ -337,7 +337,7 @@ def test_end_to_end(tmp_path):
         assert len(reply['messages'])==2
         page.get_by_text('Yes. I would add a concrete example.',exact=True).wait_for()
         page.locator('.reply-form textarea').fill('Add the example in the next editing pass.')
-        page.locator('.reply-form button').click()
+        page.locator('.reply-form button[type=submit]').click()
         page.get_by_text('Add the example in the next editing pass.',exact=True).wait_for()
         assert len(agent('read',str(id))['messages'])==3
         drag_passage('Select this passage',reverse=True)
@@ -365,7 +365,7 @@ def test_end_to_end(tmp_path):
         assert 'solid_volume' in (root/'example.py').read_text()
         t=agent('create','example.py','--quote','return width * height * depth','--body','Validate positive dimensions first.')
         page.get_by_text('Validate positive dimensions first.',exact=True).wait_for()
-        assert t['messages'][0]['author']=='Codex'
+        assert t['messages'][0]['author']=='Agent'
 
         open_file('_crlf.txt')
         page.locator('.cm-content').click()
@@ -489,7 +489,7 @@ def test_end_to_end(tmp_path):
         page.locator('#next').click()
         page.locator('#editor').click(position={'x':300,'y':450})
         family=page.locator('#editor .cm-scroller').evaluate('(el)=>getComputedStyle(el).fontFamily')
-        assert 'Times New Roman' in family
+        assert 'Newsreader' in family
         page.locator('.tab[data-path="example.py"] button[title="Pin tab"]').click()
         page.locator('.tab[data-path="welcome.md"]').click(button='right')
         page.get_by_role('button',name='Close other tabs',exact=True).click()

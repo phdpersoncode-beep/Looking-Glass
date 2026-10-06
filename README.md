@@ -46,7 +46,9 @@ The terminal prints the new root, and the API token changes with it.
 workspace are keyed by their resolved absolute path. Their discussions are stored
 in the current workspace. The file sidebar lists files recursively
 as a collapsible tree and supports filtering. Use **Collapse all folders** to fold
-the tree. Folder expansion persists across refreshes. Common dependency, Git and application metadata folders
+the tree. Drag the sidebar divider to resize the explorer; its width persists across
+refreshes. The focused divider also supports arrow keys, Home/End, and double-click
+to reset. Folder expansion persists across refreshes. Common dependency, Git and application metadata folders
 are excluded. Symlinks are not opened. No project code is executed.
 
 ## Review a file
@@ -66,7 +68,25 @@ are excluded. Symlinks are not opened. No project code is executed.
 
 Use **×** beside a comment to delete that comment. **Delete thread** removes the
 whole discussion and its highlight. Deleting the last comment also removes its thread.
-The application asks for confirmation before deletion.
+The application asks for confirmation before deletion. Turn on **Across files** above
+the discussions to see threads throughout the workspace, including outside files
+opened in this workspace. ↑/↓ always traverses discussions across files, even when
+the toggle is off, and preserves unsaved drafts. Navigation stays at the top.
+
+Drag the discussions divider to resize it; the width persists. Collapse a thread
+with its chevron and reopen it with its comment icon. The header also has collapse-all
+and expand-all controls. **Zen mode** (top-bar button or **Ctrl+Alt+Z**, **Cmd+Alt+Z**
+on macOS) hides the file explorer and tabs and expands only the focused thread.
+Leaving zen restores the normal collapse settings. **Ctrl+Z remains undo.**
+
+Use **Attach files** on a thread to upload images, STL, JSON, or other files
+(up to 64 MiB each). Images can be previewed; all attachments can be downloaded,
+renamed, or removed. They live with discussion data in `.looking-glass/attachments/`,
+not beside the reviewed document. Deleting a thread removes its attachments.
+
+The JSON toolbar's **Format JSON** button indents a compact JSON document without
+rounding large numbers or removing duplicate keys. Formatting is undoable and stays
+unsaved until you save. Invalid JSON stays unchanged and produces an error.
 
 Ctrl+P opens fuzzy file search throughout the application and overrides browser printing.
 Type parts of a filename or path, use ↑/↓ to select, and press Enter to open.
@@ -75,12 +95,15 @@ Use **A− / A+** in the document toolbar to adjust document text size.
 The setting persists. Toolbar, sidebar, and search controls keep their size.
 Live Markdown task lists display clickable checkboxes. The active line exposes
 ordinary Markdown syntax. Checkbox clicks update the Markdown draft; save to write it.
+Markdown tables render in live mode; click a table to edit its source. Fenced Python,
+Bash, JSON, and HTML blocks have basic syntax highlighting in live/source mode and
+reading preview. Inactive fence markers and language labels are hidden in live mode.
 
 Ctrl+A selects the active editor document. Ctrl+F and Ctrl+H open CodeMirror's
 document search/replace panel. Ctrl+Z and Ctrl+Shift+Z undo/redo. On macOS, use
 Command in place of Ctrl. Browser/input shortcuts retain their normal meaning
 when focus is outside the editor. Python and Bash have basic syntax highlighting.
-Text and Markdown use Times New Roman with Times/serif fallback; code/JSON use
+Text and Markdown use locally bundled Newsreader with Times/serif fallback; code/JSON use
 your system monospace font. The top-right button switches light/dark themes.
 
 Tabs have pin and close buttons. Right-click a tab to close the other unpinned
@@ -100,7 +123,7 @@ Use the looking-glass CLI if it is installed to collaborate with me. It is for r
 - Find open threads: `looking-glass agent list --status open`.
 - Search comments: `looking-glass agent search "TEXT" --status open`.
 - Read messages and passage context: `looking-glass agent read ID --context-lines 10`.
-- Reply: `looking-glass agent reply ID --author "Agent" --body "REPLY"`.
+- Reply: write the Markdown reply to a UTF-8 file, then use `looking-glass agent reply ID --author "Agent" --body-file reply.md`.
 - Resolve completed work: `looking-glass agent resolve ID`.
 
 Read context before replying. Ask for guidance on detached anchors.
@@ -110,7 +133,6 @@ Use `looking-glass agent --root PATH ...` from another directory.
 Follow `next_offset` with `--offset` for additional pages.
 
 Append `--help` when you need help with a command. Run `looking-glass agent instructions` for the full guide.
-altay@dinm5CD51053RK:~/.claude$ vim CLAUDE.md
 ```
 
 Click **Agent instructions** beneath the file explorer, then **Copy instructions**.
@@ -147,6 +169,12 @@ before the operation. The CLI verifies the server's project root before accessin
 `--occurrence`. Commands return JSON; `instructions` prints copyable text.
 Thread IDs come from `list`, `search`, or `create`.
 Comments never automatically apply edits.
+
+For Markdown bodies, use `--body-file reply.md`, or pipe text into `--body-stdin`
+(`--body-file -` also reads stdin). `create` and `reply` accept exactly one of these
+or `--body`. Shell double quotes still execute backticks and `$(...)` before the
+CLI runs; body files and quoted here-documents avoid that substitution. See the
+[body input examples](docs/AGENT_API.md) for safe multiline replies.
 
 `list` and `search` return paginated summaries with `threads`, `total`, `limit`,
 `offset`, and `next_offset`. Use `--limit` and `--offset` to page through results.
@@ -185,7 +213,8 @@ your project's `.gitignore`; the included repository already does this.
 Code, Markdown, and text editors show changes against the last Git commit in their
 left gutter. Green bars mark added lines. Blue bars mark changed lines.
 Red horizontal triangles mark removed lines. Markers include unsaved drafts and remain
-after saving. They reset after a checkpoint. Files outside Git have no markers.
+after saving. They reset after a checkpoint. Files outside Git and ignored untracked files have no markers. Tracked files
+continue showing changes even when they match an ignore pattern.
 
 Choose **Changes & checkpoints**, select saved files, inspect their changes,
 and give the checkpoint a name. Looking Glass reuses the enclosing repository.
@@ -203,10 +232,16 @@ them in your terminal first. Checkpoints do not push. Saving never commits.
 
 ## Viewers
 
+- **PNG, JPEG, SVG:** view images with zoom buttons, wheel zoom, actual size, fit,
+  and drag to pan. SVG runs as an image, so embedded scripts do not execute.
+- **JSON:** collapse all objects/arrays, then unfold individual entries using their
+  fold markers. **Expand all** restores the complete tree. The same controls appear
+  in the formatted JSONL pane.
 - **JSONL:** all raw lines on the left, selected JSON value formatted on the right.
   Malformed and empty lines are marked individually; other rows still work.
   Ctrl+F searches all raw rows, including malformed rows. Enter and Shift+Enter
-  move between matching rows. Escape closes search.
+  move between matching rows. Escape closes search. **Download** saves the JSONL
+  file with its original filename.
 - **STL:** ASCII (text) and binary STL; drag to orbit, right-drag to pan, scroll
   to zoom, and use **Fit to view**. Uses WebGL when available, with an SVG
   software fallback. Software previews of large models reduce detail to 12,000
@@ -218,6 +253,10 @@ them in your terminal first. Checkpoints do not push. Saving never commits.
   reports; workspace-relative linked assets are not currently served to previews.
    Select visible report text and use **Add comment** or Ctrl+Enter to annotate
    rendered HTML. Highlights and passage navigation stay in the report.
+   Ctrl/Cmd+P opens the application file picker even when the report has focus.
+   **Download** saves the current HTML draft for opening directly in a browser,
+   without saving pending edits to the workspace. Self-contained reports retain
+   their scripts and styling in the downloaded file.
    Source HTML also supports anchored comments. Each thread records its anchor mode.
    Rendered anchors store the selected text and surrounding context. Missing or
    ambiguous passages request reattachment. Select a new rendered passage and click
@@ -232,10 +271,22 @@ is used for application dependencies.
 npm ci
 npm run build
 uv sync   # includes the dev dependency group
-uv run pytest -q
-uv run playwright install chromium
-LOOKING_GLASS_BROWSER=installed uv run pytest tests/test_browser.py -v
+npm test
+uv run pytest -m 'not browser' -q  # fast backend and CLI contracts
+uv run playwright install chromium firefox
+LOOKING_GLASS_BROWSER=installed uv run pytest -m browser -q
 ```
+
+For native Wayland selection checks, run Firefox with visible windows inside
+your Linux Wayland desktop session (Firefox must be installed by Playwright):
+
+```bash
+MOZ_ENABLE_WAYLAND=1 LOOKING_GLASS_HEADED=1 LOOKING_GLASS_BROWSER=installed \
+  uv run pytest tests/test_requested_features.py -k "linux_text_selection and firefox" -q
+```
+
+The selection regression covers Chromium and Firefox, forward/backward and
+multiline drags, existing annotations, and recovery after missed release events.
 
 For an already-installed Chromium, set `LOOKING_GLASS_BROWSER` to its executable
 path. The browser test copies `demo_dir` into a disposable directory and verifies
@@ -245,7 +296,31 @@ JSONL/STL/HTML viewers, HTML isolation, and selected Git checkpoints.
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the repository plan,
 [docs/LIMITATIONS.md](docs/LIMITATIONS.md) for deferred work, and
 [docs/VERIFICATION.md](docs/VERIFICATION.md) for results.
+See [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for measurements, the Rust-port
+decision, and regression requirements. GitHub Actions runs fast checks and a separate
+Chromium/Firefox browser job on pushes and pull requests.
 
 If this project was delivered as an archive, extract it into your checked-out
 Looking-Glass repository and review the diff before committing. The archive
 contains no Git history, environments, API tokens, or annotation databases.
+
+
+### Review history and screenshots
+
+Open **Commit history** at the top of the file sidebar. It opens a normal tab with
+newest-first branch/merge lanes, a branch filter dropdown, colored identities,
+branch labels, and older-commit pagination. Hover a row for its full message;
+click for the full message and author/committer details. Remote branches reflect
+what your local Git repository has already fetched.
+
+Each thread and comment has a commit/context button. It opens the saved reviewed
+source read-only, even after the file or passage disappears. New comments record
+HEAD and keep the exact source snapshot; uncommitted work remains recoverable.
+Existing discussions are labelled **Recovered context** when their original
+commit was never recorded.
+
+Use the dim paperclip beside a comment/reply box, or focus that box and paste a
+clipboard screenshot with **Ctrl+V**. Small pending chips can be renamed or
+removed before sending. Files belong to the posted comment; image-only comments
+are supported. Click an image filename to preview it, or use **⋯** for download,
+rename, and removal. Text and files stay in the composer if sending fails.

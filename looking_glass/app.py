@@ -1,3 +1,4 @@
+import hashlib
 import secrets
 import time
 import json
@@ -23,6 +24,8 @@ def create_app(root):
 
     @app.before_request
     def protect():
+        if request.method=='POST' and (request.path.endswith(('/attachments','/replies')) or request.path=='/api/threads'):
+            request.max_content_length=65*1024*1024
         if request.path.startswith(('/api/', '/fragments/')):
             if not secrets.compare_digest(request.headers.get('X-Looking-Glass-Token',''), ws.token):
                 raise Problem('Missing or invalid local API token.', 401)
@@ -61,6 +64,38 @@ def create_app(root):
             raise Problem('Send a JSON object.')
         return data
 
+    def review_body():
+        if request.mimetype != 'multipart/form-data':
+            return body(), []
+        try:
+            data = json.loads(request.form.get('data',''))
+        except (TypeError,ValueError):
+            raise Problem('Send review data with the attachment files.')
+        if not isinstance(data,dict): raise Problem('Send a JSON object.')
+        files=request.files.getlist('files')
+        if len(files)>16: raise Problem('Attach at most 16 files per comment.')
+        for file in files: ws.attachments.name(file.filename)
+        return data,files
+
+    def save_review(create, files, new_thread=False):
+        # Roll back the new comment and its files on an upload failure. Keep the
+        # user's existing discussion untouched; the composer can retry safely.
+        with ws.lock:
+            thread=create(bool(files));message_id=thread['messages'][-1]['id']
+            try:
+                from .attachments import MAX_ATTACHMENT
+                total=0
+                for file in files:
+                    item=ws.attachments.add(thread['id'],file.stream,file.filename,message_id)
+                    total+=item['size']
+                    if total>MAX_ATTACHMENT:
+                        raise Problem('Attachments in one comment are limited to 64 MiB.',413)
+            except BaseException:
+                if new_thread: ws.delete_thread(thread['id'])
+                else: ws.delete_message(thread['id'],message_id)
+                raise
+            return ws.get_thread(thread['id'])
+
     @app.get('/')
     def index():
         # Versioned asset URLs bypass copies cached before a rebuild.
@@ -70,6 +105,9 @@ def create_app(root):
     @app.get('/fragments/files')
     def tree():
         files = ws.files()
+        tag = hashlib.sha256(json.dumps(files, ensure_ascii=False).encode()).hexdigest()
+        if request.if_none_match.contains(tag):
+            return Response(status=304, headers={'ETag': '"' + tag + '"'})
         tree = {}
         for path in files:
             branch = tree
@@ -77,7 +115,9 @@ def create_app(root):
             for part in parts[:-1]:
                 branch = branch.setdefault(part, {})
             branch[parts[-1]] = path
-        return render_template('files.html', tree=tree)
+        response = app.make_response(render_template('files.html', tree=tree))
+        response.set_etag(tag)
+        return response
 
     @app.get('/api/agent-instructions')
     def agent_instructions():
@@ -89,7 +129,31 @@ def create_app(root):
 
     @app.get('/fragments/threads')
     def discussion():
-        return render_template('threads.html', threads=ws.threads(request.args.get('path')), active=request.args.get('active',type=int))
+        all_files = request.args.get('scope') == 'all'
+        items = ws.threads(None if all_files else request.args.get('path'))
+        if all_files:
+            items.sort(key=lambda t: (t['path'], t['start'], t['id']))
+        return render_template('threads.html', threads=items, all_files=all_files, active=request.args.get('active',type=int))
+
+    @app.get('/api/thread-index')
+    def thread_index():
+        return jsonify(ws.thread_index())
+
+    @app.get('/api/discussions')
+    def discussions():
+        # Browsing discussions must not reread every document. Opening/polling
+        # the active file reconciles anchors before passage navigation.
+        path=request.args.get('path') or None
+        all_files=request.args.get('scope')=='all'
+        items=ws.threads(None if all_files else path,reconcile=False) if all_files or path else []
+        items.sort(key=lambda t:(t['path'],t['start'],t['id']))
+        index=ws.thread_index()
+        tag=hashlib.sha256(json.dumps([items,index],ensure_ascii=False).encode()).hexdigest()
+        if request.if_none_match.contains(tag):
+            return Response(status=304,headers={'ETag':'"'+tag+'"'})
+        response=jsonify(threads=items,index=index,html=render_template('threads.html',threads=items,all_files=all_files,active=None))
+        response.set_etag(tag)
+        return response
 
     @app.get('/api/workspace')
     def workspace():
@@ -122,6 +186,8 @@ def create_app(root):
 
     @app.get('/api/file')
     def read_file():
+        if request.args.get('version') and ws.unchanged(request.args.get('path'),request.args['version']):
+            return Response(status=304)
         return jsonify(ws.read(request.args.get('path')))
 
     @app.put('/api/file')
@@ -132,11 +198,13 @@ def create_app(root):
     @app.get('/api/binary')
     def binary():
         p = ws.path(request.args.get('path'))
-        if p.suffix.lower() != '.stl':
-            raise Problem('The binary viewer accepts STL files only.')
+        types = {'.stl':'application/octet-stream', '.png':'image/png', '.jpg':'image/jpeg',
+                 '.jpeg':'image/jpeg', '.svg':'image/svg+xml'}
+        if p.suffix.lower() not in types:
+            raise Problem('Choose an STL, PNG, JPEG, or SVG file.')
         if p.stat().st_size > 64*1024*1024:
-            raise Problem('STL files are limited to 64 MiB.',413)
-        return send_file(p, mimetype='application/octet-stream', as_attachment=True)
+            raise Problem('Binary viewer files are limited to 64 MiB.',413)
+        return send_file(p, mimetype=types[p.suffix.lower()], as_attachment=True)
 
     @app.get('/api/stat')
     def file_stat():
@@ -183,13 +251,13 @@ def create_app(root):
 
     @app.post('/api/threads')
     def new_thread():
-        data = body()
+        data,files = review_body()
         ws.path(data.get('path'))
-        if Path(data['path']).suffix.lower() in ('.stl','.jsonl'):
+        if Path(data['path']).suffix.lower() in ('.stl','.jsonl','.png','.jpg','.jpeg','.svg'):
             raise Problem('This viewer does not support annotations.')
         if 'render_anchor' in data:
-            return jsonify(ws.create_rendered_thread(data.get('path'),data['render_anchor'],data.get('body'),data.get('author'),data.get('version'))),201
-        return jsonify(ws.create_thread(data.get('path'),data.get('start'),data.get('end'),data.get('body'),data.get('author'),data.get('version'))),201
+            return jsonify(save_review(lambda empty:ws.create_rendered_thread(data.get('path'),data['render_anchor'],data.get('body'),data.get('author'),data.get('version'),allow_empty=empty),files,new_thread=True)),201
+        return jsonify(save_review(lambda empty:ws.create_thread(data.get('path'),data.get('start'),data.get('end'),data.get('body'),data.get('author'),data.get('version'),allow_empty=empty),files,new_thread=True)),201
 
     @app.get('/api/threads/<int:identifier>')
     def thread(identifier):
@@ -197,10 +265,18 @@ def create_app(root):
             return jsonify(ws.thread_context(identifier, request.args['context_lines']))
         return jsonify(ws.get_thread(identifier))
 
+    @app.get('/api/threads/<int:identifier>/original')
+    def original_thread(identifier):
+        return jsonify(ws.origins.read(identifier))
+
+    @app.get('/api/threads/<int:identifier>/messages/<int:message_id>/original')
+    def original_message(identifier, message_id):
+        return jsonify(ws.origins.read(identifier,message_id))
+
     @app.post('/api/threads/<int:identifier>/replies')
     def reply(identifier):
-        data = body()
-        return jsonify(ws.reply(identifier,data.get('body'),data.get('author'))),201
+        data,files = review_body()
+        return jsonify(save_review(lambda empty:ws.reply(identifier,data.get('body'),data.get('author'),allow_empty=empty),files)),201
 
     @app.patch('/api/threads/<int:identifier>')
     def update_thread(identifier):
@@ -209,6 +285,28 @@ def create_app(root):
             raise Problem('Unknown thread update fields.')
         return jsonify(ws.update_thread(identifier,**data))
 
+    @app.post('/api/threads/<int:identifier>/attachments')
+    def upload_attachment(identifier):
+        upload=request.files.get('file')
+        if upload is None:
+            raise Problem('Choose a file to attach.')
+        message_id=ws.query_integer(request.form['message_id'],'Comment',1) if 'message_id' in request.form else None
+        return jsonify(ws.attachments.add(identifier,upload.stream,request.form.get('name') or upload.filename,message_id)),201
+
+    @app.get('/api/attachments/<int:identifier>')
+    def download_attachment(identifier):
+        item=ws.attachments.get(identifier)
+        return send_file(ws.attachments.directory/item['storage_key'],mimetype=item['media_type'],
+                         as_attachment=True,download_name=item['name'])
+
+    @app.patch('/api/attachments/<int:identifier>')
+    def rename_attachment(identifier):
+        return jsonify(ws.attachments.rename(identifier,body().get('name')))
+
+    @app.delete('/api/attachments/<int:identifier>')
+    def delete_attachment(identifier):
+        return jsonify(ws.attachments.delete(identifier))
+
     @app.get('/api/git')
     def git_status():
         return jsonify(git.status())
@@ -216,6 +314,12 @@ def create_app(root):
     @app.get('/api/git/baseline')
     def git_baseline():
         return jsonify(git.baseline(request.args.get('path')))
+
+    @app.get('/api/git/history')
+    def git_history():
+        branches = request.args.getlist('branch') if 'branch' in request.args else None
+        return jsonify(git.history(branches, request.args.get('limit', 100), request.args.get('offset', 0),
+                                   request.args.getlist('tip') if 'tip' in request.args else None))
 
     @app.delete('/api/threads/<int:identifier>')
     def delete_thread(identifier):

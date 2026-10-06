@@ -14,10 +14,13 @@
   Report navigation, nested frames, form submission and application-origin
   requests are restricted. HTML is not a general unrestricted browser.
 - Live Markdown supports heading styling, emphasis, inline code, links, quote
-  styling, list markers, interactive task checkboxes, and syntax exposure at the active line. Complex tables,
-  images and full block rendering are best viewed in the reading preview. It is
-  a first inline Markdown editor, not feature parity with Obsidian.
-- JSONL and STL are viewers without editing or annotations. The JSONL left side
+  styling, list markers, interactive task checkboxes, editable rendered tables, and
+  syntax exposure at the active line. Fenced Python, Bash, JSON, and HTML have basic
+  highlighting; unrecognized languages remain plain text. Markdown images and
+  other block layouts are best viewed in the reading preview. It is a first inline
+  Markdown editor, not feature parity with Obsidian.
+- PNG/JPEG/SVG, JSONL and STL are viewers without editing or annotations.
+  Image zoom and pan are view-only; SVG scripts are inert in the image viewer. The JSONL left side
   is a raw row list; basic JSON syntax highlighting is on the formatted right.
   STL uses WebGL with an SVG software fallback when WebGL is unavailable.
   Large software previews sample up to 12,000 triangles, which can omit small
@@ -25,7 +28,7 @@
   inside the viewer instead of geometry.
 - Text files must be UTF-8 and at most 8 MiB. Uniform CRLF/LF line endings and
   executable mode are preserved. Mixed line endings are normalized to the first
-  detected style during editing. STL files are limited to 64 MiB. The file list
+  detected style during editing. STL and image files are limited to 64 MiB. The file list
   is capped at 10,000 entries; no lazy tree or large-file virtualization yet.
 - Anchor reconciliation is conservative, character-based and optimized for
   small review documents. Large rewrites and moved/duplicated passages may need
@@ -37,16 +40,21 @@
   same file simultaneously. Multi-server use of one workspace is unsupported.
 - Drafts live in the current browser session. Tab switches retain undo history;
   a browser reload/close warns about unsaved work but does not restore drafts.
-  Thread history is durable in SQLite. It is not yet exported into Git commits.
+  Pending pasted files remain in the browser until sent or cancelled. Thread history
+  and sent attachments are durable in SQLite/local storage; they are not exported
+  into Git commits. Clipboard image paste uses the browser paste event; operating-system
+  clipboard formats must be exposed to the browser as an image.
 - Tab pinning and author/theme preferences are local browser metadata. Close
   other tabs preserves pinned tabs. The UI is desktop-focused.
 - Git gutter indicators compare the current draft with HEAD. Diff computation has
   a time limit for large rewrites, which can reduce marker detail. Reading previews
-  and JSONL/STL viewers have no Git gutter. Font controls apply to editor documents,
+  and image/JSONL/STL viewers have no Git gutter. Ignored untracked files also
+  have no gutter; tracked files still show changes regardless of ignore patterns. Font controls apply to editor documents,
   Markdown reading previews, and JSONL; isolated HTML reports keep their own styling.
 - Checkpoints preserve unrelated changes, but selected pre-staged files and
   in-progress merges/cherry-picks/reverts must be handled in the terminal. No
-  Git history viewer, amend, branch management, push or automatic commit exists.
+  amend, branch management, push or automatic commit exists. The read-only history
+  graph includes local and already-fetched remote branches; fetching remains a terminal action.
   Checkpoints use Git plumbing; commit hooks and automatic commit signing are
   not invoked in this milestone.
   Avoid concurrently changing Git's HEAD/index while creating a checkpoint.
@@ -56,8 +64,11 @@
   replacing directories in the middle of a request. The API also opens files outside
   the workspace by absolute path, so the token grants read/write access to every
   file your user can access. Only grant it to agents you trust with that.
-- SQLite snapshots contain last-observed text to map anchors. Disk files remain
-  authoritative; snapshots are not a backup or alternate document store.
+- SQLite live snapshots contain last-observed text to map anchors. Separate immutable,
+  compressed review snapshots preserve exact discussion/comment context, including
+  deleted files and uncommitted content. They are deduplicated and removed when no
+  discussion references them. Disk files remain authoritative for editing. Legacy
+  context is labelled recovered because its original commit was never recorded.
 - Agent commands require a running server. The project registry keeps the last
   address for each root; stopped or switched-away projects remain listed as unreachable.
   Servers started before an upgrade must restart to expose updated API routes.

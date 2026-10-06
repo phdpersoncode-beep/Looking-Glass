@@ -97,3 +97,16 @@ def test_baseline_uses_head_and_preserves_index(repo,tmp_path_factory):
     outside=tmp_path_factory.mktemp('no-git')
     (outside/'file.txt').write_text('text')
     assert Revisions(Workspace(outside)).baseline('file.txt')==dict(content=None)
+
+
+def test_ignored_files_have_no_baseline_but_tracked_files_do(repo):
+    (repo/'.gitignore').write_text('*.txt\nignored/\n')
+    (repo/'ignored.txt').write_text('ignored\n');(repo/'new.md').write_text('untracked\n')
+    (repo/'ignored').mkdir();(repo/'ignored'/'nested.py').write_text('value = 2\n')
+    revisions=Revisions(Workspace(repo))
+    assert revisions.baseline('ignored.txt')==dict(content=None)
+    assert revisions.baseline('ignored/nested.py')==dict(content=None)
+    assert revisions.baseline('new.md')==dict(content='')
+    assert revisions.baseline('three.txt')==dict(content='original\n')
+    child=repo/'child';child.mkdir()
+    assert Revisions(Workspace(child)).baseline(str(repo/'ignored.txt'))==dict(content=None)

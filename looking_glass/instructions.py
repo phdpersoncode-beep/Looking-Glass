@@ -11,10 +11,12 @@ looking-glass projects list
 {command} list --status open
 {command} search "search text" --status open
 {command} read THREAD_ID --context-lines 10
-{command} reply THREAD_ID --author "Agent" --body "Your reply"
-{command} create "relative/path.md" --quote "Exact unique passage" --author "Agent" --body "Your comment"
+{command} reply THREAD_ID --author "Agent" --body-file reply.md
+{command} create "relative/path.md" --quote "Exact unique passage" --author "Agent" --body-file comment.md
 {command} resolve THREAD_ID
 {command} reopen THREAD_ID
+
+For Markdown, prefer --body-file FILE or --body-stdin. With --body, use single shell quotes: double quotes execute backticks and $(...).
 
 List and search return paginated JSON summaries. Use --offset and --limit for more results.
 Read each thread and its current passage context before responding. Use IDs from list or search.

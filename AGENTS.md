@@ -5,17 +5,17 @@ A local prose/code editor and review tool for working with coding agents on ordi
 
 ## Current capabilities
 - CodeMirror editing: live/raw/preview Markdown, plain text, Python/Bash highlighting, undo/redo, save, search/replace, tabs, fuzzy file search, and Git change gutters.
-- Persistent threads on source text and rendered HTML: replies, resolve/reopen, deletion, passage navigation, and reattachment.
+- Persistent source/HTML threads: replies, attachments/renaming, resolve/reopen, deletion, cross-file navigation, collapse controls, commit anchors/original-context tabs, and reattachment. Clipboard screenshots and files use compact comment composers. Resizable sidebars; zen mode uses Ctrl+Alt+Z, preserving Ctrl+Z undo.
 - Interactive sandboxed HTML reports, split JSONL viewer with search, and ASCII/binary STL viewing with orbit/pan/zoom/fit and software fallback.
-- Directory switching, outside-file opening, external-change detection, conflict comparison, selected-file Git checkpoints, and agent project discovery/search/context.
+- Directory switching, outside-file opening, external-change detection, conflict comparison, selected-file Git checkpoints, a paged multi-branch commit graph, and agent project discovery/search/context.
 
 ## Constraints
 - Python 3.10+, Flask, HTMX, SQLite, CodeMirror 6, Tailwind, and Three.js. Build application assets locally; no CDN dependencies.
 - Disk files are authoritative; preserve ordinary Markdown/plain text. SQLite holds discussions/metadata in `<workspace>/.looking-glass/`; never commit its database or token.
-- Reload clean external changes; preserve dirty drafts and reject stale saves. Ambiguous/deleted anchors need reattachment.
+- Reload clean external changes; preserve dirty drafts and reject stale saves. Ambiguous/deleted live anchors need reattachment; immutable review context stays readable.
 - Saving never commits. Git checkpoints are explicit and preserve unrelated staged/unstaged work.
 - Loopback-only server; isolate report scripts from editor state/tokens. Agents run separately through the local interface; no built-in model calls or project-code execution.
-- Minimalist light/dark themes, neon-purple highlights, monospace code/JSON, and Times New Roman prose. Preserve Ctrl+A/F/H and selection-aware shortcuts.
+- Minimalist light/dark themes, neon-purple highlights, monospace code/JSON, and locally bundled Newsreader prose. Preserve Ctrl+A/F/H and selection-aware shortcuts.
 
 ## Run and build
 From the repository root (uv and Git required; Node 20+ for frontend builds):
@@ -25,7 +25,9 @@ uv run looking-glass serve ./demo_dir  # http://127.0.0.1:8765
 npm ci
 npm run build                        # rebuild committed static assets
 uv build                             # Python wheel/source distribution
-uv run pytest -q
+npm test
+uv run pytest -m 'not browser' -q
+LOOKING_GLASS_BROWSER=installed uv run pytest -m browser -q  # playwright install chromium firefox first
 ```
 
 For a CLI available from any directory:
@@ -45,8 +47,8 @@ Use `uv run looking-glass` from this checkout if not installed globally. See `--
 
 ## Repo map
 Keep this map and commands current when structure or workflows change.
-- `looking_glass/app.py`: routes/security; `workspace.py`: files, SQLite, threads; `anchors.py`: anchor mapping; `revisions.py`: Git checkpoints.
-- `looking_glass/cli.py`: server/agent commands; `projects.py`: project registry; `instructions.py`: agent guidance.
-- `looking_glass/templates/`: HTML/HTMX; `frontend/app.js`, `frontend/style.css`: client sources; `looking_glass/static/`: committed output of `build.mjs`.
-- `tests/`: backend/CLI/browser checks; `demo_dir/`: representative files; `docs/`: API, architecture, limitations, verification.
+- `looking_glass/app.py`: routes/security; `workspace.py`: files, SQLite, threads; `anchors.py`: anchor mapping; `revisions.py`: Git checkpoints/history; `origins.py`: immutable review context.
+- `looking_glass/cli.py`: server/agent commands; `projects.py`: project registry; `instructions.py`: agent guidance; `attachments.py`: thread-owned uploads.
+- `looking_glass/templates/`: HTML/HTMX; `frontend/app.js`, `frontend/style.css`, and small `.mjs` modules: client sources; `looking_glass/static/`: committed output of `build.mjs`.
+- `tests/`: backend/CLI/browser checks; `.github/workflows/`: automated checks; `scripts/benchmark_discussions.py`: disposable benchmark; `demo_dir/`: fixtures; `docs/`: API, architecture, performance, verification.
 - `pyproject.toml`, `uv.lock`: Python packaging/dependencies; `package.json`, `package-lock.json`: frontend dependencies.

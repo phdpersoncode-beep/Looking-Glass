@@ -2,7 +2,8 @@
   "name": "looking-glass-client",
   "private": true,
   "scripts": {
-    "build": "node build.mjs"
+    "build": "node build.mjs",
+    "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.0",
@@ -16,6 +17,7 @@
     "@codemirror/search": "^6.5.11",
     "@codemirror/state": "^6.5.2",
     "@codemirror/view": "^6.38.6",
+    "@fontsource-variable/newsreader": "^5.3.0",
     "@lezer/highlight": "^1.2.3",
     "@lezer/markdown": "^1.7.2",
     "codemirror": "^6.0.2",
