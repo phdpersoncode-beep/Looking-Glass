@@ -229,3 +229,18 @@ For the next page, repeat the returned `tip` hashes and send `offset=next_offset
 this freezes the traversal while new commits are made. The limit is 1–200
 (default 100). History is newest first with ancestry order preserved. No fetch,
 checkout, index mutation, or automatic commit occurs.
+
+## Commit and branch discussions
+
+Create a history discussion with `POST /threads` and
+`{"git_target":{"kind":"commit","ref":"FULL_COMMIT_HASH"},"author":"Altay","body":"Review"}`.
+For branches use `kind: "branch"`, the full `refs/heads/...` or `refs/remotes/...`
+reference, and optionally `commit_hash` to reject a branch that moved since selection.
+Do not include file-passage fields in the same request.
+
+The thread's `anchor_kind` is `commit` or `branch`; `git_target` contains its
+identity, label, original commit hash, and discussion path. Reply, resolve,
+attachments, deletion, search, and original-context endpoints work as usual.
+Commit discussions preserve that exact commit. Branch discussions stay on the
+branch reference as it moves; each reply captures the current tip when available.
+Saved context survives branch deletion and does not require a live file.

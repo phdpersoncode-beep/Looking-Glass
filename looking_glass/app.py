@@ -269,6 +269,10 @@ def create_app(root):
     @app.post('/api/threads')
     def new_thread():
         data,files = review_body()
+        if 'git_target' in data:
+            if any(key in data for key in ('path','start','end','render_anchor')):
+                raise Problem('Choose either a Git target or a file passage.')
+            return jsonify(save_review(lambda empty:ws.create_git_thread(data['git_target'],data.get('body'),data.get('author'),allow_empty=empty),files,new_thread=True)),201
         ws.path(data.get('path'))
         if Path(data['path']).suffix.lower() in ('.stl','.jsonl','.png','.jpg','.jpeg','.svg'):
             raise Problem('This viewer does not support annotations.')

@@ -97,6 +97,41 @@ class Revisions:
         return dict(repository=True, branches=refs, commits=commits[:limit], tips=tips,
                     next_offset=offset+limit if len(commits)>limit else None)
 
+    def discussion_target(self, target):
+        """Validate a history identity and snapshot its reviewed commit context."""
+        import re
+        if not isinstance(target, dict) or set(target) - {'kind','ref','commit_hash','label','path'}:
+            raise Problem('Choose a commit or branch from the history viewer.')
+        kind, ref = target.get('kind'), target.get('ref')
+        if kind not in ('commit','branch') or not isinstance(ref,str):
+            raise Problem('Choose a commit or branch from the history viewer.')
+        root = self.root()
+        if root is None:
+            raise Problem('This workspace has no Git repository.')
+        if kind == 'commit':
+            if not re.fullmatch(r'[0-9a-f]{40}|[0-9a-f]{64}',ref):
+                raise Problem('Commit discussions require a full commit hash.')
+            sha = ref
+        else:
+            raw = self.git('for-each-ref','--format=%(refname)%00%(objectname)%00%(symref)',
+                           'refs/heads','refs/remotes',timeout=15).stdout.decode('utf-8',errors='replace')
+            refs = {name:sha for name,sha,sym in (line.split('\0') for line in raw.splitlines()) if not sym}
+            if ref not in refs:
+                raise Problem('Choose an existing local or remote branch.',404)
+            sha = refs[ref]
+        if target.get('commit_hash') is not None and target['commit_hash'] != sha:
+            raise Problem('The branch moved. Refresh history before starting this discussion.',409)
+        if self.git('cat-file','-t',sha,check=False,timeout=15).stdout.strip() != b'commit':
+            raise Problem('Commit not found.',404)
+        context = self.git('show','-s','--format=%H%nCommitted by %cn <%ce>%nAuthored by %an <%ae>%n%cI%n%n%B',sha,'--',timeout=15).stdout.decode('utf-8',errors='replace').rstrip()
+        subject = self.git('show','-s','--format=%s',sha,'--',timeout=15).stdout.decode('utf-8',errors='replace').strip()
+        name = ref.removeprefix('refs/heads/').removeprefix('refs/remotes/')
+        label = f'Commit {sha[:8]} · {subject}' if kind == 'commit' else f'Branch {name}'
+        if kind == 'branch':
+            context = f'{label}\n{ref}\nTip when reviewed: {sha}\n\n{context}'
+        return dict(kind=kind,ref=ref,commit_hash=sha,label=label,path=f'looking-glass://git/{kind}/{ref}',
+                    content=context,git_root=str(root))
+
     def baseline(self, path):
         """Read HEAD without touching the index, including outside open files."""
         file = self.ws.path(path)

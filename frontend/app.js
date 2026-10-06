@@ -41,7 +41,7 @@ async function readTab(path){
   return ext(path)==='stl'||isImage(path)?{content:'',version:null}:api('file?'+new URLSearchParams({path}));
 }
 function openOriginal(id,message){return openFile(ORIGINAL+id+'/original'+(message?'/'+message:''));}
-function discussionPath(){const e=entry();return e?.kind==='original'?e.sourcePath:e?.kind==='history'||e?.kind==='oversized'?null:active;}
+function discussionPath(){const e=entry();return e?.kind==='original'?e.sourcePath:e?.kind==='history'?e.history?.target?.path||null:e?.kind==='oversized'?null:active;}
 let expandedFolders=new Set();try{expandedFolders=new Set(JSON.parse(localStorage.getItem('looking-glass-folders:'+root)||'[]'));}catch{}
 let zenMode=localStorage.getItem('looking-glass-zen')==='true',zenCollapsed=false;
 let collapsedThreads=new Set();try{collapsedThreads=new Set(JSON.parse(localStorage.getItem('looking-glass-collapsed-threads:'+root)||'[]'));}catch{}
@@ -234,7 +234,7 @@ const selectionPoints=(state,units)=>Array.from(state.sliceDoc(0,units)).length;
 const ext=path=>path.split('.').pop().toLowerCase();
 const isImage=path=>['png','jpg','jpeg','svg'].includes(ext(path));
 function entry(){return active?tabs.get(active):null;}
-function remember(){localStorage.setItem('looking-glass-tabs:'+root,JSON.stringify({active,tabs:[...tabs.values()].map(e=>({path:e.path,pinned:e.pinned,mode:e.mode,kind:e.kind}))}));}
+function remember(){localStorage.setItem('looking-glass-tabs:'+root,JSON.stringify({active,tabs:[...tabs.values()].map(e=>({path:e.path,pinned:e.pinned,mode:e.mode,kind:e.kind,...(e.kind==='history'?{history:{target:e.history?.target,selection:e.history?.selection}}:{})}))}));}
 function syncState(){const e=entry();if(e&&view){e.state=view.state;e.content=view.state.sliceDoc();}}
 function spansFor(threads,text){return threads.filter(t=>t.path===active&&t.anchor_kind!=='rendered'&&t.anchor_status==='attached'&&!t.resolved).map(t=>({id:t.id,from:toUnits(text,t.start),to:toUnits(text,t.end)})).filter(s=>s.from<s.to&&s.to<=text.length);}
 
@@ -345,7 +345,7 @@ async function openFile(path){
     }
     view?.destroy();view=null;cleanup();cleanup=()=>{};active=path;activeThread=null;currentThreads=[];
     $('#surface').replaceChildren();renderTabs();revealFile(path);updateToolbar();remember();
-    if(e.kind==='history')cleanup=mountHistory($('#surface'),e.history??={},api);
+    if(e.kind==='history')cleanup=mountHistory($('#surface'),e.history??={},api,{onTarget:guard(async()=>{closeComment();activeThread=null;remember();await refreshThreads();}),onComment:guard(startGitComment),onState:remember});
     else if(e.kind==='original')mountOriginal(e);
     else if(e.kind==='oversized')mountOversized(e);
     else if(isImage(path))await mountImage(e);
@@ -437,7 +437,7 @@ function renderDiscussions(data,key){
     if(focusId&&$('#threads').contains(document.getElementById(focusId))){const field=document.getElementById(focusId);field.focus({preventScroll:true});field.setSelectionRange(start,end);}
   }
   for(const form of $$('.reply-form'))composers.render(form);
-  filterThreads();refreshMarkdownHighlights();
+  filterThreads();refreshMarkdownHighlights();if(entry()?.kind==='history')cleanup.updateCounts?.(data.index);
 }
 async function refreshThreads(useCache=false){
   const current=active,path=discussionPath(),scope=threadScope(),generation=++refreshNumber,key=scope+':'+(path||'');
@@ -468,6 +468,7 @@ function showThread(id){
 }
 async function jump(id,target=null){
   let t=target||currentThreads.find(t=>t.id===id);if(!t)return;
+  if(t.anchor_kind==='commit'||t.anchor_kind==='branch'){if(!t.git_target)t=await api('threads/'+id);await openFile(HISTORY);cleanup.selectTarget?.(t.git_target);await refreshThreads();showThread(id);return;}
   if(t.anchor_status==='needs_reattachment'||tabs.get(t.path)?.conflict?.deleted){await openOriginal(id);showThread(id);notify('Showing original reviewed content.');return;}
   if(t.path!==active){showThread(id);try{await openFile(t.path);}catch(error){if(error.status===404){await openOriginal(id);showThread(id);return;}notify(error.message,true);return;}}
   t=currentThreads.find(item=>item.id===id)||t;
@@ -497,25 +498,34 @@ function navigate(direction){
     await jump(threads[at].id,threads[at]);
   });return navigationQueue;
 }
-async function startComment(){
-  const e=entry();if(!e||e.kind)return;
-  if(renderedPreview&&renderedSelection)pending={path:e.path,render_anchor:renderedSelection.anchor,quote:renderedSelection.anchor.quote,content:e.content};
-  else if(markdownSelection()){const selected=markdownSelection(),text=view?view.state.sliceDoc():e.content;const start=view?selectionPoints(view.state,selected.from):Array.from(text.slice(0,selected.from)).length,end=view?selectionPoints(view.state,selected.to):Array.from(text.slice(0,selected.to)).length;pending={path:e.path,start,end,quote:Array.from(text).slice(start,end).join(''),content:text,markdown:true};}
-  else{if(!view||view.state.selection.main.empty)return;const {from,to}=view.state.selection.main;pending={path:e.path,start:selectionPoints(view.state,from),end:selectionPoints(view.state,to),quote:view.state.sliceDoc(from,to),content:view.state.sliceDoc()};}
+function startGitComment(target){
+  if(entry()?.kind!=='history'||!target)return;
+  pending={path:HISTORY,git_target:target,quote:target.label,content:''};presentComment();
+}
+function presentComment(){
   const location=selectionLocation();
   $('#selected-quote').textContent=pending.quote;$('#comment-body').value='';$('#comment-error').textContent='';$('#comment-dialog').show();
   if(location)placeNearSelection($('#comment-dialog'),location);
   else {$('#comment-dialog').style.left='calc(50% - 160px)';$('#comment-dialog').style.top='30%';}
   scheduleSelectionTools();$('#comment-body').focus();
 }
+function selectedContent(selection){return selection.git_target?'':selection.render_anchor||selection.markdown&&!view?entry()?.content:view?.state.sliceDoc();}
+async function startComment(){
+  const e=entry();if(!e||e.kind)return;
+  if(renderedPreview&&renderedSelection)pending={path:e.path,render_anchor:renderedSelection.anchor,quote:renderedSelection.anchor.quote,content:e.content};
+  else if(markdownSelection()){const selected=markdownSelection(),text=view?view.state.sliceDoc():e.content;const start=view?selectionPoints(view.state,selected.from):Array.from(text.slice(0,selected.from)).length,end=view?selectionPoints(view.state,selected.to):Array.from(text.slice(0,selected.to)).length;pending={path:e.path,start,end,quote:Array.from(text).slice(start,end).join(''),content:text,markdown:true};}
+  else{if(!view||view.state.selection.main.empty)return;const {from,to}=view.state.selection.main;pending={path:e.path,start:selectionPoints(view.state,from),end:selectionPoints(view.state,to),quote:view.state.sliceDoc(from,to),content:view.state.sliceDoc()};}
+  presentComment();
+}
 async function submitComment(event){
   event.preventDefault();if(!pending||postingComment)return;
   const selection=pending,body=$('#comment-body').value,author=$('#author').value;
-  if(selection.path!==active||selection.content!==(selection.render_anchor||selection.markdown&&!view?entry()?.content:view?.state.sliceDoc()))throw new Error('The document changed. Select the passage again before commenting.');
+  if(selection.path!==active||selection.content!==selectedContent(selection))throw new Error('The document changed. Select the passage again before commenting.');
   postingComment=true;composers.setSending($('#comment-form'),true);
   try{
-    await saveActive();const e=entry();if(selection!==pending||selection.path!==active||selection.content!==(selection.render_anchor||selection.markdown&&!view?e.content:view?.state.sliceDoc()))throw new Error('The selected passage changed. Select it again.');
-    const result=await composers.post('threads',{path:selection.path,...(selection.render_anchor?{render_anchor:selection.render_anchor}:{start:selection.start,end:selection.end}),version:e.version,body,author},$('#comment-form'));
+    await saveActive();const e=entry();if(selection!==pending||selection.path!==active||selection.content!==selectedContent(selection))throw new Error('The selected passage changed. Select it again.');
+    const anchor=selection.git_target?{git_target:selection.git_target}:{path:selection.path,...(selection.render_anchor?{render_anchor:selection.render_anchor}:{start:selection.start,end:selection.end}),version:e.version};
+    const result=await composers.post('threads',{...anchor,body,author},$('#comment-form'));
     composers.clear($('#comment-form'));
     if(active===selection.path){closeComment();activeThread=result.id;await refreshThreads();showThread(result.id);view?.focus();}
     notify('Discussion created');
@@ -907,7 +917,7 @@ guard(async()=>{
   try{
     const results=await Promise.allSettled((restored.tabs||[]).map(async item=>{
       const file=await readTab(item.path);
-      return {path:item.path,...file,diskContent:file.content,dirty:false,conflict:null,pinned:!!item.pinned,state:null,mode:item.mode||'source'};
+      return {path:item.path,...file,diskContent:file.content,dirty:false,conflict:null,pinned:!!item.pinned,state:null,history:item.history,mode:item.mode||'source'};
     }));
     for(const result of results)if(result.status==='fulfilled')tabs.set(result.value.path,result.value);
   }finally{switching=false;}

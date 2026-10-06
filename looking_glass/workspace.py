@@ -77,6 +77,8 @@ class Workspace:
                 db.execute("ALTER TABLE threads ADD COLUMN anchor_kind TEXT NOT NULL DEFAULT 'source'")
             if 'render_anchor' not in columns:
                 db.execute('ALTER TABLE threads ADD COLUMN render_anchor TEXT')
+            if 'target_ref' not in columns:
+                db.execute('ALTER TABLE threads ADD COLUMN target_ref TEXT')
 
         from .attachments import Attachments
         self.attachments = Attachments(self)
@@ -229,6 +231,8 @@ class Workspace:
         with self.lock, self.connection() as db:
             paths = ([path] if path else [r[0] for r in db.execute('SELECT DISTINCT path FROM threads')]) if reconcile else []
             for name in paths if reconcile else []:
+                if name.startswith('looking-glass://git/'):
+                    continue
                 try:
                     content, _ = self.text(name)
                     self.reconcile(db, name, content)
@@ -250,6 +254,9 @@ class Workspace:
                 t = dict(row)
                 t['origin'] = origins.get(t['origin_id'])
                 t['commit_hash'] = (t['origin'] or {}).get('commit_hash')
+                t['git_target'] = (dict(kind=t['anchor_kind'],ref=t['target_ref'],commit_hash=t['commit_hash'],
+                                        label=t['quote'],path=t['path'])
+                                   if t['anchor_kind'] in ('commit','branch') else None)
                 t['render_anchor'] = json.loads(t['render_anchor']) if t['render_anchor'] else None
                 t['resolved'] = bool(t['resolved'])
                 t['messages'] = messages.get(t['id'],[])
@@ -259,7 +266,7 @@ class Workspace:
 
     def thread_index(self):
         with self.connection() as db:
-            return [dict(row) for row in db.execute('SELECT id,path,start,resolved,anchor_status FROM threads ORDER BY path,start,id')]
+            return [dict(row) for row in db.execute('SELECT id,path,start,resolved,anchor_status,anchor_kind,target_ref FROM threads ORDER BY path,start,id')]
 
     @staticmethod
     def message(author, body, allow_empty=False):
@@ -297,6 +304,7 @@ class Workspace:
         if summary == 'true':
             page = [dict(id=t['id'], path=t['path'], quote=t['quote'], resolved=t['resolved'],
                          anchor_status=t['anchor_status'], anchor_kind=t['anchor_kind'],
+                         git_target=t['git_target'],
                          commit_hash=t['commit_hash'], origin=t['origin'], created_at=t['created_at'], message_count=len(t['messages']),
                          last_message={**t['messages'][-1], 'body':t['messages'][-1]['body'][:240]})
                     for t in page]
@@ -318,7 +326,9 @@ class Workspace:
         context_lines = self.query_integer(context_lines, 'Context lines', 0, 100)
         with self.lock:
             t = self.get_thread(identifier)
-            if t['anchor_kind'] == 'rendered':
+            if t['git_target']:
+                t['context'] = dict(t['git_target'],content=self.origins.read(identifier)['content'])
+            elif t['anchor_kind'] == 'rendered':
                 t['context'] = dict(kind='rendered', **t['render_anchor'])
             elif t['anchor_status'] != 'attached':
                 t['context'] = dict(kind='unavailable', reason='Anchor needs reattachment; source positions are unreliable.')
@@ -340,6 +350,19 @@ class Workspace:
                                     end_line=end_line, first_line=first, last_line=last,
                                     content=''.join(lines[first-1:last]))
             return t
+
+    def create_git_thread(self, target, body, author, allow_empty=False):
+        from .revisions import Revisions
+        author, body = self.message(author,body,allow_empty)
+        with self.lock, self.connection() as db:
+            target = Revisions(self).discussion_target(target)
+            quote,content = target['label'],target['content']
+            origin = self.origins.capture(db,target['path'],content,0,len(content),quote,
+                metadata=dict(commit_hash=target['commit_hash'],git_root=target['git_root'],git_path=None))
+            identifier = db.execute('INSERT INTO threads(path,start,end,quote,anchor_kind,target_ref,origin_id) VALUES(?,?,?,?,?,?,?)',
+                (target['path'],0,len(content),quote,target['kind'],target['ref'],origin)).lastrowid
+            db.execute('INSERT INTO messages(thread_id,author,body,origin_id) VALUES(?,?,?,?)',(identifier,author,body,origin))
+        return self.get_thread(identifier)
 
     def create_thread(self, path, start, end, body, author, version, allow_empty=False):
         author, body = self.message(author, body, allow_empty)
@@ -395,6 +418,27 @@ class Workspace:
         author, body = self.message(author, body, allow_empty)
         with self.lock:
             t = self.get_thread(identifier)
+            if t['git_target']:
+                original = self.origins.read(identifier)
+                content = original['content']
+                metadata = {key:original['origin'][key] for key in ('commit_hash','git_root','git_path')}
+                provenance = 'inherited'
+                if t['anchor_kind'] == 'branch':
+                    from .revisions import Revisions
+                    try:
+                        target = Revisions(self).discussion_target(dict(kind='branch',ref=t['target_ref']))
+                        content = target['content']
+                        metadata = dict(commit_hash=target['commit_hash'],git_root=target['git_root'],git_path=None)
+                        provenance = 'captured'
+                    except Problem as error:
+                        if error.status != 404:
+                            raise
+                with self.connection() as db:
+                    origin = self.origins.capture(db,t['path'],content,0,len(content),t['quote'],
+                                                  provenance=provenance,metadata=metadata)
+                    db.execute('INSERT INTO messages(thread_id,author,body,origin_id) VALUES(?,?,?,?)',
+                               (identifier,author,body,origin))
+                return self.get_thread(identifier)
             provenance='captured'
             try:
                 content, _ = self.text(t['path'])
