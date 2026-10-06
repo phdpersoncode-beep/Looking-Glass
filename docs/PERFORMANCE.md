@@ -7,6 +7,47 @@ port. A faster server will not remove a large browser rendering workload. Revisi
 Rust in a separate session only after a browser/server profile identifies a CPU-bound
 backend operation that remains slow after reducing unnecessary work.
 
+## Changed-file anchoring · 2026-10-06
+
+The previous reconciliation ran `SequenceMatcher(..., autojunk=False)` on the
+entire old/new document separately for every attached source thread, while
+holding the workspace lock. A disposable 60 KB repetitive edit exceeded a
+two-second subprocess deadline for **one** thread. This matches the mechanism
+behind the reported CPU spike and queued/time-out requests. Access logs alone
+do not identify the exact edit or profile the original user's process.
+
+Reconciliation now creates one mapper per changed file. It maps unchanged
+prefix/suffix ranges directly, caches exact quote/context searches, limits
+ambiguity searches to two hits, and reuses results for shared selections.
+Changed quotes require unique surviving outside context and substantial matching
+text, excluding whitespace as evidence. Only a small changed middle is diffed:
+at most 2,048 characters per side and a total product budget of 1,000,000 per
+file. Exact/context searches share a 256 Mi-character worst-case scan allowance.
+These are work limits, not wall-clock guarantees. Exhaustion marks uncertain
+anchors for manual repair, with no retry on unchanged-file polls. The existing
+workspace lock still serializes mutations; no background worker or new service
+is needed to remove the unbounded diff.
+
+Run `uv run python scripts/benchmark_anchors.py`. Five disposable workspaces per
+case, 28 threads each; medians below include Flask test-client request handling,
+file read, reconciliation, SQLite writes, and JSON serialization. They exclude
+network and browser rendering. Moved passages are reordered and relocated across
+the document; rewritten repetitive passages deliberately have ambiguous context.
+
+| Source size | Edit | First changed request | Unchanged poll | Result |
+| --- | --- | ---: | ---: | --- |
+| 60 KB | Rewritten repetitive passages | 1.77 ms | 0.93 ms | 28 need repair |
+| 61 KB | Moved unique exact passages | 2.32 ms | 0.94 ms | 28 attached |
+| 2 MB | Rewritten repetitive passages | 18.90 ms | 4.22 ms | 28 need repair |
+| 2 MB | Moved unique exact passages | 30.05 ms | 3.43 ms | 28 attached |
+
+`agent reattach ID --quote 'Exact replacement passage'` provides the explicit
+repair path, including corrections to an already attached wrong passage.
+It uses the existing hash-checked PATCH route and preserves immutable origins,
+messages, attachments, and resolved/open state. A semantic rewrite still needs
+a reviewer or agent to choose the intended replacement. A Rust port would retain
+the same ambiguity and does not address the underlying algorithmic problem.
+
 ## Measured discussion workload · 2026-10-04
 
 Run `uv run python scripts/benchmark_discussions.py`. It creates a disposable
