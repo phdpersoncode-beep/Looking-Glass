@@ -6,6 +6,7 @@ from test_requested_features import workspace_page, open_file
 pytestmark=[pytest.mark.browser,pytest.mark.skipif(not os.environ.get('LOOKING_GLASS_BROWSER'),reason='Set LOOKING_GLASS_BROWSER')]
 
 
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
 def test_explorer_toggle_preserves_width_folders_and_draft(workspace_page):
     from playwright.sync_api import expect
     root,page,url,_=workspace_page
@@ -37,6 +38,7 @@ def test_explorer_toggle_preserves_width_folders_and_draft(workspace_page):
     page.locator('#expand-files').click();expect(page.locator('.file-folder')).to_have_attribute('open','')
 
 
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
 def test_live_markdown_contents_tracks_headings_and_navigates(workspace_page):
     from playwright.sync_api import expect
     root,page,url,_=workspace_page
@@ -49,7 +51,7 @@ def test_live_markdown_contents_tracks_headings_and_navigates(workspace_page):
     bar.get_by_role('button',name='Results',exact=True).click()
     expect(bar).not_to_have_attribute('open','')
     expect(page.locator('.cm-content')).to_be_focused()
-    page.wait_for_function('document.querySelector(".cm-scroller").scrollTop>500')
+    page.wait_for_function('()=>document.querySelector(".cm-scroller").scrollTop>500')
     assert abs(bar.bounding_box()['y']-top)<1
     # The selected heading is the actual source position, including CRLF conversion.
     page.keyboard.press('End');page.keyboard.insert_text(' updated')
@@ -60,3 +62,40 @@ def test_live_markdown_contents_tracks_headings_and_navigates(workspace_page):
     open_file(page,'other.md');bar.locator('summary').click();expect(bar.locator('nav button')).to_have_text(['Other'])
     open_file(page,'empty.md');bar.locator('summary').click();expect(bar.locator('nav')).to_have_text('No headings yet')
     assert (root/'note.md').read_bytes()==text.encode()
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_jsonl_entry_arrows_and_scroll_retention(workspace_page):
+    import json
+    from playwright.sync_api import expect
+    root,page,url,_=workspace_page
+    rows=[{f'field_{i:03}':f'{name} value {i}' for i in range(140)} for name in ['first','second','third']]
+    original='\n'.join(json.dumps(row) for row in rows)+'\ninvalid\n'
+    (root/'rows.jsonl').write_text(original);(root/'empty.jsonl').write_text('')
+    page.goto(url);open_file(page,'rows.jsonl')
+    previous=page.get_by_role('button',name='Previous entry',exact=True);next_=page.get_by_role('button',name='Next entry',exact=True)
+    scroller=page.locator('.jsonl-detail .cm-scroller')
+    expect(previous).to_be_disabled();expect(next_).to_be_enabled()
+    scroller.evaluate('el=>el.scrollTop=700')
+    page.wait_for_function('()=>document.querySelector(".jsonl-detail .cm-scroller").scrollTop>=690')
+    top=scroller.evaluate('el=>el.scrollTop')
+    next_.click();expect(page.locator('.jsonl-detail .viewer-heading')).to_contain_text('ROW 2 / 4')
+    expect(page.locator('.jsonl-row.selected')).to_have_attribute('data-row','1')
+    page.wait_for_function('()=>Math.abs(document.querySelector(".jsonl-detail .cm-scroller").scrollTop-700)<10')
+    assert abs(scroller.evaluate('el=>el.scrollTop')-top)<10
+    page.locator('.jsonl-row[data-row="2"]').click()
+    expect(page.locator('.jsonl-detail .viewer-heading')).to_contain_text('ROW 3 / 4')
+    page.wait_for_function('()=>Math.abs(document.querySelector(".jsonl-detail .cm-scroller").scrollTop-700)<10')
+    previous.click();expect(page.locator('.jsonl-detail .viewer-heading')).to_contain_text('ROW 2 / 4')
+    page.locator('.jsonl-raw').focus();page.keyboard.press('ArrowDown')
+    expect(page.locator('.jsonl-detail .viewer-heading')).to_contain_text('ROW 3 / 4')
+    # Search selects entries through the same scroll-preserving path.
+    page.keyboard.press('Control+f');page.get_by_role('textbox',name='Find in JSONL').fill('first value 100')
+    expect(page.locator('.jsonl-detail .viewer-heading')).to_contain_text('ROW 1 / 4')
+    page.wait_for_function('()=>Math.abs(document.querySelector(".jsonl-detail .cm-scroller").scrollTop-700)<10')
+    page.get_by_role('button',name='Close JSONL search').click()
+    page.locator('.jsonl-row[data-row="3"]').click()
+    expect(page.locator('.jsonl-detail .viewer-heading')).to_contain_text('MALFORMED')
+    expect(next_).to_be_disabled();assert scroller.evaluate('el=>el.scrollTop')==0
+    open_file(page,'empty.jsonl');expect(previous).to_be_disabled();expect(next_).to_be_disabled()
+    assert (root/'rows.jsonl').read_text()==original

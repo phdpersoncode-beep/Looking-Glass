@@ -557,12 +557,43 @@ function jsonControls(editor){
 function mountJSONL(e){
   const container=document.createElement('div');container.className='jsonl-split';const left=document.createElement('div'),right=document.createElement('div');left.className='jsonl-raw';right.className='jsonl-detail';
   const rawTitle=document.createElement('div');rawTitle.className='viewer-heading';rawTitle.textContent='FULL JSONL · SELECT A ROW';left.append(rawTitle);
-  const detailTitle=document.createElement('div');detailTitle.className='viewer-heading';right.append(detailTitle);
+  const navigation=document.createElement('div');navigation.className='jsonl-navigation';
+  const detailTitle=document.createElement('div');detailTitle.className='viewer-heading';
+  const entryButtons=document.createElement('div');entryButtons.className='jsonl-entry-buttons';entryButtons.setAttribute('role','group');entryButtons.setAttribute('aria-label','JSONL entries');
+  const previousEntry=document.createElement('button'),nextEntry=document.createElement('button');
+  for(const [button,label,path] of [[previousEntry,'Previous entry','m4 12 6-6 6 6'],[nextEntry,'Next entry','m4 8 6 6 6-6']]){
+    button.type='button';button.setAttribute('aria-label',label);button.title=label;
+    const icon=document.createElementNS('http://www.w3.org/2000/svg','svg');icon.setAttribute('width','20');icon.setAttribute('height','20');icon.setAttribute('viewBox','0 0 20 20');icon.setAttribute('aria-hidden','true');
+    const arrow=document.createElementNS(icon.namespaceURI,'path');arrow.setAttribute('d',path);arrow.setAttribute('fill','none');arrow.setAttribute('stroke','currentColor');arrow.setAttribute('stroke-width','1.5');arrow.setAttribute('stroke-linecap','round');arrow.setAttribute('stroke-linejoin','round');icon.append(arrow);button.append(icon);
+  }
+  entryButtons.append(previousEntry,nextEntry);navigation.append(detailTitle,entryButtons);right.append(navigation);
   const parent=document.createElement('div');parent.className='json-detail-editor';right.append(parent);
   const detail=new EditorView({state:EditorState.create({extensions:[basicSetup,json(),syntaxHighlighting(colors),theme(),EditorView.editable.of(false),EditorState.readOnly.of(true),EditorView.lineWrapping]}),parent});
   right.insertBefore(jsonControls(detail),parent);
   const lines=e.content.split(/\r?\n/);if(lines.at(-1)==='')lines.pop();
-  function select(index){const raw=lines[index];let text;try{text=JSON.stringify(JSON.parse(raw),null,2);detailTitle.textContent='ROW '+(index+1)+' · FORMATTED JSON';}catch(error){text=raw;detailTitle.textContent='ROW '+(index+1)+' · MALFORMED: '+error.message;}detail.dispatch({changes:{from:0,to:detail.state.doc.length,insert:text}});left.querySelectorAll('.jsonl-row').forEach((b,i)=>b.classList.toggle('selected',i===index));}
+  let selected=-1,restoreFrame=0,comparisonScroll=null;previousEntry.disabled=nextEntry.disabled=true;
+  function select(index,reveal=false){
+    if(index<0||index>=lines.length||index===selected)return;
+    const restore=selected!==-1,top=comparisonScroll?.top??detail.scrollDOM.scrollTop,horizontal=comparisonScroll?.left??detail.scrollDOM.scrollLeft,raw=lines[index];let text;
+    try{text=JSON.stringify(JSON.parse(raw),null,2);detailTitle.textContent='ROW '+(index+1)+' / '+lines.length+' · FORMATTED JSON';}
+    catch(error){text=raw;detailTitle.textContent='ROW '+(index+1)+' / '+lines.length+' · MALFORMED: '+error.message;}
+    selected=index;detail.dispatch({changes:{from:0,to:detail.state.doc.length,insert:text}});
+    // CodeMirror adjusts its scroll anchor after measure callbacks. Restore on
+    // the next frame after that layout completes; the browser clamps shorter
+    // entries naturally. Rapid entry changes replace the pending restoration.
+    cancelAnimationFrame(restoreFrame);
+    if(restore){
+      comparisonScroll={top,left:horizontal};
+      detail.requestMeasure({key:select,read:()=>null,write:()=>{
+        restoreFrame=requestAnimationFrame(()=>{if(selected===index&&container.isConnected){detail.scrollDOM.scrollTop=top;detail.scrollDOM.scrollLeft=horizontal;comparisonScroll=null;}});
+      }});
+    }
+    previousEntry.disabled=index===0;nextEntry.disabled=index===lines.length-1;
+    left.querySelectorAll('.jsonl-row').forEach((row,i)=>{row.classList.toggle('selected',i===index);row.setAttribute('aria-current',String(i===index));});
+    if(reveal)left.querySelector('[data-row="'+index+'"]').scrollIntoView({block:'start'});
+  }
+  previousEntry.onclick=()=>select(selected-1,true);nextEntry.onclick=()=>select(selected+1,true);
+  left.addEventListener('keydown',event=>{if(event.target.closest('input,textarea')||event.ctrlKey||event.metaKey||event.altKey||event.shiftKey||!['ArrowUp','ArrowDown'].includes(event.key))return;event.preventDefault();select(selected+(event.key==='ArrowUp'?-1:1),true);});
   lines.forEach((line,index)=>{const button=document.createElement('button');button.className='jsonl-row';button.dataset.row=index;let malformed=false;try{JSON.parse(line);}catch{malformed=true;}if(malformed)button.classList.add('malformed');const number=document.createElement('span');number.className='row-number';number.textContent=(index+1)+(malformed?' !':'');const source=document.createElement('code');source.textContent=line||'[empty line]';button.append(number,source);button.onclick=()=>select(index);left.append(button);});
    const search=document.createElement('div');search.className='jsonl-search';search.hidden=true;
    const input=document.createElement('input');input.placeholder='Find in JSONL…';input.setAttribute('aria-label','Find in JSONL');
@@ -573,7 +604,7 @@ function mountJSONL(e){
    input.oninput=find;input.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();go(event.shiftKey?-1:1);}if(event.key==='Escape'){event.preventDefault();search.hidden=true;left.focus();}};
    previous.onclick=()=>go(-1);next.onclick=()=>go(1);close.onclick=()=>{search.hidden=true;left.focus();};search.append(input,count,previous,next,close);left.tabIndex=0;left.insertBefore(search,rawTitle.nextSibling);
    jsonlSearch=()=>{search.hidden=false;input.focus();input.select();};
-   container.append(left,right);$('#surface').append(container);if(lines.length)select(0);cleanup=()=>{jsonlSearch=null;detail.destroy();};
+   container.append(left,right);$('#surface').append(container);if(lines.length)select(0);cleanup=()=>{jsonlSearch=null;cancelAnimationFrame(restoreFrame);detail.destroy();};
 }
 async function mountImage(e){
   const host=document.createElement('div');host.className='image-view';
