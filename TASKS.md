@@ -14,7 +14,7 @@ Use one feature branch. Update this checklist and commit/push after each impleme
 ## Additional requests
 
 - [x] Keep explorer filenames/folder names on one line with ellipsis and full-name hover hints at narrow widths.
-- [ ] Add a minimal expandable contents bar pinned above live Markdown, generated from headings and closed after navigation.
+- [x] Add a minimal expandable contents bar pinned above live Markdown, generated from headings and closed after navigation.
 - [x] Make the explorer collapse-all control larger and consistent with discussion controls.
 - [x] Add a simple left-chevron explorer toggle with a way to restore the sidebar.
 - [ ] Add JSONL previous/next entry arrows and retain the detail pane's scroll position for comparison.
@@ -36,3 +36,5 @@ Local verification is complete: 46 backend tests, 4 frontend tests, and all 35 C
 Narrow-explorer verification covers nested files and folder names at the 120 px minimum width, single-line truncation, full-path hints, and keyboard resizing.
 
 Explorer visibility persists across reloads while retaining its width, folder expansion, tabs, and unsaved document state. Browser checks cover hide/restore, keyboard focus, and interaction with zen mode.
+
+The 30 px live-Markdown contents bar lists formatted ATX/setext headings, excludes fenced-code headings, tracks current drafts, navigates exact source positions (including CRLF), and closes on selection, Escape, or outside clicks. Browser checks cover pinned positioning, navigation, mode/file changes, and documents without headings.

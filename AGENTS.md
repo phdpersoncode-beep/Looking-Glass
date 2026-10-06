@@ -4,7 +4,7 @@
 A local prose/code editor and review tool for working with coding agents on ordinary files. Persistent, passage-anchored discussions are the priority: highlight text, exchange comments, and navigate editing passes. Keep a small architecture and a clean Notion-style experience with Obsidian-style live Markdown.
 
 ## Current capabilities
-- CodeMirror editing: live/raw/preview Markdown with rendered passage/table annotations, explicit table source editing, local Mermaid diagrams, plain text, Python/Bash highlighting, undo/redo, save, search/replace, tabs, fuzzy file search, and Git change gutters.
+- CodeMirror editing: live/raw/preview Markdown with a pinned heading-contents bar in live mode, rendered passage/table annotations, explicit table source editing, local Mermaid diagrams, plain text, Python/Bash highlighting, undo/redo, save, search/replace, tabs, fuzzy file search, and Git change gutters.
 - Persistent source/HTML threads: replies, attachments/renaming, resolve/reopen, deletion, cross-file navigation, collapse controls, commit anchors/original-context tabs, and reattachment. Clipboard screenshots and files use compact comment composers. Loading feedback and file-size warnings. Resizable sidebars; zen mode uses Ctrl+Alt+Z, preserving Ctrl+Z undo.
 - Interactive sandboxed HTML reports, split JSONL viewer with search, and ASCII/binary STL viewing with orbit/pan/zoom/fit and software fallback.
 - Directory switching, outside-file opening, a resizable/hideable explorer with truncated names and full-path hints, external-change detection, conflict comparison, selected-file Git checkpoints, a paged multi-branch commit graph with commit/branch discussions, and agent project discovery/search/context.
