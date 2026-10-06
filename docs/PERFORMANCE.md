@@ -16,8 +16,8 @@ two-second subprocess deadline for **one** thread. This matches the mechanism
 behind the reported CPU spike and queued/time-out requests. Access logs alone
 do not identify the exact edit or profile the original user's process.
 
-Reconciliation now creates one mapper per changed file. It maps unchanged
-prefix/suffix ranges directly, caches exact quote/context searches, limits
+Reconciliation now creates one mapper per changed file. It maps uniquely preserved
+whole snapshots directly, caches exact quote/context searches, limits
 ambiguity searches to two hits, and reuses results for shared selections.
 Changed quotes require unique surviving outside context and substantial matching
 text, excluding whitespace as evidence. Only a small changed middle is diffed:
@@ -36,10 +36,10 @@ the document; rewritten repetitive passages deliberately have ambiguous context.
 
 | Source size | Edit | First changed request | Unchanged poll | Result |
 | --- | --- | ---: | ---: | --- |
-| 60 KB | Rewritten repetitive passages | 1.77 ms | 0.93 ms | 28 need repair |
-| 61 KB | Moved unique exact passages | 2.32 ms | 0.94 ms | 28 attached |
-| 2 MB | Rewritten repetitive passages | 18.90 ms | 4.22 ms | 28 need repair |
-| 2 MB | Moved unique exact passages | 30.05 ms | 3.43 ms | 28 attached |
+| 60 KB | Rewritten repetitive passages | 1.79 ms | 1.05 ms | 28 need repair |
+| 61 KB | Moved unique exact passages | 2.33 ms | 0.92 ms | 28 attached |
+| 2 MB | Rewritten repetitive passages | 21.68 ms | 4.09 ms | 28 need repair |
+| 2 MB | Moved unique exact passages | 30.70 ms | 3.57 ms | 28 attached |
 
 `agent reattach ID --quote 'Exact replacement passage'` provides the explicit
 repair path, including corrections to an already attached wrong passage.

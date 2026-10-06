@@ -96,11 +96,15 @@ class AnchorMapper:
         old, new = self.old, self.new
         if not 0 <= start < end <= len(old):
             return None
-        if end <= self.prefix:
+        if old == new:
             return start, end
-        if self.suffix and start >= len(old) - self.suffix:
-            shift = len(new) - len(old)
-            return start + shift, end + shift
+        if self.prefix == len(old) or self.suffix == len(old):
+            # Pure prepend/append preserves all source positions only when the
+            # entire previous snapshot occurs once. Identical repeated blocks
+            # can otherwise make either insertion or deletion look unchanged.
+            copies = self.hits(old)
+            if copies is not None and len(copies) == 1:
+                return start + copies[0], end + copies[0]
         quote = old[start:end]
         before, after = old[max(0, start-CONTEXT):start], old[end:end+CONTEXT]
         exact = self.hits(quote)

@@ -1,12 +1,13 @@
 # Bounded source anchoring and agent repair · 2026-10-06
 
-- Local fast suite: **53 passed** in 6.90 seconds; **4 JavaScript tests passed**.
+- Local fast suite: **58 passed** in 6.71 seconds; **4 JavaScript tests passed**.
 - Wheel/source distribution build and `git diff --check` passed. No frontend
   source/assets or runtime dependencies changed.
 - A 60 KB repetitive edit previously exceeded a two-second subprocess deadline
   for one thread. The regression now handles 28 threads and consecutive HTTP
   requests within a five-second subprocess deadline (normally well below one second).
-- Tests cover the reported wrong-line pattern, ambiguous/deleted duplicate quotes,
+- Tests cover the reported wrong-line pattern, ambiguous/deleted duplicate quotes
+  and identical whole-paragraph insertions/deletions,
   meaningful text versus shared whitespace, Unicode/multiline quotes, normal
   interior/boundary edits, unchanged-range shifts, relocated exact passages,
   per-file work exhaustion, shared mapping work, and no failed-anchor retry on polls
@@ -18,7 +19,7 @@
   A file change between reading a quote and sending PATCH is rejected as stale.
 - `scripts/benchmark_anchors.py` verifies rewritten repetitive and moved unique
   passages in disposable 60 KB/2 MB files with 28 threads. Median changed-file
-  requests are 1.77–30.05 ms here. See [PERFORMANCE.md](PERFORMANCE.md) for scope
+  requests are 1.79–30.70 ms here. See [PERFORMANCE.md](PERFORMANCE.md) for scope
   and work budgets. The user's original edited plan/database were not supplied;
   reproduction uses representative synthetic inputs and the supplied access logs.
 - Browser checks were not run locally; the pull request's existing GitHub Actions
