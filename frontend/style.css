@@ -84,3 +84,5 @@ dialog:modal{margin:auto}.directory-list{height:260px;overflow:auto;margin-top:8
 .thread-actions{display:flex;gap:2px;margin-left:auto}.thread-heading .thread-action{display:grid;place-items:center;min-width:30px;min-height:30px;padding:6px}.thread-heading .delete-thread:hover{color:#c65f52}
 
 #threads-loading{display:flex;align-items:center;gap:9px;padding:4px 17px 14px;font-size:11px;color:var(--muted)}.loading-ring{display:inline-block;width:13px;height:13px;border:1.5px solid var(--border);border-top-color:var(--purple);border-radius:50%;animation:discussion-loading .9s linear infinite}@keyframes discussion-loading{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.loading-ring{animation:none;border-color:var(--purple);opacity:.65}}
+
+.panel-heading .fold-all{display:inline-flex;align-items:center;justify-content:center;min-width:32px;min-height:34px;padding:6px;vertical-align:middle}.discussion-sidebar>.panel-heading{height:auto;min-height:55px;flex-wrap:wrap;gap:6px;padding-top:6px;padding-bottom:6px}
