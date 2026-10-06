@@ -880,6 +880,17 @@ discussionResize.onpointerup=discussionResize.onpointercancel=discussionResize.o
 discussionResize.onkeydown=event=>{const {min,max}=discussionLimits();if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;event.preventDefault();discussionWidth=event.key==='Home'?min:event.key==='End'?max:Math.max(min,Math.min(max,discussionWidth+(event.key==='ArrowLeft'?1:-1)*(event.shiftKey?50:10)));sizeDiscussions();finishDiscussionResize();};
 discussionResize.ondblclick=()=>{discussionWidth=310;sizeDiscussions();finishDiscussionResize();};
 window.addEventListener('resize',sizeDiscussions);sizeDiscussions();
+let explorerHidden=localStorage.getItem('looking-glass-explorer-hidden')==='true';
+function setExplorerHidden(hidden,focus=false){
+  explorerHidden=hidden;document.body.classList.toggle('explorer-hidden',hidden);
+  $('#file-sidebar').hidden=hidden;$('#explorer-show').hidden=!hidden;
+  for(const button of [$('#explorer-hide'),$('#explorer-show')])button.setAttribute('aria-expanded',String(!hidden));
+  localStorage.setItem('looking-glass-explorer-hidden',String(hidden));
+  sizeSidebar();sizeDiscussions();view?.requestMeasure();
+  if(focus)(hidden?$('#explorer-show'):$('#explorer-hide')).focus({preventScroll:true});
+}
+$('#explorer-hide').onclick=()=>setExplorerHidden(true,true);$('#explorer-show').onclick=()=>setExplorerHidden(false,true);
+setExplorerHidden(explorerHidden);
 $('#expand-files').onclick=()=>{$$('.file-folder').forEach(folder=>expandedFolders.add(folder.dataset.directory));localStorage.setItem('looking-glass-folders:'+root,JSON.stringify([...expandedFolders]));filterFiles();};
 $('#collapse-files').onclick=()=>{expandedFolders.clear();localStorage.setItem('looking-glass-folders:'+root,'[]');$('#file-filter').value='';filterFiles();};
 function fuzzyScore(path,query){const text=path.toLowerCase();let cursor=0,score=0,previous=-2;for(const character of query.toLowerCase().replace(/\s/g,'')){const index=text.indexOf(character,cursor);if(index<0)return null;score+=index===previous+1?8:0;score+=index===0||'/._-'.includes(text[index-1])?12:0;score-=index-cursor;previous=index;cursor=index+1;}return score-text.length/100;}
