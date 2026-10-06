@@ -11,6 +11,14 @@ Use one feature branch. Update this checklist and commit/push after each impleme
 - [x] Reject oversized files before reading/rendering and show a clear UI warning.
 - [x] Enlarge and clarify expand/collapse-all controls for files and threads.
 
+## Additional requests
+
+- [ ] Keep explorer filenames/folder names on one line with ellipsis and full-name hover hints at narrow widths.
+- [ ] Add a minimal expandable contents bar pinned above live Markdown, generated from headings and closed after navigation.
+- [ ] Make the explorer collapse-all control larger and consistent with discussion controls.
+- [ ] Add a simple left-chevron explorer toggle with a way to restore the sidebar.
+- [ ] Add JSONL previous/next entry arrows and retain the detail pane's scroll position for comparison.
+
 ## Verification
 
 - Run frontend and backend tests for affected behavior.
