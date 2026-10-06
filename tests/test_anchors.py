@@ -107,6 +107,16 @@ def test_budget_exhaustion_is_conservative_and_exact_matches_still_work(monkeypa
     assert mapped_quote(old, 'Changed prefix\n' + quote + '\nChanged suffix', quote) is None
 
 
+def test_work_budget_also_bounds_unchanged_edges_of_large_edited_quotes(monkeypatch):
+    import looking_glass.anchors as anchors
+    monkeypatch.setattr(anchors, 'MAX_DIFF_WORK', 1000)
+    mapper = AnchorMapper('Before', 'After')
+    def forbidden(*args, **kwargs):
+        pytest.fail('Scanning oversized quote edges after work exhaustion')
+    monkeypatch.setattr(anchors, 'common_edges', forbidden)
+    assert not mapper.similar('x' * 10000 + 'before', 'x' * 10000 + 'after')
+
+
 def test_mapper_shares_changed_passage_work(monkeypatch):
     import looking_glass.anchors as anchors
     original = anchors.SequenceMatcher

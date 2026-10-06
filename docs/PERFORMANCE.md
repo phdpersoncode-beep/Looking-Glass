@@ -21,8 +21,10 @@ whole snapshots directly, caches exact quote/context searches, limits
 ambiguity searches to two hits, and reuses results for shared selections.
 Changed quotes require unique surviving outside context and substantial matching
 text, excluding whitespace as evidence. Only a small changed middle is diffed:
-at most 2,048 characters per side and a total product budget of 1,000,000 per
-file. Exact/context searches share a 256 Mi-character worst-case scan allowance.
+at most 2,048 characters per side. Fuzzy comparisons share 1,000,000 work units
+per file, charged for both full passage lengths and each middle's length product.
+This also bounds linear scans of long, overlapping edited selections.
+Exact/context searches share a 256 Mi-character worst-case scan allowance.
 These are work limits, not wall-clock guarantees. Exhaustion marks uncertain
 anchors for manual repair, with no retry on unchanged-file polls. The existing
 workspace lock still serializes mutations; no background worker or new service
