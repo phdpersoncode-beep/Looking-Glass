@@ -43,7 +43,8 @@
     <label class="author-label">Your author label<input id="author" value="Altay" maxlength="120"></label>
     <label class="thread-scope"><input type="checkbox" role="switch" id="thread-scope" aria-label="Across files"> Across files</label>
     <label class="resolved-toggle"><input type="checkbox" id="show-resolved"> Show resolved threads</label>
-    <div id="threads"><div class="empty-discussions">Select text or code to leave a comment.<p>Feedback opens a conversation. Edits stay yours to make.</p></div></div>
+    <div id="threads-loading" role="status" aria-live="polite" hidden><span class="loading-ring" aria-hidden="true"></span><span>Loading discussions</span></div>
+    <div id="threads" aria-busy="false"><div class="empty-discussions">Select text or code to leave a comment.<p>Feedback opens a conversation. Edits stay yours to make.</p></div></div>
     </div>
   </aside>
 </main>
