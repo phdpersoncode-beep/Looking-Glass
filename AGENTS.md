@@ -41,6 +41,7 @@ With the server running, in another terminal:
 looking-glass projects list
 looking-glass agent --root /absolute/path/to/project list --status open
 looking-glass agent --root /absolute/path/to/project read 1 --context-lines 10
+looking-glass agent --root /absolute/path/to/project reattach 1 --quote 'Exact replacement passage'
 looking-glass agent --root /absolute/path/to/project reply 1 --author Codex --body 'Reply'
 ```
 Use `uv run looking-glass` from this checkout if not installed globally. See `--help`, `agent instructions`, and `docs/AGENT_API.md` for remaining commands.
