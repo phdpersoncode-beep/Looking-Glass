@@ -453,7 +453,9 @@ async function refreshThreads(useCache=false){
   const current=active,path=discussionPath(),scope=threadScope(),generation=++refreshNumber,key=scope+':'+(path||'');
   const cached=discussionCache.get(key);
   if(useCache&&cached)renderDiscussions(cached.data,key);
-  $('#threads-loading').hidden=false;$('#threads').setAttribute('aria-busy','true');
+  // Showing the in-flow loading row on every poll moves all existing cards.
+  // Keep displayed discussions stable; only new views need loading feedback.
+  $('#threads-loading').hidden=key===lastThreadKey;$('#threads').setAttribute('aria-busy','true');
   try{
   const response=await fetch('/api/discussions?'+new URLSearchParams({path:path||'',scope}),{headers:{'X-Looking-Glass-Token':token,...(cached?{'If-None-Match':cached.etag}:{})}});
   if(!response.ok&&response.status!==304)throw new Error((await response.json()).error);
