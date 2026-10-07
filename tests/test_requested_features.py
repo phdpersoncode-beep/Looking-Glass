@@ -440,6 +440,51 @@ def test_unchanged_discussions_keep_dom_and_external_replies_refresh(workspace_p
     expect(page.locator('.thread')).to_contain_text('An external agent reply')
 
 
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+@pytest.mark.parametrize('zen',[False,True])
+@pytest.mark.parametrize('collapsed',[False,True])
+def test_background_discussion_polls_do_not_shift_threads(workspace_page,zen,collapsed):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    (root/'note.txt').write_text('Passage.')
+    f=ws.read('note.txt')
+    for i in range(3):ws.create_thread('note.txt',0,7,'Comment '+str(i),'Tester',f['version'])
+    page.goto(url);open_file(page,'note.txt')
+    expect(page.locator('.thread')).to_have_count(3)
+    if zen:page.locator('#zen-toggle').click()
+    if collapsed:page.get_by_role('button',name='Collapse all threads',exact=True).click()
+    page.evaluate('''async()=>{
+        await document.fonts.ready;
+        window.sidebarSnapshot=[...document.querySelectorAll('.thread')].map(node=>({
+            node,classes:node.className,rect:JSON.stringify(node.getBoundingClientRect().toJSON())
+        }));
+    }''')
+    pending=[]
+    page.route('**/api/discussions?*',lambda route:pending.append(route))
+    for _ in range(2):
+        expect(page.locator('#threads')).to_have_attribute('aria-busy','true')
+        expect(page.locator('#threads-loading')).not_to_be_visible()
+        assert page.evaluate('''()=>window.sidebarSnapshot.every(({node,classes,rect},i)=>
+            node===document.querySelectorAll('.thread')[i] && node.className===classes &&
+            JSON.stringify(node.getBoundingClientRect().toJSON())===rect)''')
+        with page.expect_response(lambda r:'/api/discussions?' in r.url and r.status==304):
+            pending.pop(0).continue_()
+        expect(page.locator('#threads')).to_have_attribute('aria-busy','false')
+        assert page.evaluate('''()=>window.sidebarSnapshot.every(({node,classes,rect},i)=>
+            node===document.querySelectorAll('.thread')[i] && node.className===classes &&
+            JSON.stringify(node.getBoundingClientRect().toJSON())===rect)''')
+    # Changed discussions must still arrive through the same quiet polling path.
+    ws.reply(1,'An external reply after the quiet polls','Agent')
+    expect(page.locator('#threads')).to_have_attribute('aria-busy','true')
+    expect(page.locator('#threads-loading')).not_to_be_visible()
+    pending.pop(0).continue_()
+    expect(page.locator('.thread[data-thread="1"]')).to_contain_text('An external reply after the quiet polls')
+    expect(page.locator('#threads')).to_have_attribute('aria-busy','false')
+    assert page.evaluate('''()=>window.sidebarSnapshot.every(({node,classes},i)=>
+        document.querySelectorAll('.thread')[i].className===classes)''')
+    page.unroute('**/api/discussions?*')
+
+
 def test_file_tree_refresh_preserves_state_and_recovers(workspace_page, monkeypatch):
     import os
     from playwright.sync_api import expect
