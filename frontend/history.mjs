@@ -52,19 +52,22 @@ export function mountHistory(host,state,api,callbacks={}){
   let generation=0;
   state.commits??=[];state.selection??=null;state.branches??=[];
   function filters(){
-    choices.replaceChildren();const all=el('button','','Show all branches');all.onclick=()=>{state.selection=null;void load();};choices.append(all);
+    const allSelected=state.selection===null||(state.branches.length>0&&state.branches.every(b=>state.selection.includes(b.ref)));
+    choices.replaceChildren();const all=el('button','',allSelected?'Deselect all branches':'Select all branches');all.type='button';all.disabled=!state.branches.length;
+    all.onclick=()=>{state.selection=allSelected?[]:null;void load();};choices.append(all);
     for(const branch of state.branches){const label=el('label'),check=el('input'),name=el('span','',branch.name);
       check.type='checkbox';check.checked=state.selection===null||state.selection.includes(branch.ref);check.setAttribute('aria-label',branch.name);
       name.style.setProperty('--branch-color',color(branch.ref));name.className='branch-name';const discuss=el('button','discuss-branch','＋');discuss.type='button';discuss.setAttribute('aria-label','Discuss branch '+branch.name);discuss.title='Discuss branch '+branch.name;discuss.onclick=event=>{event.preventDefault();event.stopPropagation();filter.open=false;selectTarget(branchTarget(branch));};
       label.append(check,name,count('branch',branch.ref),discuss);choices.append(label);
-      check.onchange=()=>{const selected=state.selection??state.branches.map(b=>b.ref);state.selection=check.checked?[...selected,branch.ref]:selected.filter(ref=>ref!==branch.ref);void load();};
+      check.onchange=()=>{const selected=new Set(state.selection??state.branches.map(b=>b.ref));if(check.checked)selected.add(branch.ref);else selected.delete(branch.ref);state.selection=state.branches.every(b=>selected.has(b.ref))?null:[...selected];void load();};
     }
     summary.textContent=state.selection===null?'All branches':`${state.selection.length} branches`;
   }
   function render(){
-    const rows=graphRows(state.commits,state.branches),width=Math.max(1,...rows.map(r=>r.width))*18+16;
+    const branches=state.selection===null?state.branches:state.branches.filter(b=>state.selection.includes(b.ref));
+    const rows=graphRows(state.commits,branches),width=Math.max(1,...rows.map(r=>r.width))*18+16;
     list.replaceChildren();list.style.setProperty('--graph-width',width+'px');
-    const tips=new Map();for(const b of state.branches){if(!tips.has(b.commit))tips.set(b.commit,[]);tips.get(b.commit).push(b);}
+    const tips=new Map();for(const b of branches){if(!tips.has(b.commit))tips.set(b.commit,[]);tips.get(b.commit).push(b);}
     for(const {commit,column,edges,color:laneColor} of rows){
       const row=el('div','commit-row'),select=el('button','commit-select');select.type='button';select.setAttribute('aria-label','Discuss commit '+commit.hash.slice(0,8)+' '+commit.subject);row.dataset.commit=commit.hash;row.setAttribute('role','listitem');row.title=commit.message;
       const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('width',width);svg.setAttribute('height',60);svg.setAttribute('aria-hidden','true');
@@ -88,12 +91,17 @@ export function mountHistory(host,state,api,callbacks={}){
   }
   async function load(append=false){
     callbacks.onState?.();
+    // Update controls immediately, so a second click can clear an in-flight load.
+    filters();
     const request=++generation;more.disabled=true;status.textContent='Loading…';
-    const query=new URLSearchParams({limit:100,offset:append?state.next_offset:0});
-    if(state.selection!==null){if(!state.selection.length){state.commits=[];state.next_offset=null;render();filters();return;}for(const ref of state.selection)query.append('branch',ref);}
+    const noSelection=state.selection?.length===0;
+    const query=new URLSearchParams({limit:noSelection?1:100,offset:append?state.next_offset:0});
+    if(noSelection){state.commits=[];state.tips=[];state.next_offset=null;render();}
+    else if(state.selection!==null)for(const ref of state.selection)query.append('branch',ref);
     if(append)for(const tip of state.tips||[])query.append('tip',tip);
     try{const data=await api('git/history?'+query);if(request!==generation||!panel.isConnected)return;
-      Object.assign(state,{...data,commits:append?[...state.commits,...data.commits]:data.commits});filters();render();
+      // Even an empty selection needs fresh branch choices after a reload.
+      Object.assign(state,noSelection?{branches:data.branches,repository:data.repository}:{...data,commits:append?[...state.commits,...data.commits]:data.commits});filters();render();
     }catch(error){if(request===generation)status.textContent=error.message;}
     finally{if(request===generation)more.disabled=false;}
   }

@@ -5,6 +5,93 @@ from test_history import history_repo, git
 pytestmark=[pytest.mark.browser,pytest.mark.skipif(not os.environ.get('LOOKING_GLASS_BROWSER'),reason='Set LOOKING_GLASS_BROWSER for browser checks')]
 
 @pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_history_layout_with_many_branch_labels(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,_=workspace_page
+    history_repo.__wrapped__(root)
+    for i in range(12):
+        git(root,'branch',f'feature/long-review-branch-name-{i}')
+    git(root,'update-ref','refs/remotes/origin/review',git(root,'rev-parse','agent/review'))
+    page.goto(url);page.locator('#history-open').click()
+    expect(page.locator('.commit-row')).to_have_count(4)
+
+    def assert_layout():
+        measurements=page.locator('.commit-row').evaluate_all('''rows=>rows.map(row=>{
+            const box=selector=>row.querySelector(selector).getBoundingClientRect();
+            const r=row.getBoundingClientRect(),graph=box('.commit-select>svg'),
+                  content=box('.commit-content'),meta=box('.commit-meta'),badges=box('.branch-badges');
+            return {textWidth:content.width,textAfterGraph:content.left>=graph.right,
+                    badgesAfterText:!badges.width || badges.left>=content.right,
+                    metaInside:meta.top>=r.top && meta.bottom<=r.bottom,
+                    badgesInside:!badges.height || (badges.top>=r.top && badges.bottom<=r.bottom),
+                    graphWidth:graph.width,expectedGraphWidth:Number(row.querySelector('.commit-select>svg').getAttribute('width'))};
+        })''')
+        for m in measurements:
+            assert m['textWidth']>=200,m
+            assert m['textAfterGraph'] and m['badgesAfterText'],m
+            assert m['metaInside'] and m['badgesInside'],m
+            assert m['graphWidth']==m['expectedGraphWidth'],m
+
+    assert_layout()
+    page.set_viewport_size({'width':1000,'height':800});assert_layout()
+    page.set_viewport_size({'width':1440,'height':960})
+    # All labels stay reachable without spilling onto adjacent commits.
+    badge=page.locator('.branch-badges').first.get_by_role('button',name='Discuss branch main',exact=True)
+    badge.click();expect(page.locator('.history-target-bar')).to_contain_text('Branch main')
+    page.locator('.branch-filter summary').click()
+    for name in [f'feature/long-review-branch-name-{i}' for i in range(12)]+['main','origin/review']:
+        page.get_by_role('checkbox',name=name,exact=True).uncheck()
+    expect(page.locator('.commit-row')).to_have_count(2)
+    expect(page.locator('.branch-badge')).to_have_count(1)
+    page.locator('.branch-filter summary').click();assert_layout()
+    # Keep the keyboard-accessible commit button introduced with discussions.
+    page.locator('.commit-select').first.focus();page.keyboard.press('Enter')
+    expect(page.locator('.history-target-bar')).to_contain_text('Agent review')
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_history_select_all_toggle_and_empty_selection(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    history_repo.__wrapped__(root)
+    page.goto(url);page.locator('#history-open').click()
+    expect(page.locator('.commit-row')).to_have_count(4)
+    page.locator('.branch-filter summary').click()
+    page.get_by_role('button',name='Deselect all branches',exact=True).click()
+    expect(page.locator('.commit-row')).to_have_count(0)
+    expect(page.locator('.branch-options input:checked')).to_have_count(0)
+    expect(page.locator('.history-empty')).to_have_text('Choose a branch to see its history.')
+    expect(page.locator('.history-more')).to_be_hidden()
+    page.reload()
+    expect(page.locator('.history-empty')).to_have_text('Choose a branch to see its history.')
+    page.locator('.branch-filter summary').click()
+    page.get_by_role('checkbox',name='agent/review',exact=True).check()
+    expect(page.locator('.commit-row')).to_have_count(2)
+    page.get_by_role('button',name='Select all branches',exact=True).click()
+    expect(page.locator('.commit-row')).to_have_count(4)
+    expect(page.locator('.branch-options input:checked')).to_have_count(2)
+    # Selecting the last checkbox manually must also restore the all state.
+    page.get_by_role('checkbox',name='main',exact=True).uncheck()
+    expect(page.locator('.commit-row')).to_have_count(2)
+    page.get_by_role('checkbox',name='main',exact=True).check()
+    expect(page.locator('.commit-row')).to_have_count(4)
+    expect(page.locator('.branch-filter summary')).to_have_text('All branches')
+    page.get_by_role('button',name='Deselect all branches',exact=True).click()
+    # A late response from selecting all must not undo a subsequent clear.
+    pending=[]
+    page.route('**/api/git/history?limit=100&*',lambda route:pending.append(route))
+    with page.expect_request('**/api/git/history?limit=100&*'):
+        page.get_by_role('button',name='Select all branches',exact=True).click()
+    expect(page.get_by_role('button',name='Deselect all branches',exact=True)).to_be_visible()
+    page.get_by_role('button',name='Deselect all branches',exact=True).click()
+    assert len(pending)==1
+    with page.expect_request_finished(lambda request:'/api/git/history?limit=100&' in request.url):
+        pending.pop().fulfill(response=page.request.get(url+'/api/git/history',headers={'X-Looking-Glass-Token':ws.token}))
+    page.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+    expect(page.locator('.commit-row')).to_have_count(0)
+    expect(page.locator('.branch-options input:checked')).to_have_count(0)
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
 def test_history_tab_filter_and_draft(workspace_page):
     from playwright.sync_api import expect
     root,page,url,_=workspace_page
