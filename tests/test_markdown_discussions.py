@@ -201,3 +201,29 @@ def test_native_live_table_drag_opens_comment_and_keeps_exact_anchor(workspace_p
     page.get_by_role('button',name='Done editing table',exact=True).click()
     expect(page.locator('.md-table .passage-highlight')).to_have_text(visible)
     assert (root/'table.md').read_bytes()==text.encode()
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_live_table_focus_preserves_document_shortcuts(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,_=workspace_page
+    text='# Report\n\n| Label | Value |\n| --- | --- |\n| **width** | 12 |\n\nAfter.\n'
+    (root/'table.md').write_text(text)
+    page.goto(url);open_file(page,'table.md')
+    region=page.get_by_role('region',name='Markdown table',exact=True)
+    for key in ['f','h']:
+        region.focus();page.keyboard.press('Control+'+key)
+        expect(page.locator('.cm-search')).to_be_visible()
+        expect(page.locator('.cm-search input[name="search"]')).to_be_focused()
+        page.keyboard.press('Escape');expect(page.locator('.cm-search')).to_have_count(0)
+    region.focus();page.keyboard.press('Control+a');page.locator('#annotate').click()
+    expect(page.locator('#selected-quote')).to_have_text(text)
+    page.locator('#comment-cancel').click()
+    # Undo, redo, and save continue to operate on the document after table focus.
+    page.locator('.cm-line').last.click();page.keyboard.press('Control+End');page.keyboard.insert_text('Draft')
+    region.focus();page.keyboard.press('Control+z')
+    expect(page.locator('#dirty')).to_have_text('')
+    expect(page.locator('#zen-toggle')).to_have_attribute('aria-pressed','false')
+    region.focus();page.keyboard.press('Control+y');expect(page.locator('#dirty')).to_contain_text('Unsaved')
+    region.focus();page.keyboard.press('Control+s');expect(page.locator('#dirty')).to_have_text('')
+    assert (root/'table.md').read_text()==text+'Draft'

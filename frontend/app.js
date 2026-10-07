@@ -808,6 +808,18 @@ document.addEventListener('scroll',scheduleSelectionTools,true);
 window.addEventListener('resize',()=>{scheduleSelectionTools();if($('#comment-dialog').open){const location=selectionLocation();if(location)placeNearSelection($('#comment-dialog'),location);}});
 document.addEventListener('keydown',event=>{
   if((event.ctrlKey||event.metaKey)&&event.altKey&&!event.shiftKey&&event.key.toLowerCase()==='z'){event.preventDefault();event.stopPropagation();toggleZen();return;}
+  // Focusable table regions keep native cell selection/copying, while editor
+  // commands still target the document rather than the browser page.
+  if(view&&event.target.closest?.('.md-table')&&(event.ctrlKey||event.metaKey)&&!event.altKey){
+    const key=event.key.toLowerCase();
+    if((!event.shiftKey&&['a','f','h','s','y'].includes(key))||key==='z'){
+      event.preventDefault();
+      if(key==='f'||key==='h')openSearchPanel(view);
+      else if(key==='s')guard(saveActive)();
+      else{view.focus();if(key==='a')view.dispatch({selection:{anchor:0,head:view.state.doc.length},userEvent:'select'});else if(key==='y'||event.shiftKey)redo(view);else undo(view);}
+      return;
+    }
+  }
   if((event.ctrlKey||event.metaKey)&&event.key==='Enter'&&markdownSelection()&&!$('#comment-dialog').open){event.preventDefault();guard(startComment)();return;}
   if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='p'){event.preventDefault();event.stopPropagation();guard(showQuickOpen)();}
   if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='f'&&jsonlSearch&&!document.querySelector('dialog:modal')){event.preventDefault();jsonlSearch();}
