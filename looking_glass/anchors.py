@@ -119,8 +119,15 @@ class AnchorMapper:
         if exact is None:
             return None
         original = self.hits(quote, original=True) if len(exact) == 1 else None
-        if original is not None and len(original) == 1 and len(exact) == 1 and len(quote.strip()) >= 8:
-            return exact[0], exact[0] + len(quote)
+        if original is not None and len(original) == 1 and len(exact) == 1:
+            # Short table labels must survive edits elsewhere in the row. The
+            # unchanged edges verify their positions; uniqueness in BOTH files
+            # still prevents a deleted duplicate from inheriting another copy.
+            unchanged = ((end <= self.prefix and exact[0] == start)
+                         or (start >= len(old) - self.suffix
+                             and exact[0] == start + len(new) - len(old)))
+            if len(quote.strip()) >= 8 or unchanged:
+                return exact[0], exact[0] + len(quote)
         # Repeated/short quotes need unique surrounding context, rather than
         # whichever identical passage a character diff happened to choose.
         supported = self.hits(before + quote + after)

@@ -25,6 +25,8 @@ at most 2,048 characters per side. Fuzzy comparisons share 1,000,000 work units
 per file, charged for both full passage lengths and each middle's length product.
 This also bounds linear scans of long, overlapping edited selections.
 Exact/context searches share a 256 Mi-character worst-case scan allowance.
+Short unique quotes inside verified unchanged document edges also keep their
+positions when nearby content changes; repeated quotes still require context.
 These are work limits, not wall-clock guarantees. Exhaustion marks uncertain
 anchors for manual repair, with no retry on unchanged-file polls. The existing
 workspace lock still serializes mutations; no background worker or new service
