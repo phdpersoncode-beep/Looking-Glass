@@ -1,46 +1,16 @@
-# Requested improvements
+# Sidebar and Markdown review improvements
 
-Use one feature branch. Update this checklist and commit/push after each implementation.
+Use this checklist for the current feature branch. Commit and push each completed item with its regression tests and rebuilt frontend assets.
 
-- [x] Put icon-only resolve/reopen and delete controls together in thread headers.
-- [x] Add discussions anchored to specific Git commits and branches in history.
-- [x] Keep live Markdown tables rendered for selection/annotation; provide explicit source editing and visible highlights.
-- [x] Show and create passage discussions in Markdown reading preview.
-- [x] Show an elegant loading indicator in the discussion sidebar.
-- [x] Render Mermaid diagrams in live Markdown using local assets.
-- [x] Reject oversized files before reading/rendering and show a clear UI warning.
-- [x] Enlarge and clarify expand/collapse-all controls for files and threads.
-
-## Additional requests
-
-- [x] Keep explorer filenames/folder names on one line with ellipsis and full-name hover hints at narrow widths.
-- [x] Add a minimal expandable contents bar pinned above live Markdown, generated from headings and closed after navigation.
-- [x] Make the explorer collapse-all control larger and consistent with discussion controls.
-- [x] Add a simple left-chevron explorer toggle with a way to restore the sidebar.
-- [x] Add JSONL previous/next entry arrows and retain the detail pane's scroll position for comparison.
+- [ ] Collapse the file explorer to a thin left strip, keeping its restore arrow at the same height and edge.
+- [ ] Add a matching thin-strip collapse/restore control for discussions, retaining its width and state.
+- [ ] Reduce Markdown margins and give tables more width, with horizontal scrollbars when columns overflow.
+- [ ] Restore selection-based commenting on rendered live Markdown tables, preserving exact source anchors.
+- [ ] In zen mode, scroll the main pane to the next discussion when resolving the current thread.
 
 ## Verification
 
-- Run frontend and backend tests for affected behavior.
-- Rebuild committed frontend assets after frontend changes.
-- Verify rendered Markdown/table annotation, history discussions, loading, and file limits in browser tests.
-
-Rendered Markdown/table browser checks cover exact source anchors, repeated cells, entities, Unicode, CRLF, persistent highlights, and preview navigation.
-
-Git-discussion checks cover commit/branch creation, full-reference validation, branch moves/deletion, replies with immutable context, attachments, resolve/delete, history selection, navigation, and reload persistence. Backend: 46 tests pass; frontend: 4 tests pass. Chromium regression checks pass, including the new history workflow.
-
-Final review also covers multiline block quotes/list continuations, escaped table pipes, highlighted code-block discussions, actual table-source edits, invalid-source recovery, and keyboard-accessible commit selection.
-
-Local verification of the original eight requests passed: 46 backend tests, 4 frontend tests, and all 35 Chromium browser tests. The frontend rebuild and Python wheel build also pass. The 3D-viewer regression waits for the requested file after asynchronous size preflight before inspecting its renderer.
-
-Narrow-explorer verification covers nested files and folder names at the 120 px minimum width, single-line truncation, full-path hints, and keyboard resizing.
-
-Explorer visibility persists across reloads while retaining its width, folder expansion, tabs, and unsaved document state. Browser checks cover hide/restore, keyboard focus, and interaction with zen mode.
-
-The 30 px live-Markdown contents bar lists formatted ATX/setext headings, excludes fenced-code headings, tracks current drafts, navigates exact source positions (including CRLF), and closes on selection, Escape, or outside clicks. Browser checks cover pinned positioning, navigation, mode/file changes, and documents without headings.
-
-JSONL entry arrows and raw-pane keyboard arrows navigate entries with boundary states and row counts. Detail scroll retention works for arrows, row clicks, search, and rapid changes; shorter/malformed entries clamp naturally. New explorer/contents/JSONL regressions run in Chromium and Firefox in CI; focused local Chromium checks and JSON folding pass.
-
-Final local verification after all thirteen requests: 38 Chromium browser tests, 46 backend tests, and 4 frontend tests pass; frontend assets rebuild and the Python package builds successfully. Visual review confirms the minimal contents bar and narrow explorer layout; the footer action also truncates within the narrow sidebar and retains its full hover label.
-
-Merge review fixes encoded-character source ranges in rendered Markdown and hides/guards downloads for oversized reports. Eight focused Chromium Markdown regressions pass, including complete entity/escape quotes in live tables and reading preview, reload persistence, oversized HTML/JSONL warnings, and intact normal HTML downloads.
+- Add browser regressions for each item, including Chromium and Firefox.
+- Preserve drafts, sidebar widths, table source editing, discussion state, and navigation.
+- Run frontend and backend tests, rebuild assets, and build the Python package.
+- Run the full browser suite before delivery; record results here.
