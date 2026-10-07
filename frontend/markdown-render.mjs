@@ -87,6 +87,8 @@ export function mountMappedMarkdown(host,source,offset=0,decorate=()=>{}) {
   decorate(host);
   for(const table of host.querySelectorAll('table')){
     const scroller=document.createElement('div');scroller.className='markdown-table-scroll';
+    // Native table drags must focus this region rather than the surrounding
+    // CodeMirror editor, whose source caret cannot represent a cell selection.
     scroller.setAttribute('role','region');scroller.setAttribute('aria-label','Markdown table');scroller.tabIndex=0;
     table.replaceWith(scroller);scroller.append(table);
   }

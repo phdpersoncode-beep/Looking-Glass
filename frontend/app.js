@@ -788,9 +788,11 @@ function beginSelection(event){
 }
 function settleSelection(){
   if(!selectingText)return;selectingText=false;
-  // Let CodeMirror finish its mouse/DOM selection update before revealing syntax.
+  // Rendered table selections belong to the native DOM, not CodeMirror.
+  // Dispatching an editor update here can replace them with its source caret.
+  // Let ordinary editor gestures settle before revealing syntax.
   const editor=view;
-  requestAnimationFrame(()=>{if(view&&view===editor)view.dispatch({effects:selectionSettled.of(null)});scheduleSelectionTools();});
+  requestAnimationFrame(()=>{if(view&&view===editor&&!markdownSelection())view.dispatch({effects:selectionSettled.of(null)});updateToolbar();scheduleSelectionTools();});
 }
 // CodeMirror selects through mouse events. Pointer events alone can leave this
 // UI's drag state stuck after an interrupted gesture or an out-of-window release.

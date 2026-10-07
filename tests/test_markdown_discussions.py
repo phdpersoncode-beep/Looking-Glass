@@ -160,3 +160,44 @@ def test_table_done_control_survives_temporarily_invalid_source(workspace_page):
     expect(page.get_by_role('button',name='Done editing table')).to_be_visible()
     page.keyboard.press('Control+z')
     page.get_by_role('button',name='Done editing table').click();expect(page.locator('.md-table table')).to_be_visible()
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+@pytest.mark.parametrize('cell,quote,reverse',[
+    ('**width**','width',False),
+    ('**😀 &amp; café**','😀 &amp; café',True),
+    ('`12`','12',False),
+])
+def test_native_live_table_drag_opens_comment_and_keeps_exact_anchor(workspace_page,cell,quote,reverse):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    text='# 😀 Results\r\n\r\n| Repeated | Target |\r\n| --- | --- |\r\n| '+cell+' | '+cell+' |\r\n\r\nAfter.\r\n'
+    (root/'table.md').write_bytes(text.encode())
+    page.goto(url);open_file(page,'table.md')
+    # Start with the editor focused, then select a rendered cell with a real drag.
+    # Programmatic Range selection bypasses the focus/selection bug.
+    page.locator('.cm-line').last.click()
+    cell_text=page.locator('.md-table tbody td:last-child .md-mapped-text')
+    box=cell_text.bounding_box();left=box['x']+1;right=box['x']+box['width']-1;y=box['y']+box['height']/2
+    page.mouse.move(right if reverse else left,y);page.mouse.down()
+    page.mouse.move(left if reverse else right,y,steps=12);page.mouse.up()
+    expect(page.locator('#selection-tools')).to_be_visible()
+    expect(page.locator('#annotate')).to_be_enabled()
+    visible=cell_text.inner_text();assert page.evaluate('window.getSelection().toString()')==visible
+    # A background poll must preserve both the native selection and its prompt.
+    with page.expect_response(lambda response:'/api/discussions?' in response.url):pass
+    assert page.evaluate('window.getSelection().toString()')==visible
+    expect(page.locator('#selection-tools')).to_be_visible()
+    page.locator('#selection-comment').click()
+    expect(page.locator('#selected-quote')).to_have_text(quote)
+    page.locator('#comment-body').fill('Review the second cell');page.locator('#comment-submit').click()
+    expect(page.locator('.md-table .passage-highlight')).to_have_text(visible)
+    thread=ws.threads()[0]
+    assert thread['quote']==quote and thread['start']==text.rindex(quote)
+    assert text[thread['start']:thread['end']]==quote
+    page.reload();expect(page.locator('.md-table .passage-highlight')).to_have_text(visible)
+    page.get_by_role('button',name='Edit table source',exact=True).click()
+    expect(page.locator('.cm-content .passage-highlight')).to_have_text(quote)
+    page.get_by_role('button',name='Done editing table',exact=True).click()
+    expect(page.locator('.md-table .passage-highlight')).to_have_text(visible)
+    assert (root/'table.md').read_bytes()==text.encode()
