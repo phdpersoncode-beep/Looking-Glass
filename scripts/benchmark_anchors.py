@@ -16,7 +16,7 @@ def measure(lines, unique):
             filler = 'repeated plan text.\n' * lines
             quotes = [f'Reviewed passage {i:02}: keep this exact decision.' for i in range(28)]
             old = 'prefix\n' + filler + '\n'.join(quotes) + '\nsuffix' if unique else 'prefix\n' + filler + 'suffix'
-            new = old.replace('plan', 'new plan')
+            new = '\n'.join(reversed(quotes)) + '\n' + filler.replace('plan', 'new plan') + 'new footer' if unique else old.replace('plan', 'new plan')
             file = root / 'plan.md'; file.write_text(old, encoding='utf-8')
             app = create_app(root); ws = app.extensions['workspace']
             with ws.connection() as db:
@@ -41,7 +41,7 @@ def measure(lines, unique):
             assert client.get(route, headers=headers).status_code == 200
             unchanged.append(1000 * (time.perf_counter() - started))
     return dict(source_bytes=len(old.encode('utf-8')), threads=28,
-                workload='unchanged unique passages' if unique else 'rewritten repeated passages',
+                workload='moved unique passages' if unique else 'rewritten repeated passages',
                 changed_request_median_ms=round(statistics.median(elapsed), 2),
                 unchanged_request_median_ms=round(statistics.median(unchanged), 2),
                 attached=statuses.count('attached'), needs_reattachment=statuses.count('needs_reattachment'))

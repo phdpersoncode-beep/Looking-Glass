@@ -5,7 +5,7 @@ from difflib import SequenceMatcher
 # means manual reattachment, never a more speculative fallback.
 MAX_DIFF_WORK = 1_000_000
 MAX_DIFF_SIDE = 2048
-MAX_SEARCH_WORK = 64 * 1024 * 1024
+MAX_SEARCH_WORK = 256 * 1024 * 1024
 CONTEXT = 48
 
 
@@ -73,10 +73,14 @@ class AnchorMapper:
         blocks = SequenceMatcher(None, a, b, autojunk=False).get_matching_blocks()
         surviving = prefix + suffix + sum(size for _, _, size in blocks)
         longest = max(prefix, suffix, max(size for _, _, size in blocks))
+        meaningful = lambda text: sum(not c.isspace() for c in text)
+        kept = meaningful(old[:prefix]) + meaningful(old[len(old)-suffix:])
+        kept += sum(meaningful(a[x:x+size]) for x, _, size in blocks)
         # Previously a few characters, or just matching first/last letters,
         # could attach a rewritten sentence to an unrelated passage.
         result = (surviving >= .7 * len(old) and surviving >= .6 * len(new)
                   and 3 * surviving >= len(old) + len(new)
+                  and kept >= .65 * meaningful(old) and kept >= .5 * meaningful(new)
                   and longest >= min(12, max(1, len(old) // 2))
                   and len(old.strip()) >= 8)
         self._similarity[key] = result

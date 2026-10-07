@@ -21,6 +21,13 @@ def test_replacement_with_matching_sentence_edges_is_not_attached():
     assert mapped_quote(old, new, 'The 8/8 dev/test split is accepted.') is None
 
 
+def test_shared_whitespace_is_not_evidence_for_a_replacement():
+    quote = ' ' * 500 + 'The split is accepted.'
+    old = 'Before\n' + quote + '\nAfter'
+    new = 'Before\n' + ' ' * 500 + 'The annotators work on the system and labels are accepted.\nAfter'
+    assert mapped_quote(old, new, quote) is None
+
+
 @pytest.mark.parametrize('new,expected', [
     ('New heading\nBefore\nA useful passage for review.\nAfter', 'A useful passage for review.'),
     ('Before\nA very useful passage for review.\nAfter', 'A very useful passage for review.'),
@@ -100,6 +107,25 @@ def test_mapper_shares_changed_passage_work(monkeypatch):
     for _ in range(28):
         assert new[slice(*mapper.relocate(start, end))] == 'This useful passage for discussion.'
     assert len(calls) == 1
+
+
+def test_diff_budget_is_shared_across_different_threads(monkeypatch):
+    import looking_glass.anchors as anchors
+    monkeypatch.setattr(anchors, 'MAX_DIFF_WORK', 2000)
+    original, costs = anchors.SequenceMatcher, []
+    def counted(*args, **kwargs):
+        costs.append(len(args[1]) * len(args[2]))
+        return original(*args, **kwargs)
+    monkeypatch.setattr(anchors, 'SequenceMatcher', counted)
+    quotes = [f'A useful passage {i:02} for review.' for i in range(16)]
+    old = '\n'.join(f'Before unique context for section {i:02}: never repeated exactly ' + quote
+                    + f' After uniquely different endpoint {i:02}: only here in the file.'
+                    for i, quote in enumerate(quotes))
+    new = old.replace('A useful', 'This useful').replace('review.', 'discussion.')
+    mapper = AnchorMapper(old, new)
+    results = [mapper.relocate(old.index(q), old.index(q) + len(q)) for q in quotes]
+    assert any(results) and any(result is None for result in results)
+    assert sum(costs) <= 2000
 
 
 def test_failed_anchors_keep_history_and_are_not_retried_on_every_poll(tmp_path, monkeypatch):
