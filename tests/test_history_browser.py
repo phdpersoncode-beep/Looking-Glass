@@ -98,3 +98,43 @@ def test_clipboard_image_new_thread_reply_and_retry(workspace_page):
     assert prevented is False
     page.reload();expect(page.locator('.attachment')).to_have_count(2)
     page.locator('.attachment-name').first.click();expect(page.locator('#attachment-image')).to_be_visible()
+
+
+def test_history_commit_and_branch_discussions(workspace_page):
+    from playwright.sync_api import expect
+    from test_history import git
+    root,page,url,ws=workspace_page
+    history_repo.__wrapped__(root)
+    sha=git(root,'rev-parse','agent/review')
+    page.goto(url);page.locator('#history-open').click()
+    page.locator('.commit-row',has_text='Agent review').click()
+    page.locator('#history-comment').click();expect(page.locator('#selected-quote')).to_contain_text(sha[:8])
+    page.locator('#comment-body').fill('Commit review');page.locator('#comment-submit').click()
+    expect(page.locator('.thread .message p')).to_have_text('Commit review')
+    t=ws.threads()[0];assert t['anchor_kind']=='commit' and t['commit_hash']==sha
+    expect(page.locator('.commit-row',has_text='Agent review').locator('.history-discussion-count').first).to_be_visible()
+    page.locator('#reply-'+str(t['id'])).fill('Commit reply');page.locator('.reply-form button[type=submit]').click()
+    expect(page.locator('.thread .message p')).to_have_text(['Commit review','Commit reply'])
+    page.locator('.original-context').click();expect(page.locator('.cm-content')).to_contain_text('Detailed review message')
+    page.locator('#history-open').click()
+    page.locator('.branch-badge[aria-label="Discuss branch agent/review"]').click()
+    expect(page.locator('.thread')).to_have_count(0)
+    page.locator('#history-comment').click();page.locator('#comment-body').fill('Branch review');page.locator('#comment-submit').click()
+    expect(page.locator('.thread .message p')).to_have_text('Branch review')
+    branch=ws.threads()[1];assert branch['git_target']['ref']=='refs/heads/agent/review'
+    page.locator('.branch-filter summary').click()
+    page.locator('.discuss-branch[aria-label="Discuss branch main"]').click()
+    expect(page.locator('.history-target-bar')).to_contain_text('Branch main')
+    expect(page.locator('.thread')).to_have_count(0)
+    page.locator('.commit-row',has_text='Agent review').click()
+    expect(page.locator('.thread .message p')).to_have_text(['Commit review','Commit reply'])
+    page.reload();expect(page.locator('.thread .message p')).to_have_text(['Commit review','Commit reply'])
+    page.locator('#thread-scope').check();expect(page.locator('.thread')).to_have_count(2)
+    page.locator('.thread[data-thread="'+str(branch['id'])+'"] blockquote').click()
+    expect(page.locator('.history-target-bar')).to_contain_text('Branch agent/review')
+    expect(page.locator('#document-name')).to_have_text('Commit history')
+    git(root,'branch','-D','agent/review')
+    page.locator('.thread[data-thread="'+str(branch['id'])+'"] .original-context').click()
+    expect(page.locator('.cm-content')).to_contain_text('Tip when reviewed: '+sha)
+    page.locator('#reply-'+str(branch['id'])).fill('After deletion');page.locator('.thread[data-thread="'+str(branch['id'])+'"] .reply-form button[type=submit]').click()
+    expect(page.locator('.thread[data-thread="'+str(branch['id'])+'"] .message p')).to_have_text(['Branch review','After deletion'])

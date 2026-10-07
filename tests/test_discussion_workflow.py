@@ -120,3 +120,25 @@ def test_multipart_comments_and_message_owned_attachments(api,monkeypatch):
     assert successful.status_code==201 and successful.json['messages'][0]['body']==''
     assert successful.json['attachments'][0]['message_id']==successful.json['messages'][0]['id']
     assert c.post(route,data={'data':json.dumps(payload),'files':(io.BytesIO(b'x'),'a.png')}).status_code==401
+
+
+def test_oversized_file_is_rejected_before_read_and_preview_is_bounded(api, monkeypatch):
+    from pathlib import Path
+    from looking_glass.workspace import MAX_TEXT, MAX_BINARY
+    root, ws, c, h, _ = api
+    huge = root/'huge.html'
+    with huge.open('wb') as file:
+        file.truncate(300 * 1024 * 1024)
+    original = Path.open
+    def guarded(path, *args, **kwargs):
+        assert path != huge, 'Oversized file contents must never be opened'
+        return original(path, *args, **kwargs)
+    monkeypatch.setattr(Path, 'open', guarded)
+    info = c.get('/api/stat?path=huge.html', headers=h).json
+    assert info['too_large'] and info['limit'] == MAX_TEXT
+    response = c.get('/api/file?path=huge.html', headers=h)
+    assert response.status_code == 413 and 'too large' in response.json['error']
+    (root/'mesh.stl').write_bytes(b'small')
+    assert c.get('/api/stat?path=mesh.stl', headers=h).json['limit'] == MAX_BINARY
+    monkeypatch.setattr('looking_glass.app.MAX_TEXT', 4)
+    assert c.post('/api/preview', headers=h, json={'path':'huge.html','content':'12345'}).status_code == 413

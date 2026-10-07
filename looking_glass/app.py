@@ -1,3 +1,4 @@
+import gzip
 import hashlib
 import secrets
 import time
@@ -9,7 +10,7 @@ from flask import Flask, Response, jsonify, render_template, request, send_file
 from werkzeug.exceptions import HTTPException
 
 from .revisions import Revisions
-from .workspace import Problem, Workspace, directories
+from .workspace import Problem, Workspace, directories, MAX_TEXT, MAX_BINARY
 from .instructions import agent_instructions as instructions_text
 from .projects import register_project
 
@@ -101,6 +102,19 @@ def create_app(root):
         # Versioned asset URLs bypass copies cached before a rebuild.
         version = max(int((Path(app.static_folder)/name).stat().st_mtime) for name in ('app.js', 'style.css'))
         return render_template('index.html', root=str(ws.root), token=ws.token, version=version)
+
+    @app.get('/static/mermaid.js')
+    def diagram_asset():
+        # Serve the locally built, compressed optional renderer. Ordinary
+        # clients without gzip support still receive JavaScript source.
+        asset = Path(app.static_folder)/'mermaid.js.gz'
+        if 'gzip' in request.accept_encodings:
+            response = send_file(asset, mimetype='text/javascript')
+            response.headers['Content-Encoding'] = 'gzip'
+        else:
+            response = Response(gzip.decompress(asset.read_bytes()), mimetype='text/javascript')
+        response.headers['Vary'] = 'Accept-Encoding'
+        return response
 
     @app.get('/fragments/files')
     def tree():
@@ -202,7 +216,7 @@ def create_app(root):
                  '.jpeg':'image/jpeg', '.svg':'image/svg+xml'}
         if p.suffix.lower() not in types:
             raise Problem('Choose an STL, PNG, JPEG, or SVG file.')
-        if p.stat().st_size > 64*1024*1024:
+        if p.stat().st_size > MAX_BINARY:
             raise Problem('Binary viewer files are limited to 64 MiB.',413)
         return send_file(p, mimetype=types[p.suffix.lower()], as_attachment=True)
 
@@ -210,7 +224,8 @@ def create_app(root):
     def file_stat():
         p = ws.path(request.args.get('path'))
         info = p.stat()
-        return jsonify(version=f'{info.st_mtime_ns}:{info.st_size}',size=info.st_size)
+        limit = MAX_BINARY if p.suffix.lower() in ('.stl','.png','.jpg','.jpeg','.svg') else MAX_TEXT
+        return jsonify(version=f'{info.st_mtime_ns}:{info.st_size}',size=info.st_size,limit=limit,too_large=info.st_size > limit)
 
     @app.post('/api/preview')
     def make_preview():
@@ -218,6 +233,8 @@ def create_app(root):
         ws.path(data.get('path'))
         if Path(data['path']).suffix.lower() not in ('.html','.htm') or not isinstance(data.get('content'),str):
             raise Problem('Choose an HTML document.')
+        if len(data['content'].encode('utf-8')) > MAX_TEXT:
+            raise Problem('This HTML file is too large to render. The limit is 8 MiB.',413)
         # A separate short-lived capability reads only this preview. It is never
         # the API token, which report scripts must not receive in their URL.
         key = secrets.token_urlsafe(24)
@@ -252,6 +269,10 @@ def create_app(root):
     @app.post('/api/threads')
     def new_thread():
         data,files = review_body()
+        if 'git_target' in data:
+            if any(key in data for key in ('path','start','end','render_anchor')):
+                raise Problem('Choose either a Git target or a file passage.')
+            return jsonify(save_review(lambda empty:ws.create_git_thread(data['git_target'],data.get('body'),data.get('author'),allow_empty=empty),files,new_thread=True)),201
         ws.path(data.get('path'))
         if Path(data['path']).suffix.lower() in ('.stl','.jsonl','.png','.jpg','.jpeg','.svg'):
             raise Problem('This viewer does not support annotations.')

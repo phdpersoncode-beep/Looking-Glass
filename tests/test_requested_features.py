@@ -42,9 +42,12 @@ def test_markdown_tables(workspace_page):
     expect(page.locator('.md-table code')).to_have_text('12')
     assert page.locator('.md-table td').last.evaluate('el=>getComputedStyle(el).textAlign').endswith('right')
     page.locator('.md-table td').first.click()
+    expect(page.locator('.md-table table')).to_be_visible()
+    page.get_by_role('button',name='Edit table source',exact=True).click()
     expect(page.locator('.md-table')).to_have_count(0)
     expect(page.locator('.cm-content')).to_contain_text('| Name | Value |')
-    page.keyboard.press('Control+End');expect(page.locator('.md-table table')).to_be_visible()
+    page.get_by_role('button',name='Done editing table',exact=True).click()
+    expect(page.locator('.md-table table')).to_be_visible()
     page.locator('#mode').select_option('preview');expect(page.locator('.markdown-preview table')).to_be_visible()
     page.locator('#mode').select_option('source');expect(page.locator('.md-table')).to_have_count(0)
     assert (root/'table.md').read_text()==original
@@ -129,7 +132,11 @@ def test_cross_file_comments(workspace_page):
 def test_resizable_file_explorer(workspace_page):
     from playwright.sync_api import expect
     root,page,url,_=workspace_page
-    (root/'note.txt').write_text('Example.');page.goto(url)
+    (root/'note.txt').write_text('Example.')
+    name='A very long file name for a narrow explorer.txt'
+    folder='A very long folder name'
+    (root/folder).mkdir();(root/folder/name).write_text('Nested.')
+    page.goto(url)
     separator=page.get_by_role('separator',name='Resize file explorer');box=separator.bounding_box()
     page.mouse.move(box['x']+box['width']/2,box['y']+100);page.mouse.down();page.mouse.move(360,box['y']+100);page.mouse.up()
     assert abs(page.locator('.file-sidebar').bounding_box()['width']-360)<2
@@ -137,6 +144,15 @@ def test_resizable_file_explorer(workspace_page):
     page.reload();expect(separator).to_have_attribute('aria-valuenow','360')
     separator.focus();page.keyboard.press('ArrowRight');expect(separator).to_have_attribute('aria-valuenow','370')
     page.keyboard.press('Home');expect(separator).to_have_attribute('aria-valuenow','120')
+    summary=page.locator('.file-folder > summary');summary.click()
+    expect(summary).to_have_attribute('title',folder)
+    nested=page.locator(f'.file-entry[data-path="{folder}/{name}"]')
+    expect(nested).to_have_attribute('title',f'{folder}/{name}')
+    assert nested.bounding_box()['height']<36
+    assert nested.locator('.file-name').evaluate('el=>el.scrollWidth>el.clientWidth && getComputedStyle(el).textOverflow==="ellipsis"')
+    assert summary.locator('.folder-name').evaluate('el=>el.scrollWidth>el.clientWidth && getComputedStyle(el).whiteSpace==="nowrap"')
+    assert page.locator('#agent-open').evaluate('el=>el.getBoundingClientRect().right<=document.querySelector(".file-sidebar").getBoundingClientRect().right')
+    separator.focus()
     page.keyboard.press('End');expect(separator).to_have_attribute('aria-valuenow','600')
     assert page.locator('.document-panel').bounding_box()['width']>=350
 
