@@ -59,6 +59,19 @@ def test_deleted_duplicate_is_not_moved_to_the_remaining_copy():
     assert mapped_quote(old, new, quote) is None
 
 
+@pytest.mark.parametrize('quote',['width','12'])
+def test_short_unique_table_labels_survive_neighbor_edits(quote):
+    old = '# Results\n\n| Label | Value |\n| --- | --- |\n| **width** | `12` |\n\nAfter.\n'
+    new = old.replace('`12`','`24`') if quote == 'width' else old.replace('width','height')
+    assert mapped_quote(old, new, quote) == quote
+
+
+def test_short_deleted_duplicate_is_not_moved_to_unchanged_edge():
+    old = 'width first row\nwidth second row\n'
+    new = 'height first row\nwidth second row\n'
+    assert mapped_quote(old, new, 'width') is None
+
+
 @pytest.mark.parametrize('copies', [1, 3])
 @pytest.mark.parametrize('occurrence', [0, 1])
 def test_identical_paragraph_deletion_or_insertion_has_no_reliable_history(copies, occurrence):
