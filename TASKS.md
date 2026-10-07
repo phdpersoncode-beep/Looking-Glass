@@ -42,3 +42,5 @@ The 30 px live-Markdown contents bar lists formatted ATX/setext headings, exclud
 JSONL entry arrows and raw-pane keyboard arrows navigate entries with boundary states and row counts. Detail scroll retention works for arrows, row clicks, search, and rapid changes; shorter/malformed entries clamp naturally. New explorer/contents/JSONL regressions run in Chromium and Firefox in CI; focused local Chromium checks and JSON folding pass.
 
 Final local verification after all thirteen requests: 38 Chromium browser tests, 46 backend tests, and 4 frontend tests pass; frontend assets rebuild and the Python package builds successfully. Visual review confirms the minimal contents bar and narrow explorer layout; the footer action also truncates within the narrow sidebar and retains its full hover label.
+
+Merge review fixes encoded-character source ranges in rendered Markdown and hides/guards downloads for oversized reports. Eight focused Chromium Markdown regressions pass, including complete entity/escape quotes in live tables and reading preview, reload persistence, oversized HTML/JSONL warnings, and intact normal HTML downloads.

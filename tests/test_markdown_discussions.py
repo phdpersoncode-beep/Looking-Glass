@@ -80,6 +80,38 @@ def test_loading_and_oversized_warning(workspace_page):
     expect(page.locator('.file-size-warning')).to_contain_text('300.0 MiB')
     expect(page.locator('.file-size-warning')).to_contain_text('8 MiB')
     expect(page.locator('#html-preview')).to_have_count(0)
+    expect(page.locator('#download-file')).not_to_be_visible()
+    with (root/'huge.jsonl').open('wb') as file:file.truncate(9*1024*1024)
+    page.locator('#refresh-files').click();open_file(page,'huge.jsonl')
+    expect(page.locator('.file-size-warning')).to_contain_text('9.0 MiB')
+    expect(page.locator('#download-file')).not_to_be_visible()
+    (root/'small.html').write_text('<p>Complete report</p>')
+    page.locator('#refresh-files').click();open_file(page,'small.html')
+    expect(page.locator('#download-file')).to_be_visible()
+    with page.expect_download() as download:page.locator('#download-file').click()
+    assert open(download.value.path()).read()=='<p>Complete report</p>'
+
+
+@pytest.mark.parametrize('mode',['live','preview'])
+def test_encoded_character_discussions_preserve_complete_source(workspace_page,mode):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    quotes=['&amp;',r'\*','&#42;','&#x1F600;']
+    rows='\n'.join('| **'+quote+'** | literal |' for quote in quotes)
+    text='# Encoded characters\n\n| Encoded | Other |\n| --- | --- |\n'+rows+'\n'
+    (root/'encoded.md').write_text(text)
+    page.goto(url);open_file(page,'encoded.md');page.locator('#mode').select_option(mode)
+    host='.md-table' if mode=='live' else '.markdown-preview'
+    for index,quote in enumerate(quotes):
+        select_text(page,host+' tbody tr:nth-child('+str(index+1)+') strong')
+        expect(page.locator('#annotate')).to_be_enabled();page.locator('#annotate').click()
+        expect(page.locator('#selected-quote')).to_have_text(quote)
+        page.locator('#comment-body').fill('Review encoded character');page.locator('#comment-submit').click()
+        expect(page.locator('.thread')).to_have_count(index+1)
+        thread=ws.threads()[-1]
+        assert thread['quote']==quote and text[thread['start']:thread['end']]==quote
+    expect(page.locator(host+' .passage-highlight')).to_have_text(['&','*','*','😀'])
+    page.reload();expect(page.locator(host+' .passage-highlight')).to_have_text(['&','*','*','😀'])
 
 
 def test_mermaid_live_preview_source_edit_and_invalid_diagram(workspace_page):

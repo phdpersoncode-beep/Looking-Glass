@@ -52,7 +52,10 @@ export function mappedMarkdownHTML(source,offset=0) {
 }
 
 function visibleMap(raw,from,text,code=false) {
-  const direct=raw.indexOf(text);
+  // A visible '&' or '*' can occur inside '&amp;' or '\\*'. Decode ordinary
+  // text before matching so each character covers its complete source spelling.
+  // Code is literal and can keep the direct path (including block newlines).
+  const direct=code?raw.indexOf(text):-1;
   if(direct>=0)return Array.from({length:text.length},(_,i)=>({from:from+direct+i,to:from+direct+i+1}));
   let value='',map=[];
   const decode=document.createElement('textarea');

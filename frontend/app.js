@@ -408,7 +408,7 @@ function updateToolbar(){
   $('#markdown-contents').hidden=!!e?.kind||!['md','markdown'].includes(type)||e?.mode!=='live';
   $('.font-controls').hidden=e?.kind==='history';$('#annotate').hidden=!!e?.kind;$('#save').hidden=!!e?.kind;
   $('#json-fold-controls').hidden=type!=='json';
-  $('#download-file').hidden=!['html','htm','jsonl'].includes(type);
+  $('#download-file').hidden=e?.kind==='oversized'||!['html','htm','jsonl'].includes(type);
   $('#document-name').textContent=e?.kind==='history'?'Commit history':e?.kind==='original'?'Original · '+e.sourcePath:e?.path||'Open a file';$('#dirty').textContent=e?.dirty?' · Unsaved':'';
   $('#save').disabled=!e||viewer||!e.dirty||saving;$('#annotate').disabled=!e||viewer||!(renderedPreview?renderedSelection:markdownSelection()||view&&!view.state.selection.main.empty);
   const mode=$('#mode');const modes=type==='md'||type==='markdown'?[['live','Live Markdown'],['source','Raw source'],['preview','Reading preview']]:type==='html'||type==='htm'?[['rendered','Rendered HTML'],['source','HTML source']]:[['source',viewer?'Viewer':'Source']];
@@ -871,7 +871,7 @@ $('#selection-thread').onclick=()=>showThread(Number($('#selection-thread').data
 $('#json-format').onclick=guard(()=>{if(!view||ext(active)!=='json')return;const content=formatJSON(view.state.sliceDoc(),view.state.lineBreak);view.dispatch({changes:{from:0,to:view.state.doc.length,insert:content},annotations:isolateHistory.of('full'),userEvent:'input.format'});view.focus();});
 $('#json-collapse').onclick=()=>collapseJSON(view);$('#json-expand').onclick=()=>{if(view)unfoldAll(view);};
 $('#download-file').onclick=guard(()=>{
-  syncState();const e=entry();if(!e||!['html','htm','jsonl'].includes(ext(e.path)))return;
+  syncState();const e=entry();if(!e||e.kind==='oversized'||!['html','htm','jsonl'].includes(ext(e.path)))return;
   const type=ext(e.path)==='jsonl'?'application/x-ndjson;charset=utf-8':'text/html;charset=utf-8';
   const url=URL.createObjectURL(new Blob([e.content],{type})),link=document.createElement('a');
   link.href=url;link.download=e.path.split('/').pop();document.body.append(link);link.click();link.remove();
