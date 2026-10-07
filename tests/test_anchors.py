@@ -59,6 +59,21 @@ def test_deleted_duplicate_is_not_moved_to_the_remaining_copy():
     assert mapped_quote(old, new, quote) is None
 
 
+@pytest.mark.parametrize('copies', [1, 3])
+@pytest.mark.parametrize('occurrence', [0, 1])
+def test_identical_paragraph_deletion_or_insertion_has_no_reliable_history(copies, occurrence):
+    quote = 'The repeated reviewed paragraph.\n'
+    old, new = quote * 2, quote * copies
+    start = occurrence * len(quote)
+    assert relocate(old, new, start, start + len(quote)) is None
+
+
+def test_uniquely_preserved_snapshot_keeps_repeated_passages():
+    quote = 'The repeated reviewed paragraph.\n'
+    old, heading = quote * 2, 'A new heading\n'
+    assert relocate(old, heading + old, len(quote), 2 * len(quote)) == (len(heading) + len(quote), len(heading) + 2 * len(quote))
+
+
 def test_unique_exact_quote_survives_large_move_without_a_diff(monkeypatch):
     import looking_glass.anchors as anchors
     def forbidden(*args, **kwargs):
