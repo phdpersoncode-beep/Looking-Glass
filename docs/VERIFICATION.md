@@ -1,6 +1,6 @@
 # Bounded source anchoring and agent repair · 2026-10-06
 
-- Local fast suite: **58 passed** in 6.71 seconds; **4 JavaScript tests passed**.
+- Local fast suite: **59 passed** in 6.78 seconds; **4 JavaScript tests passed**.
 - Wheel/source distribution build and `git diff --check` passed. No frontend
   source/assets or runtime dependencies changed.
 - A 60 KB repetitive edit previously exceeded a two-second subprocess deadline
@@ -10,7 +10,7 @@
   and identical whole-paragraph insertions/deletions,
   meaningful text versus shared whitespace, Unicode/multiline quotes, normal
   interior/boundary edits, unchanged-range shifts, relocated exact passages,
-  per-file work exhaustion, shared mapping work, and no failed-anchor retry on polls
+  per-file work exhaustion (including long unchanged quote edges), shared mapping work, and no failed-anchor retry on polls
   or restart. A resolved thread keeps its status and immutable origin when orphaned.
 - Real HTTP/CLI checks cover manual reattachment, correction of an attached wrong
   passage, explicit repeated-quote occurrence selection, empty/missing/ambiguous
@@ -24,6 +24,7 @@
   reproduction uses representative synthetic inputs and the supplied access logs.
 - Browser checks were not run locally; the pull request's existing GitHub Actions
   workflow runs the separate Chromium/Firefox suite and asset reproducibility gate.
+  [Latest pull request checks](https://github.com/phdpersoncode-beep/Looking-Glass/pull/2/checks).
 
 ---
 

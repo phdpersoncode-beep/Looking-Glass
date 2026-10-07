@@ -63,11 +63,19 @@ class AnchorMapper:
         key = old, new
         if key in self._similarity:
             return self._similarity[key]
+        # Charge linear passage scans too: large overlapping selections with
+        # tiny edits must not each rescan megabytes of unchanged quote edges.
+        linear = len(old) + len(new)
+        if linear > self.diff_work:
+            self._similarity[key] = False
+            return False
+        self.diff_work -= linear
         prefix, suffix = common_edges(old, new)
         a = old[prefix:len(old)-suffix]
         b = new[prefix:len(new)-suffix]
         cost = len(a) * len(b)
         if max(len(a), len(b)) > MAX_DIFF_SIDE or cost > self.diff_work:
+            self._similarity[key] = False
             return False
         self.diff_work -= cost
         blocks = SequenceMatcher(None, a, b, autojunk=False).get_matching_blocks()
