@@ -17,22 +17,28 @@ def test_explorer_toggle_preserves_width_folders_and_draft(workspace_page):
     expect(separator).to_have_attribute('aria-valuenow','170')
     page.locator('.cm-content').click();page.keyboard.press('Control+End');page.keyboard.insert_text('Unsaved')
     width=page.locator('.document-panel').bounding_box()['width']
+    arrow_box=page.locator('#explorer-toggle').bounding_box()
     page.get_by_role('button',name='Hide file explorer',exact=True).click()
-    expect(page.locator('.file-sidebar')).not_to_be_visible()
-    expect(page.locator('#explorer-show')).to_be_focused()
+    assert page.locator('#explorer-toggle').bounding_box()==arrow_box
+    expect(separator).not_to_be_visible()
+    expect(page.locator('#file-tree')).not_to_be_visible()
+    assert page.locator('.file-sidebar').bounding_box()['width']==36
+    expect(page.locator('#explorer-toggle')).to_be_focused()
     expect(page.locator('#tabs')).to_be_visible()
     assert page.locator('.document-panel').bounding_box()['width']>width
     expect(page.locator('.cm-content')).to_contain_text('Unsaved')
-    page.locator('#zen-toggle').click();expect(page.locator('#explorer-show')).not_to_be_visible()
-    page.locator('#zen-toggle').click();expect(page.locator('#explorer-show')).to_be_visible()
+    page.locator('#zen-toggle').click();expect(page.locator('#explorer-toggle')).not_to_be_visible()
+    page.locator('#zen-toggle').click();expect(page.locator('#explorer-toggle')).to_be_visible()
     page.get_by_role('button',name='Show file explorer',exact=True).click()
     expect(separator).to_have_attribute('aria-valuenow','170')
+    assert page.locator('#explorer-toggle').bounding_box()==arrow_box
     expect(page.locator('.file-folder')).to_have_attribute('open','')
     expect(page.locator('.cm-content')).to_contain_text('Unsaved')
     page.locator('#save').click();expect(page.locator('#dirty')).to_have_text('')
-    page.locator('#explorer-hide').click();page.reload()
-    expect(page.locator('.file-sidebar')).not_to_be_visible()
-    page.locator('#explorer-show').click();expect(separator).to_have_attribute('aria-valuenow','170')
+    page.locator('#explorer-toggle').click();page.reload()
+    expect(page.locator('#file-tree')).not_to_be_visible()
+    assert page.locator('.file-sidebar').bounding_box()['width']==36
+    page.locator('#explorer-toggle').click();expect(separator).to_have_attribute('aria-valuenow','170')
     expect(page.locator('.file-folder')).to_have_attribute('open','')
     page.locator('#collapse-files').click();expect(page.locator('.file-folder')).not_to_have_attribute('open','')
     page.locator('#expand-files').click();expect(page.locator('.file-folder')).to_have_attribute('open','')

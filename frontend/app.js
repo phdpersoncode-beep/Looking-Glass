@@ -919,13 +919,17 @@ window.addEventListener('resize',sizeDiscussions);sizeDiscussions();
 let explorerHidden=localStorage.getItem('looking-glass-explorer-hidden')==='true';
 function setExplorerHidden(hidden,focus=false){
   explorerHidden=hidden;document.body.classList.toggle('explorer-hidden',hidden);
-  $('#file-sidebar').hidden=hidden;$('#explorer-show').hidden=!hidden;
-  for(const button of [$('#explorer-hide'),$('#explorer-show')])button.setAttribute('aria-expanded',String(!hidden));
+  const button=$('#explorer-toggle'),label=(hidden?'Show':'Hide')+' file explorer';
+  button.setAttribute('aria-expanded',String(!hidden));button.setAttribute('aria-label',label);button.title=label;
+  for(const child of $('#file-sidebar').children){
+    if(child.classList.contains('file-sidebar-tools'))$('#history-open').hidden=hidden;
+    else child.hidden=hidden;
+  }
   localStorage.setItem('looking-glass-explorer-hidden',String(hidden));
   sizeSidebar();sizeDiscussions();view?.requestMeasure();
-  if(focus)(hidden?$('#explorer-show'):$('#explorer-hide')).focus({preventScroll:true});
+  if(focus)$('#explorer-toggle').focus({preventScroll:true});
 }
-$('#explorer-hide').onclick=()=>setExplorerHidden(true,true);$('#explorer-show').onclick=()=>setExplorerHidden(false,true);
+$('#explorer-toggle').onclick=()=>setExplorerHidden(!explorerHidden,true);
 setExplorerHidden(explorerHidden);
 $('#expand-files').onclick=()=>{$$('.file-folder').forEach(folder=>expandedFolders.add(folder.dataset.directory));localStorage.setItem('looking-glass-folders:'+root,JSON.stringify([...expandedFolders]));filterFiles();};
 $('#collapse-files').onclick=()=>{expandedFolders.clear();localStorage.setItem('looking-glass-folders:'+root,'[]');$('#file-filter').value='';filterFiles();};
