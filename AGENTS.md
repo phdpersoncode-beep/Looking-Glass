@@ -41,6 +41,7 @@ With the server running, in another terminal:
 looking-glass projects list
 looking-glass agent --root /absolute/path/to/project list --status open
 looking-glass agent --root /absolute/path/to/project read 1 --context-lines 10
+looking-glass agent --root /absolute/path/to/project reattach 1 --quote 'Exact replacement passage'
 looking-glass agent --root /absolute/path/to/project reply 1 --author Codex --body 'Reply'
 ```
 Use `uv run looking-glass` from this checkout if not installed globally. See `--help`, `agent instructions`, and `docs/AGENT_API.md` for remaining commands.
@@ -50,5 +51,5 @@ Keep this map and commands current when structure or workflows change.
 - `looking_glass/app.py`: routes/security; `workspace.py`: files, SQLite, threads; `anchors.py`: anchor mapping; `revisions.py`: Git checkpoints/history; `origins.py`: immutable review context.
 - `looking_glass/cli.py`: server/agent commands; `projects.py`: project registry; `instructions.py`: agent guidance; `attachments.py`: thread-owned uploads.
 - `looking_glass/templates/`: HTML/HTMX; `frontend/app.js`, `frontend/style.css`, and small `.mjs` modules: client sources; `looking_glass/static/`: committed output of `build.mjs`.
-- `tests/`: backend/CLI/browser checks; `.github/workflows/`: automated checks; `scripts/benchmark_discussions.py`: disposable benchmark; `demo_dir/`: fixtures; `docs/`: API, architecture, performance, verification.
+- `tests/`: backend/CLI/browser checks; `.github/workflows/`: automated checks; `scripts/benchmark_discussions.py`, `scripts/benchmark_anchors.py`: disposable benchmarks; `demo_dir/`: fixtures; `docs/`: API, architecture, performance, verification.
 - `pyproject.toml`, `uv.lock`: Python packaging/dependencies; `package.json`, `package-lock.json`: frontend dependencies.

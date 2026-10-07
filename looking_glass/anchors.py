@@ -1,10 +1,17 @@
-"""Conservative character-range mapping. Offsets count Unicode code points."""
+"""Conservative, bounded source anchoring. Offsets count Unicode code points."""
 from difflib import SequenceMatcher
 
+# Per changed file, shared by every thread, including resolved ones. Exhaustion
+# means manual reattachment, never a more speculative fallback.
+MAX_DIFF_WORK = 1_000_000
+MAX_DIFF_SIDE = 2048
+MAX_SEARCH_WORK = 256 * 1024 * 1024
+CONTEXT = 48
 
-def occurrences(text, quote):
+
+def occurrences(text, quote, limit=None):
     pos, found = 0, []
-    while quote:
+    while quote and (limit is None or len(found) < limit):
         at = text.find(quote, pos)
         if at < 0:
             break
@@ -13,55 +20,133 @@ def occurrences(text, quote):
     return found
 
 
-def relocate(old, new, start, end):
-    if old == new:
-        return start, end
-    quote = old[start:end]
-    if not quote:
-        return None
-    prefix, suffix = old[max(0, start - 48):start], old[end:end + 48]
-    candidates = occurrences(new, quote)
-    supported = [p for p in candidates if
-                 (not prefix or new[max(0, p-len(prefix)):p] == prefix) and
-                 (not suffix or new[p+len(quote):p+len(quote)+len(suffix)] == suffix)]
-    if len(supported) > 1:
-        return None
-    matcher = SequenceMatcher(None, old, new, autojunk=False)
-    # An unchanged block gives an unambiguous edit-history mapping.
-    for a, b, size in matcher.get_matching_blocks():
-        if a <= start and end <= a + size:
-            # A whole-document replacement with repeated quotes has no reliable history.
-            if len(occurrences(new, quote)) > 1 and size == len(quote):
+def common_edges(old, new):
+    """Disjoint unchanged prefix/suffix; linear even for repetitive input."""
+    prefix, suffix = 0, 0
+    size = min(len(old), len(new))
+    while prefix < size and old[prefix] == new[prefix]:
+        prefix += 1
+    while suffix < size - prefix and old[-1-suffix] == new[-1-suffix]:
+        suffix += 1
+    return prefix, suffix
+
+
+class AnchorMapper:
+    """One reconciliation, without whole-document fuzzy diffs.
+
+    Exact unchanged ranges and unique quotes are cheap. An edited quote needs
+    unique unchanged context on both sides and substantial surviving text.
+    Only its bounded changed middle is diffed. Failed/ambiguous matches retain
+    the previous quote/positions for manual repair and immutable origin access.
+    """
+
+    def __init__(self, old, new):
+        self.old, self.new = old, new
+        self.prefix, self.suffix = common_edges(old, new)
+        self.diff_work = MAX_DIFF_WORK
+        self.search_work = MAX_SEARCH_WORK
+        self._hits, self._old_hits, self._similarity, self._mapped = {}, {}, {}, {}
+
+    def hits(self, quote, original=False):
+        text, cache = (self.old, self._old_hits) if original else (self.new, self._hits)
+        if quote not in cache:
+            # Two hits suffice to reject ambiguity. Do not allocate all matches
+            # for a short quote in a repetitive multi-megabyte document.
+            cost = 2 * len(text)
+            if cost > self.search_work:
                 return None
-            return b + start - a, b + end - a
-    # Preserve changes strictly contained within an anchored passage, with
-    # unchanged boundaries. Destruction/replacement of the full passage is orphaned.
-    starts, ends = [], []
-    for tag, a, z, b, y in matcher.get_opcodes():
-        if tag == 'equal':
-            if a <= start < z:
-                starts.append(b + start - a)
-            if a < end <= z:
-                ends.append(b + end - a)
-    if starts and ends and starts[0] < ends[-1]:
-        return starts[0], ends[-1]
-    # A normal edit at the first/last word still belongs to this passage if
-    # enough of its original text survives and changed boundaries are exact.
-    mapped_start, mapped_end, surviving = None, None, 0
-    for tag, a, z, b, y in matcher.get_opcodes():
-        if tag == 'equal':
-            surviving += max(0, min(z,end)-max(a,start))
-            if a <= start < z:
-                mapped_start = b + start - a
-            if a < end <= z:
-                mapped_end = b + end - a
-        elif tag in ('replace','delete'):
-            if a == start and z < end:
-                mapped_start = b
-            if a > start and z == end:
-                mapped_end = y
-    if (surviving >= max(1,min(8,len(quote)//4)) and
-            mapped_start is not None and mapped_end is not None and mapped_start < mapped_end):
-        return mapped_start, mapped_end
-    # A moved exact quote is accepted only with unique surrounding context.
-    return (supported[0], supported[0] + len(quote)) if len(supported) == 1 else None
+            self.search_work -= cost
+            cache[quote] = occurrences(text, quote, limit=2)
+        return cache[quote]
+
+    def similar(self, old, new):
+        key = old, new
+        if key in self._similarity:
+            return self._similarity[key]
+        # Charge linear passage scans too: large overlapping selections with
+        # tiny edits must not each rescan megabytes of unchanged quote edges.
+        linear = len(old) + len(new)
+        if linear > self.diff_work:
+            self._similarity[key] = False
+            return False
+        self.diff_work -= linear
+        prefix, suffix = common_edges(old, new)
+        a = old[prefix:len(old)-suffix]
+        b = new[prefix:len(new)-suffix]
+        cost = len(a) * len(b)
+        if max(len(a), len(b)) > MAX_DIFF_SIDE or cost > self.diff_work:
+            self._similarity[key] = False
+            return False
+        self.diff_work -= cost
+        blocks = SequenceMatcher(None, a, b, autojunk=False).get_matching_blocks()
+        surviving = prefix + suffix + sum(size for _, _, size in blocks)
+        longest = max(prefix, suffix, max(size for _, _, size in blocks))
+        meaningful = lambda text: sum(not c.isspace() for c in text)
+        kept = meaningful(old[:prefix]) + meaningful(old[len(old)-suffix:])
+        kept += sum(meaningful(a[x:x+size]) for x, _, size in blocks)
+        # Previously a few characters, or just matching first/last letters,
+        # could attach a rewritten sentence to an unrelated passage.
+        result = (surviving >= .7 * len(old) and surviving >= .6 * len(new)
+                  and 3 * surviving >= len(old) + len(new)
+                  and kept >= .65 * meaningful(old) and kept >= .5 * meaningful(new)
+                  and longest >= min(12, max(1, len(old) // 2))
+                  and len(old.strip()) >= 8)
+        self._similarity[key] = result
+        return result
+
+    def relocate(self, start, end):
+        key = start, end
+        if key not in self._mapped:
+            self._mapped[key] = self._relocate(start, end)
+        return self._mapped[key]
+
+    def _relocate(self, start, end):
+        old, new = self.old, self.new
+        if not 0 <= start < end <= len(old):
+            return None
+        if old == new:
+            return start, end
+        if self.prefix == len(old) or self.suffix == len(old):
+            # Pure prepend/append preserves all source positions only when the
+            # entire previous snapshot occurs once. Identical repeated blocks
+            # can otherwise make either insertion or deletion look unchanged.
+            copies = self.hits(old)
+            if copies is not None and len(copies) == 1:
+                return start + copies[0], end + copies[0]
+        quote = old[start:end]
+        before, after = old[max(0, start-CONTEXT):start], old[end:end+CONTEXT]
+        exact = self.hits(quote)
+        if exact is None:
+            return None
+        original = self.hits(quote, original=True) if len(exact) == 1 else None
+        if original is not None and len(original) == 1 and len(exact) == 1:
+            # Short table labels must survive edits elsewhere in the row. The
+            # unchanged edges verify their positions; uniqueness in BOTH files
+            # still prevents a deleted duplicate from inheriting another copy.
+            unchanged = ((end <= self.prefix and exact[0] == start)
+                         or (start >= len(old) - self.suffix
+                             and exact[0] == start + len(new) - len(old)))
+            if len(quote.strip()) >= 8 or unchanged:
+                return exact[0], exact[0] + len(quote)
+        # Repeated/short quotes need unique surrounding context, rather than
+        # whichever identical passage a character diff happened to choose.
+        supported = self.hits(before + quote + after)
+        original_context = self.hits(before + quote + after, original=True) if supported else None
+        if (supported is not None and len(supported) == 1
+                and original_context is not None and len(original_context) == 1):
+            at = supported[0] + len(before)
+            return at, at + len(quote)
+        if exact:
+            return None
+        left = self.hits(before) if before else [0]
+        right = self.hits(after) if after else [len(new)]
+        if left is None or right is None or len(left) != 1 or len(right) != 1:
+            return None
+        a, b = left[0] + len(before), right[0]
+        if a < b and self.similar(quote, new[a:b]):
+            return a, b
+        return None
+
+
+def relocate(old, new, start, end):
+    return AnchorMapper(old, new).relocate(start, end)

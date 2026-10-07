@@ -30,9 +30,11 @@
   executable mode are preserved. Mixed line endings are normalized to the first
   detected style during editing. STL and image files are limited to 64 MiB. The file list
   is capped at 10,000 entries; no lazy tree or large-file virtualization yet.
-- Anchor reconciliation is conservative, character-based and optimized for
-  small review documents. Large rewrites and moved/duplicated passages may need
-  manual reattachment. It is not a semantic diff or collaborative editing system.
+- Source anchor reconciliation shares bounded work per changed file. Unique
+  exact passages and unchanged ranges survive; modest edits require surviving
+  unique context and substantial matching text. Large rewrites, ambiguous
+  duplicates, and exhausted work budgets require manual reattachment through
+  the browser or `agent reattach`. Text matching cannot infer semantic replacements.
 - External changes use polling while the browser tab is visible. A stale save
   is checked again just before an atomic file replacement, but another process
   can still race in the final interval because ordinary filesystem writes have
