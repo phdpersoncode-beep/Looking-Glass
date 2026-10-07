@@ -85,6 +85,11 @@ function visibleMap(raw,from,text,code=false) {
 export function mountMappedMarkdown(host,source,offset=0,decorate=()=>{}) {
   host.innerHTML=DOMPurify.sanitize(mappedMarkdownHTML(source,offset));
   decorate(host);
+  for(const table of host.querySelectorAll('table')){
+    const scroller=document.createElement('div');scroller.className='markdown-table-scroll';
+    scroller.setAttribute('role','region');scroller.setAttribute('aria-label','Markdown table');scroller.tabIndex=0;
+    table.replaceWith(scroller);scroller.append(table);
+  }
   let lastHighlights=null;
   const leaves=[...host.querySelectorAll('.md-mapped-text')],nodes=new WeakMap();
   for(const leaf of leaves) {

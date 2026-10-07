@@ -396,7 +396,7 @@ function mountDocument(e){
     const preview=document.createElement('div');preview.className='markdown-preview';$('#surface').append(preview);
     const rendered=mountMappedMarkdown(preview,e.content,0,highlightMarkdown);markdownViews.add(rendered);markdownDiagrams(preview);cleanup=()=>markdownViews.delete(rendered);
   }else{
-    const parent=document.createElement('div');parent.id='editor';if(['md','markdown','txt'].includes(ext(e.path)))parent.className='prose-editor';$('#surface').append(parent);view=new EditorView({state:e.state||makeState(e),parent});
+    const parent=document.createElement('div');parent.id='editor';if(['md','markdown','txt'].includes(ext(e.path)))parent.className='prose-editor'+(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?' live-markdown':'');$('#surface').append(parent);view=new EditorView({state:e.state||makeState(e),parent});
     view.dispatch({effects:[themeSlot.reconfigure(theme()),liveSlot.reconfigure(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables]:[])]});
     guard(refreshBaseline)();
   }

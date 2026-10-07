@@ -149,3 +149,35 @@ def test_discussions_strip_preserves_control_width_and_reply(workspace_page):
     assert page.locator('.discussion-sidebar').bounding_box()['width']==36
     toggle.click();expect(separator).to_have_attribute('aria-valuenow','270')
     expect(page.locator('.thread')).to_have_count(1)
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+@pytest.mark.parametrize('mode',['live','preview'])
+def test_markdown_tables_use_available_width_and_scroll_overflow(workspace_page,mode):
+    from playwright.sync_api import expect
+    root,page,url,_=workspace_page
+    narrow='| Label | Value |\n| --- | --- |\n| Width | 12 |\n'
+    wide='| '+' | '.join(f'Column {i}' for i in range(14))+' |\n| '+' | '.join(['---']*14)+' |\n| '+' | '.join(f'Value {i} with useful context' for i in range(14))+' |\n'
+    text='# Tables\n\n'+narrow+'\n'+wide+'\n\nEnding.\n'
+    (root/'tables.md').write_text(text)
+    page.goto(url);open_file(page,'tables.md');page.locator('#mode').select_option(mode)
+    scrollers=page.get_by_role('region',name='Markdown table',exact=True)
+    expect(scrollers).to_have_count(2)
+    small=scrollers.nth(0);large=scrollers.nth(1)
+    assert small.evaluate('el=>el.scrollWidth<=el.clientWidth')
+    assert large.evaluate('el=>el.scrollWidth>el.clientWidth')
+    assert large.bounding_box()['width']>page.locator('.document-panel').bounding_box()['width']-80
+    # Wide tables scroll inside their own region; the document stays in place.
+    large.focus();page.keyboard.press('ArrowRight')
+    page.wait_for_function('()=>document.querySelectorAll(".markdown-table-scroll")[1].scrollLeft>0')
+    large.evaluate('el=>el.scrollLeft=el.scrollWidth')
+    expect(large.locator('td').last).to_be_in_viewport()
+    outer=page.locator('.cm-scroller' if mode=='live' else '#surface')
+    assert outer.evaluate('el=>el.scrollWidth<=el.clientWidth+1')
+    for toggle in ['#explorer-toggle','#discussions-toggle']:page.locator(toggle).click()
+    assert large.bounding_box()['width']>1200
+    page.set_viewport_size({'width':850,'height':700})
+    assert large.evaluate('el=>el.scrollWidth>el.clientWidth')
+    assert outer.evaluate('el=>el.scrollWidth<=el.clientWidth+1')
+    assert small.evaluate('el=>el.scrollWidth<=el.clientWidth')
+    assert (root/'tables.md').read_text()==text
