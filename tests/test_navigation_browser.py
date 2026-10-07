@@ -166,6 +166,14 @@ def test_markdown_tables_use_available_width_and_scroll_overflow(workspace_page,
     expect(scrollers).to_have_count(2)
     small=scrollers.nth(0);large=scrollers.nth(1)
     assert small.evaluate('el=>el.scrollWidth<=el.clientWidth')
+    # Small tables follow their content instead of stretching to fill the pane.
+    assert small.locator('table').bounding_box()['width']<small.bounding_box()['width']/2
+    body=page.locator('.cm-scroller' if mode=='live' else '.markdown-preview')
+    body_size=body.evaluate('el=>parseFloat(getComputedStyle(el).fontSize)')
+    cell_size=small.locator('td').first.evaluate('el=>parseFloat(getComputedStyle(el).fontSize)')
+    assert .8*body_size<=cell_size<=.9*body_size
+    assert small.locator('td').first.evaluate('el=>parseFloat(getComputedStyle(el).paddingTop)')<=4
+    assert small.locator('td').first.evaluate('el=>parseFloat(getComputedStyle(el).paddingLeft)')<=6
     assert large.evaluate('el=>el.scrollWidth>el.clientWidth')
     assert large.bounding_box()['width']>page.locator('.document-panel').bounding_box()['width']-80
     # Wide tables scroll inside their own region; the document stays in place.
@@ -177,6 +185,10 @@ def test_markdown_tables_use_available_width_and_scroll_overflow(workspace_page,
     assert outer.evaluate('el=>el.scrollWidth<=el.clientWidth+1')
     for toggle in ['#explorer-toggle','#discussions-toggle']:page.locator(toggle).click()
     assert large.bounding_box()['width']>1200
+    assert small.locator('table').bounding_box()['width']<small.bounding_box()['width']/2
+    # The table's smaller font follows the document font controls.
+    page.locator('#font-larger').click()
+    assert small.locator('td').first.evaluate('el=>parseFloat(getComputedStyle(el).fontSize)')>cell_size
     prose=page.locator('.cm-line',has_text=paragraph.strip()) if mode=='live' else page.locator('.markdown-preview>p').first
     measure=850 if mode=='live' else 760
     expect(prose).to_be_visible()
