@@ -835,7 +835,21 @@ document.addEventListener('click',guard(async event=>{
     }else{const link=document.createElement('a');link.href=url;link.download=item.name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}return;
   }
   if(action.dataset.action==='jump')await jump(id);
-  if(action.dataset.action==='resolve'){await api('threads/'+id,'PATCH',{resolved:!t.resolved});await refreshThreads();}
+  if(action.dataset.action==='resolve'){
+    const path=active,scope=threadScope(),advance=zenMode&&!t.resolved&&activeThread===id;
+    const open=currentThreads.filter(thread=>!thread.resolved).sort((a,b)=>(a.path>b.path)-(a.path<b.path)||a.start-b.start||a.id-b.id);
+    const at=open.findIndex(thread=>thread.id===id),next=advance&&open.length>1?open[(at+1)%open.length]:null;
+    action.disabled=true;
+    try{
+      await api('threads/'+id,'PATCH',{resolved:!t.resolved});await refreshThreads();
+      // Use passage navigation for both panes, including reading/HTML previews
+      // and cross-file threads. Reopening and the last open thread stay put.
+      if(next&&zenMode&&active===path&&threadScope()===scope){
+        const target=currentThreads.find(thread=>thread.id===next.id&&!thread.resolved);
+        if(target)await jump(target.id,target);
+      }
+    }finally{action.disabled=false;}
+  }
   if(action.dataset.action==='delete-thread'||action.dataset.action==='delete-message'){
     const whole=action.dataset.action==='delete-thread';if(!confirm(whole?'Delete this thread and all its comments?':'Delete this comment?'))return;
     await api('threads/'+id+(whole?'':'/messages/'+action.dataset.message),'DELETE');await refreshThreads();
