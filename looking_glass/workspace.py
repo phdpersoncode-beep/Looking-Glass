@@ -9,7 +9,7 @@ import threading
 from contextlib import contextmanager
 from pathlib import Path
 
-from .anchors import relocate
+from .anchors import AnchorMapper
 
 MAX_TEXT = 8 * 1024 * 1024
 EXCLUDED = {'.git', '.looking-glass', 'node_modules', '.venv', '__pycache__', '.pytest_cache'}
@@ -164,8 +164,11 @@ class Workspace:
         if row and row['content'] == content:
             return
         if row:
-            for t in db.execute("SELECT * FROM threads WHERE path=? AND anchor_status='attached' AND anchor_kind='source'", (path,)).fetchall():
-                mapped = relocate(row['content'], content, t['start'], t['end'])
+            threads = db.execute("SELECT * FROM threads WHERE path=? AND anchor_status='attached' AND anchor_kind='source' ORDER BY id", (path,)).fetchall()
+            mapper = AnchorMapper(row['content'], content) if threads else None
+            for t in threads:
+                # Never reinterpret stale/corrupt offsets as a different quote.
+                mapped = mapper.relocate(t['start'], t['end']) if row['content'][t['start']:t['end']] == t['quote'] else None
                 if mapped:
                     start, end = mapped
                     db.execute('UPDATE threads SET start=?, end=?, quote=? WHERE id=?',
