@@ -14,6 +14,45 @@ def select_text(page, selector):
     }''')
 
 
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+@pytest.mark.parametrize('mode',['live','preview'])
+def test_rendered_table_selection_matches_prose_in_both_themes(workspace_page,mode):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    text='Prose passage.\n\n| Label | Value |\n| --- | --- |\n| **width** | 12 |\n'
+    (root/'colors.md').write_text(text)
+    for quote in ['Prose passage','width']:
+        start=text.index(quote);ws.create_thread('colors.md',start,start+len(quote),'Check '+quote,'Reviewer',ws.read('colors.md')['version'])
+    page.goto(url);open_file(page,'colors.md');page.locator('#mode').select_option(mode)
+    host='.md-table' if mode=='live' else '.markdown-preview'
+    cell=page.locator(host+' tbody strong')
+    region=page.get_by_role('region',name='Markdown table',exact=True)
+    prose=page.locator('.cm-line .passage-highlight' if mode=='live' else '.markdown-preview>p .passage-highlight')
+    for theme in ['light','dark']:
+        if page.locator('html').get_attribute('data-theme')!=theme:page.locator('#theme').click()
+        expect(cell.locator('.passage-highlight')).to_have_text('width')
+        if mode=='live':
+            page.locator('.cm-line').first.click();page.keyboard.press('Home');page.keyboard.press('Shift+End')
+            expect(page.locator('.cm-selectionBackground').first).to_be_visible()
+        # The focused native table region must override CodeMirror's blue fallback.
+        region.focus();select_text(page,host+' tbody strong')
+        assert page.evaluate('window.getSelection().toString()')=='width'
+        native=cell.evaluate('el=>getComputedStyle(el,"::selection").backgroundColor')
+        expected=page.evaluate('''()=>{
+          const probe=document.createElement('span');probe.style.backgroundColor='var(--selection)';
+          document.body.append(probe);const color=getComputedStyle(probe).backgroundColor;probe.remove();return color;
+        }''')
+        assert native==expected
+        if mode=='live':
+            assert page.locator('.cm-selectionBackground').first.evaluate('el=>getComputedStyle(el).backgroundColor')==expected
+        else:
+            assert prose.evaluate('el=>getComputedStyle(el,"::selection").backgroundColor')==expected
+        page.evaluate('window.getSelection().removeAllRanges()')
+        # Persisted passage marks also use the same style inside and outside tables.
+        assert cell.locator('.passage-highlight').evaluate('el=>getComputedStyle(el).backgroundColor')==prose.evaluate('el=>getComputedStyle(el).backgroundColor')
+    assert (root/'colors.md').read_text()==text
+
+
 def test_live_table_annotations_and_explicit_source_edit(workspace_page):
     from playwright.sync_api import expect
     root,page,url,ws=workspace_page
@@ -160,3 +199,70 @@ def test_table_done_control_survives_temporarily_invalid_source(workspace_page):
     expect(page.get_by_role('button',name='Done editing table')).to_be_visible()
     page.keyboard.press('Control+z')
     page.get_by_role('button',name='Done editing table').click();expect(page.locator('.md-table table')).to_be_visible()
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+@pytest.mark.parametrize('cell,quote,reverse',[
+    ('**width**','width',False),
+    ('**😀 &amp; café**','😀 &amp; café',True),
+    ('`12`','12',False),
+])
+def test_native_live_table_drag_opens_comment_and_keeps_exact_anchor(workspace_page,cell,quote,reverse):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    text='# 😀 Results\r\n\r\n| Repeated | Target |\r\n| --- | --- |\r\n| '+cell+' | '+cell+' |\r\n\r\nAfter.\r\n'
+    (root/'table.md').write_bytes(text.encode())
+    page.goto(url);open_file(page,'table.md')
+    # Start with the editor focused, then select a rendered cell with a real drag.
+    # Programmatic Range selection bypasses the focus/selection bug.
+    page.locator('.cm-line').last.click()
+    cell_text=page.locator('.md-table tbody td:last-child .md-mapped-text')
+    box=cell_text.bounding_box();left=box['x']+1;right=box['x']+box['width']-1;y=box['y']+box['height']/2
+    page.mouse.move(right if reverse else left,y);page.mouse.down()
+    page.mouse.move(left if reverse else right,y,steps=12);page.mouse.up()
+    expect(page.locator('#selection-tools')).to_be_visible()
+    expect(page.locator('#annotate')).to_be_enabled()
+    visible=cell_text.inner_text();assert page.evaluate('window.getSelection().toString()')==visible
+    # A background poll must preserve both the native selection and its prompt.
+    with page.expect_response(lambda response:'/api/discussions?' in response.url):pass
+    assert page.evaluate('window.getSelection().toString()')==visible
+    expect(page.locator('#selection-tools')).to_be_visible()
+    page.locator('#selection-comment').click()
+    expect(page.locator('#selected-quote')).to_have_text(quote)
+    page.locator('#comment-body').fill('Review the second cell');page.locator('#comment-submit').click()
+    expect(page.locator('.md-table .passage-highlight')).to_have_text(visible)
+    thread=ws.threads()[0]
+    assert thread['quote']==quote and thread['start']==text.rindex(quote)
+    assert text[thread['start']:thread['end']]==quote
+    page.reload();expect(page.locator('.md-table .passage-highlight')).to_have_text(visible)
+    page.get_by_role('button',name='Edit table source',exact=True).click()
+    expect(page.locator('.cm-content .passage-highlight')).to_have_text(quote)
+    page.get_by_role('button',name='Done editing table',exact=True).click()
+    expect(page.locator('.md-table .passage-highlight')).to_have_text(visible)
+    assert (root/'table.md').read_bytes()==text.encode()
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_live_table_focus_preserves_document_shortcuts(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,_=workspace_page
+    text='# Report\n\n| Label | Value |\n| --- | --- |\n| **width** | 12 |\n\nAfter.\n'
+    (root/'table.md').write_text(text)
+    page.goto(url);open_file(page,'table.md')
+    region=page.get_by_role('region',name='Markdown table',exact=True)
+    for key in ['f','h']:
+        region.focus();page.keyboard.press('Control+'+key)
+        expect(page.locator('.cm-search')).to_be_visible()
+        expect(page.locator('.cm-search input[name="search"]')).to_be_focused()
+        page.keyboard.press('Escape');expect(page.locator('.cm-search')).to_have_count(0)
+    region.focus();page.keyboard.press('Control+a');page.locator('#annotate').click()
+    expect(page.locator('#selected-quote')).to_have_text(text)
+    page.locator('#comment-cancel').click()
+    # Undo, redo, and save continue to operate on the document after table focus.
+    page.locator('.cm-line').last.click();page.keyboard.press('Control+End');page.keyboard.insert_text('Draft')
+    region.focus();page.keyboard.press('Control+z')
+    expect(page.locator('#dirty')).to_have_text('')
+    expect(page.locator('#zen-toggle')).to_have_attribute('aria-pressed','false')
+    region.focus();page.keyboard.press('Control+y');expect(page.locator('#dirty')).to_contain_text('Unsaved')
+    region.focus();page.keyboard.press('Control+s');expect(page.locator('#dirty')).to_have_text('')
+    assert (root/'table.md').read_text()==text+'Draft'

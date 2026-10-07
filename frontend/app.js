@@ -396,7 +396,7 @@ function mountDocument(e){
     const preview=document.createElement('div');preview.className='markdown-preview';$('#surface').append(preview);
     const rendered=mountMappedMarkdown(preview,e.content,0,highlightMarkdown);markdownViews.add(rendered);markdownDiagrams(preview);cleanup=()=>markdownViews.delete(rendered);
   }else{
-    const parent=document.createElement('div');parent.id='editor';if(['md','markdown','txt'].includes(ext(e.path)))parent.className='prose-editor';$('#surface').append(parent);view=new EditorView({state:e.state||makeState(e),parent});
+    const parent=document.createElement('div');parent.id='editor';if(['md','markdown','txt'].includes(ext(e.path)))parent.className='prose-editor'+(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?' live-markdown':'');$('#surface').append(parent);view=new EditorView({state:e.state||makeState(e),parent});
     view.dispatch({effects:[themeSlot.reconfigure(theme()),liveSlot.reconfigure(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables]:[])]});
     guard(refreshBaseline)();
   }
@@ -788,9 +788,11 @@ function beginSelection(event){
 }
 function settleSelection(){
   if(!selectingText)return;selectingText=false;
-  // Let CodeMirror finish its mouse/DOM selection update before revealing syntax.
+  // Rendered table selections belong to the native DOM, not CodeMirror.
+  // Dispatching an editor update here can replace them with its source caret.
+  // Let ordinary editor gestures settle before revealing syntax.
   const editor=view;
-  requestAnimationFrame(()=>{if(view&&view===editor)view.dispatch({effects:selectionSettled.of(null)});scheduleSelectionTools();});
+  requestAnimationFrame(()=>{if(view&&view===editor&&!markdownSelection())view.dispatch({effects:selectionSettled.of(null)});updateToolbar();scheduleSelectionTools();});
 }
 // CodeMirror selects through mouse events. Pointer events alone can leave this
 // UI's drag state stuck after an interrupted gesture or an out-of-window release.
@@ -806,6 +808,18 @@ document.addEventListener('scroll',scheduleSelectionTools,true);
 window.addEventListener('resize',()=>{scheduleSelectionTools();if($('#comment-dialog').open){const location=selectionLocation();if(location)placeNearSelection($('#comment-dialog'),location);}});
 document.addEventListener('keydown',event=>{
   if((event.ctrlKey||event.metaKey)&&event.altKey&&!event.shiftKey&&event.key.toLowerCase()==='z'){event.preventDefault();event.stopPropagation();toggleZen();return;}
+  // Focusable table regions keep native cell selection/copying, while editor
+  // commands still target the document rather than the browser page.
+  if(view&&event.target.closest?.('.md-table')&&(event.ctrlKey||event.metaKey)&&!event.altKey){
+    const key=event.key.toLowerCase();
+    if((!event.shiftKey&&['a','f','h','s','y'].includes(key))||key==='z'){
+      event.preventDefault();
+      if(key==='f'||key==='h')openSearchPanel(view);
+      else if(key==='s')guard(saveActive)();
+      else{view.focus();if(key==='a')view.dispatch({selection:{anchor:0,head:view.state.doc.length},userEvent:'select'});else if(key==='y'||event.shiftKey)redo(view);else undo(view);}
+      return;
+    }
+  }
   if((event.ctrlKey||event.metaKey)&&event.key==='Enter'&&markdownSelection()&&!$('#comment-dialog').open){event.preventDefault();guard(startComment)();return;}
   if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='p'){event.preventDefault();event.stopPropagation();guard(showQuickOpen)();}
   if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='f'&&jsonlSearch&&!document.querySelector('dialog:modal')){event.preventDefault();jsonlSearch();}
@@ -833,7 +847,21 @@ document.addEventListener('click',guard(async event=>{
     }else{const link=document.createElement('a');link.href=url;link.download=item.name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}return;
   }
   if(action.dataset.action==='jump')await jump(id);
-  if(action.dataset.action==='resolve'){await api('threads/'+id,'PATCH',{resolved:!t.resolved});await refreshThreads();}
+  if(action.dataset.action==='resolve'){
+    const path=active,scope=threadScope(),advance=zenMode&&!t.resolved&&activeThread===id;
+    const open=currentThreads.filter(thread=>!thread.resolved).sort((a,b)=>(a.path>b.path)-(a.path<b.path)||a.start-b.start||a.id-b.id);
+    const at=open.findIndex(thread=>thread.id===id),next=advance&&open.length>1?open[(at+1)%open.length]:null;
+    action.disabled=true;
+    try{
+      await api('threads/'+id,'PATCH',{resolved:!t.resolved});await refreshThreads();
+      // Use passage navigation for both panes, including reading/HTML previews
+      // and cross-file threads. Reopening and the last open thread stay put.
+      if(next&&zenMode&&active===path&&threadScope()===scope){
+        const target=currentThreads.find(thread=>thread.id===next.id&&!thread.resolved);
+        if(target)await jump(target.id,target);
+      }
+    }finally{action.disabled=false;}
+  }
   if(action.dataset.action==='delete-thread'||action.dataset.action==='delete-message'){
     const whole=action.dataset.action==='delete-thread';if(!confirm(whole?'Delete this thread and all its comments?':'Delete this comment?'))return;
     await api('threads/'+id+(whole?'':'/messages/'+action.dataset.message),'DELETE');await refreshThreads();
@@ -919,14 +947,30 @@ window.addEventListener('resize',sizeDiscussions);sizeDiscussions();
 let explorerHidden=localStorage.getItem('looking-glass-explorer-hidden')==='true';
 function setExplorerHidden(hidden,focus=false){
   explorerHidden=hidden;document.body.classList.toggle('explorer-hidden',hidden);
-  $('#file-sidebar').hidden=hidden;$('#explorer-show').hidden=!hidden;
-  for(const button of [$('#explorer-hide'),$('#explorer-show')])button.setAttribute('aria-expanded',String(!hidden));
+  const button=$('#explorer-toggle'),label=(hidden?'Show':'Hide')+' file explorer';
+  button.setAttribute('aria-expanded',String(!hidden));button.setAttribute('aria-label',label);button.title=label;
+  for(const child of $('#file-sidebar').children){
+    if(child.classList.contains('file-sidebar-tools'))$('#history-open').hidden=hidden;
+    else child.hidden=hidden;
+  }
   localStorage.setItem('looking-glass-explorer-hidden',String(hidden));
   sizeSidebar();sizeDiscussions();view?.requestMeasure();
-  if(focus)(hidden?$('#explorer-show'):$('#explorer-hide')).focus({preventScroll:true});
+  if(focus)$('#explorer-toggle').focus({preventScroll:true});
 }
-$('#explorer-hide').onclick=()=>setExplorerHidden(true,true);$('#explorer-show').onclick=()=>setExplorerHidden(false,true);
+$('#explorer-toggle').onclick=()=>setExplorerHidden(!explorerHidden,true);
 setExplorerHidden(explorerHidden);
+let discussionsHidden=localStorage.getItem('looking-glass-discussions-hidden')==='true';
+function setDiscussionsHidden(hidden,focus=false){
+  discussionsHidden=hidden;document.body.classList.toggle('discussions-hidden',hidden);
+  const button=$('#discussions-toggle'),label=(hidden?'Show':'Hide')+' discussions';
+  button.setAttribute('aria-expanded',String(!hidden));button.setAttribute('aria-label',label);button.title=label;
+  for(const child of $('#discussion-sidebar').children)if(child!==button)child.hidden=hidden;
+  localStorage.setItem('looking-glass-discussions-hidden',String(hidden));
+  sizeSidebar();sizeDiscussions();view?.requestMeasure();
+  if(focus)button.focus({preventScroll:true});
+}
+$('#discussions-toggle').onclick=()=>setDiscussionsHidden(!discussionsHidden,true);
+setDiscussionsHidden(discussionsHidden);
 $('#expand-files').onclick=()=>{$$('.file-folder').forEach(folder=>expandedFolders.add(folder.dataset.directory));localStorage.setItem('looking-glass-folders:'+root,JSON.stringify([...expandedFolders]));filterFiles();};
 $('#collapse-files').onclick=()=>{expandedFolders.clear();localStorage.setItem('looking-glass-folders:'+root,'[]');$('#file-filter').value='';filterFiles();};
 function fuzzyScore(path,query){const text=path.toLowerCase();let cursor=0,score=0,previous=-2;for(const character of query.toLowerCase().replace(/\s/g,'')){const index=text.indexOf(character,cursor);if(index<0)return null;score+=index===previous+1?8:0;score+=index===0||'/._-'.includes(text[index-1])?12:0;score-=index-cursor;previous=index;cursor=index+1;}return score-text.length/100;}

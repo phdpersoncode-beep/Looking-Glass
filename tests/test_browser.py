@@ -108,7 +108,9 @@ def test_review_workflow_features(tmp_path):
             page.locator('#agent-copy').click()
             assert page.evaluate('navigator.clipboard.readText()')==instructions
             page.reload()
-            page.keyboard.press('Control+p');page.locator('#quick-query').fill('example.py');page.keyboard.press('Enter')
+            page.keyboard.press('Control+p');page.locator('#quick-query').fill('example.py')
+            expect(page.get_by_role('option',name='src/nested/example.py',exact=True)).to_be_visible()
+            page.keyboard.press('Enter')
             expect(page.locator('#document-name')).to_have_text('src/nested/example.py')
             assert page.locator('.cm-scroller').evaluate('el=>parseFloat(getComputedStyle(el).fontSize)')==old_size+1
             assert not errors,errors
