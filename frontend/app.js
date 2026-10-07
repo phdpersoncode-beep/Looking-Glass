@@ -931,6 +931,18 @@ function setExplorerHidden(hidden,focus=false){
 }
 $('#explorer-toggle').onclick=()=>setExplorerHidden(!explorerHidden,true);
 setExplorerHidden(explorerHidden);
+let discussionsHidden=localStorage.getItem('looking-glass-discussions-hidden')==='true';
+function setDiscussionsHidden(hidden,focus=false){
+  discussionsHidden=hidden;document.body.classList.toggle('discussions-hidden',hidden);
+  const button=$('#discussions-toggle'),label=(hidden?'Show':'Hide')+' discussions';
+  button.setAttribute('aria-expanded',String(!hidden));button.setAttribute('aria-label',label);button.title=label;
+  for(const child of $('#discussion-sidebar').children)if(child!==button)child.hidden=hidden;
+  localStorage.setItem('looking-glass-discussions-hidden',String(hidden));
+  sizeSidebar();sizeDiscussions();view?.requestMeasure();
+  if(focus)button.focus({preventScroll:true});
+}
+$('#discussions-toggle').onclick=()=>setDiscussionsHidden(!discussionsHidden,true);
+setDiscussionsHidden(discussionsHidden);
 $('#expand-files').onclick=()=>{$$('.file-folder').forEach(folder=>expandedFolders.add(folder.dataset.directory));localStorage.setItem('looking-glass-folders:'+root,JSON.stringify([...expandedFolders]));filterFiles();};
 $('#collapse-files').onclick=()=>{expandedFolders.clear();localStorage.setItem('looking-glass-folders:'+root,'[]');$('#file-filter').value='';filterFiles();};
 function fuzzyScore(path,query){const text=path.toLowerCase();let cursor=0,score=0,previous=-2;for(const character of query.toLowerCase().replace(/\s/g,'')){const index=text.indexOf(character,cursor);if(index<0)return null;score+=index===previous+1?8:0;score+=index===0||'/._-'.includes(text[index-1])?12:0;score-=index-cursor;previous=index;cursor=index+1;}return score-text.length/100;}

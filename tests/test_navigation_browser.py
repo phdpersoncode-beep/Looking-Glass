@@ -105,3 +105,47 @@ def test_jsonl_entry_arrows_and_scroll_retention(workspace_page):
     expect(next_).to_be_disabled();assert scroller.evaluate('el=>el.scrollTop')==0
     open_file(page,'empty.jsonl');expect(previous).to_be_disabled();expect(next_).to_be_disabled()
     assert (root/'rows.jsonl').read_text()==original
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_discussions_strip_preserves_control_width_and_reply(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    text='First passage.\n\nSecond passage.\n'
+    (root/'note.txt').write_text(text)
+    thread=ws.create_thread('note.txt',0,5,'Review this.','Altay',ws.read('note.txt')['version'])
+    page.goto(url);open_file(page,'note.txt')
+    separator=page.get_by_role('separator',name='Resize discussions')
+    separator.focus();page.keyboard.press('Home');page.keyboard.press('Shift+ArrowLeft')
+    expect(separator).to_have_attribute('aria-valuenow','270')
+    page.locator('.thread blockquote').click()
+    reply=page.locator('.reply-form textarea');reply.fill('Unsaved reply')
+    page.locator('.cm-content').click();page.keyboard.press('Control+End');page.keyboard.insert_text('Draft')
+    toggle=page.locator('#discussions-toggle');arrow_box=toggle.bounding_box()
+    width=page.locator('.document-panel').bounding_box()['width']
+    for zen in [False,True]:
+        if zen:page.locator('#zen-toggle').click()
+        for explorer_hidden in [False,True]:
+            if explorer_hidden and not zen:page.locator('#explorer-toggle').click()
+            toggle.click()
+            expect(toggle).to_have_attribute('aria-expanded','false');expect(toggle).to_be_focused()
+            expect(page.locator('.discussion-content')).not_to_be_visible();expect(separator).not_to_be_visible()
+            assert page.locator('.discussion-sidebar').bounding_box()['width']==36
+            assert toggle.bounding_box()==arrow_box
+            assert page.locator('.document-panel').bounding_box()['width']>width
+            expect(page.locator('.cm-content')).to_contain_text('Draft')
+            toggle.click()
+            expect(toggle).to_have_attribute('aria-expanded','true')
+            expect(separator).to_have_attribute('aria-valuenow','270')
+            assert toggle.bounding_box()==arrow_box
+            expect(page.locator('.thread.active')).to_have_attribute('data-thread',str(thread['id']))
+            expect(reply).to_have_value('Unsaved reply')
+            if explorer_hidden and not zen:page.locator('#explorer-toggle').click()
+    page.locator('#zen-toggle').click()
+    page.locator('#save').click();expect(page.locator('#dirty')).to_have_text('')
+    toggle.click();page.reload()
+    expect(page.locator('.discussion-content')).not_to_be_visible()
+    expect(toggle).to_have_attribute('aria-label','Show discussions')
+    assert page.locator('.discussion-sidebar').bounding_box()['width']==36
+    toggle.click();expect(separator).to_have_attribute('aria-valuenow','270')
+    expect(page.locator('.thread')).to_have_count(1)
