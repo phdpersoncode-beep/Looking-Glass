@@ -158,7 +158,8 @@ def test_markdown_tables_use_available_width_and_scroll_overflow(workspace_page,
     root,page,url,_=workspace_page
     narrow='| Label | Value |\n| --- | --- |\n| Width | 12 |\n'
     wide='| '+' | '.join(f'Column {i}' for i in range(14))+' |\n| '+' | '.join(['---']*14)+' |\n| '+' | '.join(f'Value {i} with useful context' for i in range(14))+' |\n'
-    text='# Tables\n\n'+narrow+'\n'+wide+'\n\nEnding.\n'
+    paragraph='Readable prose keeps its familiar line width even when tables need extra room. '*8
+    text='# Tables\n\n'+paragraph+'\n\n- List text\n\n> Quoted text\n\n'+narrow+'\n'+wide+'\n\nEnding.\n'
     (root/'tables.md').write_text(text)
     page.goto(url);open_file(page,'tables.md');page.locator('#mode').select_option(mode)
     scrollers=page.get_by_role('region',name='Markdown table',exact=True)
@@ -168,7 +169,7 @@ def test_markdown_tables_use_available_width_and_scroll_overflow(workspace_page,
     assert large.evaluate('el=>el.scrollWidth>el.clientWidth')
     assert large.bounding_box()['width']>page.locator('.document-panel').bounding_box()['width']-80
     # Wide tables scroll inside their own region; the document stays in place.
-    large.focus();page.keyboard.press('ArrowRight')
+    large.scroll_into_view_if_needed();large.focus();page.keyboard.press('ArrowRight')
     page.wait_for_function('()=>document.querySelectorAll(".markdown-table-scroll")[1].scrollLeft>0')
     large.evaluate('el=>el.scrollLeft=el.scrollWidth')
     expect(large.locator('td').last).to_be_in_viewport()
@@ -176,10 +177,21 @@ def test_markdown_tables_use_available_width_and_scroll_overflow(workspace_page,
     assert outer.evaluate('el=>el.scrollWidth<=el.clientWidth+1')
     for toggle in ['#explorer-toggle','#discussions-toggle']:page.locator(toggle).click()
     assert large.bounding_box()['width']>1200
+    prose=page.locator('.cm-line',has_text=paragraph.strip()) if mode=='live' else page.locator('.markdown-preview>p').first
+    measure=850 if mode=='live' else 760
+    expect(prose).to_be_visible()
+    assert prose.bounding_box()['width']<=measure+1
+    container=page.locator('.cm-content' if mode=='live' else '.markdown-preview').bounding_box()
+    box=prose.bounding_box()
+    assert abs(box['x']+box['width']/2-container['x']-container['width']/2)<2
+    # Headings, lists, and quotes share the prose measure; tables remain wider.
+    blocks=page.locator('.cm-line') if mode=='live' else page.locator('.markdown-preview>h1,.markdown-preview>ul,.markdown-preview>blockquote')
+    assert all(box['width']<=measure+1 for box in (block.bounding_box() for block in blocks.all()))
     page.set_viewport_size({'width':850,'height':700})
     assert large.evaluate('el=>el.scrollWidth>el.clientWidth')
     assert outer.evaluate('el=>el.scrollWidth<=el.clientWidth+1')
     assert small.evaluate('el=>el.scrollWidth<=el.clientWidth')
+    assert prose.bounding_box()['width']<=measure+1
     assert (root/'tables.md').read_text()==text
 
 

@@ -110,6 +110,10 @@ dialog:modal{margin:auto}.directory-list{height:260px;overflow:auto;margin-top:8
 
 #discussions-toggle{position:absolute;top:10px;right:3px;z-index:3}.discussion-sidebar>.panel-heading{padding-right:40px}.discussions-hidden{--discussion-column:36px}.discussions-hidden #discussions-toggle svg{transform:rotate(180deg)}
 
-.live-markdown .cm-editor .cm-content{max-width:none;margin:0;width:100%;padding:20px 0}.live-markdown .cm-editor .cm-line{padding-left:16px;padding-right:16px}.live-markdown .md-diagram,.live-markdown .markdown-source-controls{padding-left:16px;padding-right:16px}
+.live-markdown .cm-editor .cm-content{max-width:none;margin:0;width:100%;padding:20px 0}.live-markdown .cm-editor .cm-line{max-width:850px;margin:0 auto;padding-left:28px;padding-right:28px}.live-markdown .md-diagram,.live-markdown .markdown-source-controls{padding-left:16px;padding-right:16px}
+/* Keep the former prose measure without constraining rendered table regions. */
+.markdown-preview>:not(.markdown-table-scroll){max-width:760px;margin-left:auto;margin-right:auto}
+/* Override CodeMirror's important native-selection fallback for focused widgets. */
+#surface .md-table::selection,#surface .md-table ::selection,.markdown-preview::selection,.markdown-preview ::selection{background-color:var(--selection)!important;color:inherit}
 .markdown-table-scroll{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin;scrollbar-color:var(--border) var(--panel);padding-bottom:4px}.markdown-table-scroll:focus-visible{outline:1px solid var(--purple);outline-offset:2px}.markdown-table-scroll::-webkit-scrollbar{height:7px}.markdown-table-scroll::-webkit-scrollbar-track{background:var(--panel)}.markdown-table-scroll::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
 .md-table .markdown-table-scroll table,.markdown-preview .markdown-table-scroll table{width:max-content;min-width:100%;table-layout:auto}.markdown-table-scroll th,.markdown-table-scroll td{min-width:8rem;max-width:32rem;white-space:normal;overflow-wrap:anywhere}

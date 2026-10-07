@@ -6,6 +6,8 @@ Use this checklist for the current feature branch. Commit and push each complete
 - [x] Add a matching thin-strip collapse/restore control for discussions, retaining its width and state.
 - [x] Reduce Markdown margins and give tables more width, with horizontal scrollbars when columns overflow.
 - [x] Restore selection-based commenting on rendered live Markdown tables, preserving exact source anchors.
+- [x] Restore readable prose margins independently of wide rendered tables in live Markdown and reading preview.
+- [x] Match native rendered-table text selections to the editor's purple highlight in both themes.
 - [x] In zen mode, scroll the main pane to the next discussion when resolving the current thread.
 
 ## Verification

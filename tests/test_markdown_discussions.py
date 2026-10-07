@@ -14,6 +14,45 @@ def select_text(page, selector):
     }''')
 
 
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+@pytest.mark.parametrize('mode',['live','preview'])
+def test_rendered_table_selection_matches_prose_in_both_themes(workspace_page,mode):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    text='Prose passage.\n\n| Label | Value |\n| --- | --- |\n| **width** | 12 |\n'
+    (root/'colors.md').write_text(text)
+    for quote in ['Prose passage','width']:
+        start=text.index(quote);ws.create_thread('colors.md',start,start+len(quote),'Check '+quote,'Reviewer',ws.read('colors.md')['version'])
+    page.goto(url);open_file(page,'colors.md');page.locator('#mode').select_option(mode)
+    host='.md-table' if mode=='live' else '.markdown-preview'
+    cell=page.locator(host+' tbody strong')
+    region=page.get_by_role('region',name='Markdown table',exact=True)
+    prose=page.locator('.cm-line .passage-highlight' if mode=='live' else '.markdown-preview>p .passage-highlight')
+    for theme in ['light','dark']:
+        if page.locator('html').get_attribute('data-theme')!=theme:page.locator('#theme').click()
+        expect(cell.locator('.passage-highlight')).to_have_text('width')
+        if mode=='live':
+            page.locator('.cm-line').first.click();page.keyboard.press('Home');page.keyboard.press('Shift+End')
+            expect(page.locator('.cm-selectionBackground').first).to_be_visible()
+        # The focused native table region must override CodeMirror's blue fallback.
+        region.focus();select_text(page,host+' tbody strong')
+        assert page.evaluate('window.getSelection().toString()')=='width'
+        native=cell.evaluate('el=>getComputedStyle(el,"::selection").backgroundColor')
+        expected=page.evaluate('''()=>{
+          const probe=document.createElement('span');probe.style.backgroundColor='var(--selection)';
+          document.body.append(probe);const color=getComputedStyle(probe).backgroundColor;probe.remove();return color;
+        }''')
+        assert native==expected
+        if mode=='live':
+            assert page.locator('.cm-selectionBackground').first.evaluate('el=>getComputedStyle(el).backgroundColor')==expected
+        else:
+            assert prose.evaluate('el=>getComputedStyle(el,"::selection").backgroundColor')==expected
+        page.evaluate('window.getSelection().removeAllRanges()')
+        # Persisted passage marks also use the same style inside and outside tables.
+        assert cell.locator('.passage-highlight').evaluate('el=>getComputedStyle(el).backgroundColor')==prose.evaluate('el=>getComputedStyle(el).backgroundColor')
+    assert (root/'colors.md').read_text()==text
+
+
 def test_live_table_annotations_and_explicit_source_edit(workspace_page):
     from playwright.sync_api import expect
     root,page,url,ws=workspace_page
