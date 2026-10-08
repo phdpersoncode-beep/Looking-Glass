@@ -149,6 +149,9 @@ def test_float_thread_keeps_reading_and_list_positions(workspace_page,mode):
     assert page.locator('.thread-placeholder').count()==0
     ids=page.locator('#threads>.thread').evaluate_all('els=>els.map(el=>Number(el.dataset.thread))')
     assert ids==[t['id'] for t in threads]
+    page.locator(f'#threads>.thread[data-thread="{threads[12]["id"]}"] [data-action=expand-thread]').click()
+    expect(overlay).not_to_be_visible()
+    assert abs(pane.evaluate('el=>el.scrollTop')-before)<2
     target.click();expect(overlay).to_be_visible();expect(overlay.locator('textarea')).to_have_value('Unsent **draft**')
     page.keyboard.press('Escape');expect(overlay).not_to_be_visible();assert abs(pane.evaluate('el=>el.scrollTop')-before)<2
     target.click();expect(overlay).to_be_visible();page.locator('#document-name').click();expect(overlay).not_to_be_visible()
