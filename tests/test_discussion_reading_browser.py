@@ -182,6 +182,29 @@ def test_float_thread_keeps_reading_and_list_positions(workspace_page,mode):
 
 
 @pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_live_table_selection_survives_external_discussion_refresh(workspace_page):
+    from playwright.sync_api import expect
+    from test_markdown_discussions import select_text
+    root,page,url,ws=workspace_page
+    source='| Label | Value |\n| --- | --- |\n| **Alpha** | 1 |\n| **Beta** | 2 |\n| **Gamma** | 3 |\n'
+    (root/'note.md').write_text(source);version=ws.read('note.md')['version']
+    start=source.index('Alpha');ws.create_thread('note.md',start,start+5,'First review','Agent',version)
+    page.goto(url);open_file(page,'note.md')
+    page.locator('.md-table .markdown-table-scroll').focus()
+    select_text(page,'.md-table tbody tr:last-child strong')
+    expect(page.locator('#annotate')).to_be_enabled()
+    start=source.index('Beta');ws.create_thread('note.md',start,start+4,'External review','Agent',version)
+    expect(page.locator('.thread')).to_have_count(2,timeout=8000)
+    assert page.evaluate('getSelection().toString()')=='Gamma'
+    expect(page.locator('#annotate')).to_be_enabled()
+    page.locator('#annotate').click();expect(page.locator('#selected-quote')).to_have_text('Gamma')
+    page.locator('#comment-body').fill('Selection retained');page.locator('#comment-submit').click()
+    expect(page.locator('.thread')).to_have_count(3)
+    assert ws.threads()[-1]['quote']=='Gamma'
+    assert (root/'note.md').read_text()==source
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
 def test_html_thread_float_preserves_report_scroll_and_defocus(workspace_page):
     from playwright.sync_api import expect
     root,page,url,ws=workspace_page

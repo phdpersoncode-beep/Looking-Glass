@@ -157,6 +157,12 @@ const blockEditing=StateField.define({create:()=>null,update(value,tr){
 class MarkdownTable extends WidgetType {
   constructor(source,from,spans){super();this.source=source;this.from=from;this.spans=spans;this.focused=activeThread;}
   eq(other){return this.source===other.source&&this.from===other.from&&this.focused===other.focused&&JSON.stringify(this.spans)===JSON.stringify(other.spans);}
+  updateDOM(el,_view,previous){
+    if(this.source!==previous.source||this.from!==previous.from)return false;
+    // Annotation updates must keep the DOM holding a native cell selection.
+    // The mapped renderer defers highlight changes while that selection is live.
+    el._markdown.highlight(this.spans,this.focused);return true;
+  }
   toDOM(v){
     const el=document.createElement('div');el.className='md-table';
     const edit=document.createElement('button');edit.className='markdown-source-edit';edit.textContent='Edit source';edit.setAttribute('aria-label','Edit table source');

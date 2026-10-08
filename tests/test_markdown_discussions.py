@@ -7,6 +7,9 @@ pytestmark=[pytest.mark.browser,pytest.mark.skipif(not os.environ.get('LOOKING_G
 
 def select_text(page, selector):
     page.locator(selector).evaluate('''el=>{
+      // Real cell drags focus the native table region. A synthetic Range alone
+      // leaves CodeMirror focused, allowing its observer to restore the caret.
+      el.closest('.markdown-table-scroll')?.focus({preventScroll:true});
       const walker=document.createTreeWalker(el,NodeFilter.SHOW_TEXT);const nodes=[];let node;
       while(node=walker.nextNode())nodes.push(node);
       const range=document.createRange();range.setStart(nodes[0],0);range.setEnd(nodes.at(-1),nodes.at(-1).length);
