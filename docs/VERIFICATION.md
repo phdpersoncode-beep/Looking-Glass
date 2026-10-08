@@ -267,3 +267,32 @@ Updated comment composer: [light](screenshots/comment-light.png),
   containing Git path-pattern characters. Existing selected staged work is rejected.
 
 The delivery status above supersedes the original standalone archive handoff.
+
+## Rendered HTML source annotations (2026-10-08)
+
+Implementation: `771a4a7`, on `feature/rendered-html-source-annotations`.
+
+- Frontend: **11 passed**, including entities (legacy/numeric/multi-codepoint),
+  CRLF, Unicode, optional table tags, repeated text, marker collisions, exclusion
+  of scripts/templates/form values, original-byte preservation, and 10,000 elements.
+- Backend: **80 passed**, including source-thread lifecycle/original context,
+  stale and invalid offsets, and preview isolation/file preservation.
+- Full browser suite: **99 passed** in 378.38 seconds. Ten new Chromium/Firefox
+  cases cover raw/rendered navigation, native dragging, keyboard comments, table
+  cells, partial entities, source-created threads, fragments, hidden duplicates,
+  persistence, replies, resolve/reopen, external edits, reattachment, unsaved draft
+  highlighting, runtime-only text, legacy threads, scrolling, and highlight clicks.
+- Frontend rebuild is reproducible (`git diff --exit-code -- looking_glass/static`);
+  Python wheel and source distribution build successfully. GitHub's fast job also
+  passed with the repository's locked dependencies.
+- The selection popover and purple selection styling were visually inspected.
+
+Local browser verification used Playwright 1.56, Chromium 141, and Firefox 142
+because the pinned browser downloads were unavailable in this container. Firefox's
+process sandbox was disabled for the container; the application's opaque-origin
+report iframe sandbox remained enabled and its isolation is explicitly tested.
+GitHub's separate browser job uses the repository's pinned Playwright dependencies.
+
+Source-backed threads never depend on quote-only DOM matching. Runtime-generated
+or otherwise unprovable mappings remain explicitly rendered-only; existing
+rendered-only threads are preserved without speculative migration.

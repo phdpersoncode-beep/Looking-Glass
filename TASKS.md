@@ -36,9 +36,14 @@ The layout regression failed before the fix (text width approximately 42 px; met
 
 Branch: `feature/rendered-html-source-annotations` (from main).
 
-- [ ] Parse HTML with source locations; mark only the disposable preview, preserving original bytes and report behavior.
-- [ ] Map rendered selections to source ranges across tags, entities, Unicode, CRLF, tables, and repeated text.
-- [ ] Reuse source thread persistence, original context, edits/reattachment, and highlight/navigation in both views.
-- [ ] Keep legacy and script-generated passages usable as explicitly rendered-only threads; never guess a source range.
-- [ ] Match Markdown/code selection controls and purple highlights; preserve iframe isolation.
-- [ ] Add unit, backend, and Chromium/Firefox regressions; run the full suite and package builds.
+- [x] Parse HTML with source locations; mark only the disposable preview, preserving original bytes and report behavior.
+- [x] Map rendered selections to source ranges across tags, entities, Unicode, CRLF, tables, and repeated text.
+- [x] Reuse source thread persistence, original context, edits/reattachment, and highlight/navigation in both views.
+- [x] Keep legacy and script-generated passages usable as explicitly rendered-only threads; never guess a source range.
+- [x] Match Markdown/code selection controls and purple highlights; preserve iframe isolation.
+- [x] Add unit, backend, and Chromium/Firefox regressions; run the full suite and package builds.
+
+Verification: 11 frontend tests, 80 backend tests, and all 99 browser tests pass.
+Frontend assets rebuild reproducibly; Python wheel/source builds pass. See
+[PR #7](https://github.com/phdpersoncode-beep/Looking-Glass/pull/7) and
+`docs/VERIFICATION.md` for coverage and test-environment details.
