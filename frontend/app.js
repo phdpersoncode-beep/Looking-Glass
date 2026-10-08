@@ -53,7 +53,7 @@ let quickPaths=[],quickMatches=[],quickIndex=0;
 let active = null, view = null, cleanup = () => {}, currentThreads = [], activeThread = null, pending = null;
 let polling = false, saving = false, switching = false, refreshNumber = 0, queuedFile = null;
 let selectingText = false, selectionFrame = 0, postingComment = false;
-let pressedPassage=null;
+let pressedPassage=null,passageActivation=0;
 let jsonlSearch = null;
 let renderedPreview=null,renderedSelection=null,renderedJump=null;
 let contentsController=null;
@@ -499,6 +499,7 @@ async function getNavigationIndex(){
 }
 function filterThreads(){if(zenMode&&!currentThreads.some(t=>t.id===activeThread&&(!t.resolved||$('#show-resolved').checked))){activeThread=currentThreads.find(t=>!t.resolved||$('#show-resolved').checked)?.id||null;zenCollapsed=false;}$$('.thread').forEach(t=>{t.hidden=t.dataset.resolved==='true'&&!$('#show-resolved').checked;t.classList.toggle('active',Number(t.dataset.thread)===activeThread);t.classList.toggle('collapsed',zenMode?(Number(t.dataset.thread)!==activeThread||zenCollapsed):collapsedThreads.has(Number(t.dataset.thread)));t.querySelector('[data-action=collapse-thread]')?.setAttribute('aria-expanded',String(!t.classList.contains('collapsed')));const reply=t.querySelector('.reply-form');if(reply)reply.hidden=Number(t.dataset.thread)!==activeThread;});const floating=$('.floating-thread');if(floating&&(floating.hidden||floating.classList.contains('collapsed')))threadFloat.restore();}
 function showThread(id,anchorY,floating=true){
+  passageActivation++;
   if(discussionsHidden)setDiscussionsHidden(false);
   activeThread=id;zenCollapsed=false;if(!zenMode){collapsedThreads.delete(id);rememberCollapsed();}filterThreads();
   previewThreads();refreshMarkdownHighlights();
@@ -841,6 +842,7 @@ document.addEventListener('selectionchange',()=>{updateNativeTextSelection();upd
 document.addEventListener('scroll',scheduleSelectionTools,true);
 window.addEventListener('resize',()=>{scheduleSelectionTools();if($('#comment-dialog').open){const location=selectionLocation();if(location)placeNearSelection($('#comment-dialog'),location);}});
 document.addEventListener('keydown',event=>{
+  if(event.key==='Escape'){passageActivation++;pressedPassage=null;}
   if((event.ctrlKey||event.metaKey)&&event.altKey&&!event.shiftKey&&event.key.toLowerCase()==='z'){event.preventDefault();event.stopPropagation();toggleZen();return;}
   // Focusable table regions keep native cell selection/copying, while editor
   // commands still target the document rather than the browser page.
@@ -861,6 +863,7 @@ document.addEventListener('keydown',event=>{
   else if(event.key==='Escape'&&threadFloat.id){event.preventDefault();threadFloat.restore();}
 },true);
 document.addEventListener('pointerdown',event=>{
+  passageActivation++;
   if(threadFloat.id&&!threadFloat.contains(event.target))threadFloat.restore();
   const mark=event.button===0&&event.target.closest?.('#surface [data-anchor]');
   pressedPassage=mark?{id:Number(mark.dataset.anchor),path:active,x:event.clientX,y:event.clientY}:null;
@@ -868,11 +871,12 @@ document.addEventListener('pointerdown',event=>{
 document.addEventListener('pointermove',event=>{if(pressedPassage&&Math.hypot(event.clientX-pressedPassage.x,event.clientY-pressedPassage.y)>4)pressedPassage=null;},true);
 document.addEventListener('pointerup',event=>{
   const passage=pressedPassage;pressedPassage=null;if(!passage||event.button!==0)return;
+  const generation=passageActivation;
   // Moving the caret may replace the pressed node, suppressing its click event.
   // Wait until CodeMirror settles; an actual text selection always takes priority.
-  requestAnimationFrame(()=>{if(active===passage.path&&!window.getSelection()?.toString()&&(!view||view.state.selection.main.empty))showThread(passage.id,passage.y);});
+  requestAnimationFrame(()=>{if(generation===passageActivation&&active===passage.path&&!window.getSelection()?.toString()&&(!view||view.state.selection.main.empty))showThread(passage.id,passage.y);});
 },true);
-document.addEventListener('pointercancel',()=>pressedPassage=null,true);
+document.addEventListener('pointercancel',()=>{passageActivation++;pressedPassage=null;},true);
 document.addEventListener('focusin',event=>{if(threadFloat.id&&!threadFloat.contains(event.target))threadFloat.restore();});
 document.addEventListener('click',guard(async event=>{
   const anchor=event.target.closest('#surface [data-anchor]'),passage=anchor?Number(anchor.dataset.anchor):null;
