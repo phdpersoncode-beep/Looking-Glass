@@ -2,7 +2,9 @@ import {prepareHTMLPreview,sourceOffsets} from './html-source.mjs';
 import {createComposers} from './composer.mjs';
 import {mountHistory} from './history.mjs';
 import {formatJSON} from './json-format.mjs';
-import {mountMappedMarkdown} from './markdown-render.mjs';
+import {mountMappedMarkdown,renderMarkdown} from './markdown-render.mjs';
+import {textSelection,updateNativeTextSelection} from './text-selection.mjs';
+import {createThreadFloat} from './thread-float.mjs';
 import {mountMarkdownContents} from './markdown-contents.mjs';
 import {basicSetup} from 'codemirror';
 import {EditorState, StateEffect, StateField, Compartment, Text, RangeSet} from '@codemirror/state';
@@ -18,8 +20,6 @@ import {json} from '@codemirror/lang-json';
 import {StreamLanguage, syntaxTree, syntaxHighlighting, HighlightStyle, ensureSyntaxTree, foldable, foldEffect, unfoldAll} from '@codemirror/language';
 import {shell} from '@codemirror/legacy-modes/mode/shell';
 import {tags,highlightTree,classHighlighter} from '@lezer/highlight';
-import {marked} from 'marked';
-import DOMPurify from 'dompurify';
 import * as THREE from 'three';
 import {STLLoader} from 'three/addons/loaders/STLLoader.js';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
@@ -28,6 +28,7 @@ import {SVGRenderer} from 'three/addons/renderers/SVGRenderer.js';
 const $ = selector => document.querySelector(selector);
 const token = $('meta[name=looking-glass-token]').content;
 const root = $('.root-label').textContent;
+const threadFloat=createThreadFloat($('.discussion-sidebar'));
 const composers=createComposers({token,api,onError:message=>notify(message,true)});
 const tabs = new Map();
 const HISTORY='looking-glass://history',ORIGINAL='looking-glass://thread/';
@@ -52,6 +53,7 @@ let quickPaths=[],quickMatches=[],quickIndex=0;
 let active = null, view = null, cleanup = () => {}, currentThreads = [], activeThread = null, pending = null;
 let polling = false, saving = false, switching = false, refreshNumber = 0, queuedFile = null;
 let selectingText = false, selectionFrame = 0, postingComment = false;
+let pressedPassage=null;
 let jsonlSearch = null;
 let renderedPreview=null,renderedSelection=null,renderedJump=null;
 let contentsController=null;
@@ -351,11 +353,10 @@ function language(path){switch(ext(path)){case'md':case'markdown':return markdow
 function makeState(e){
   const docPath=e.sourcePath||e.path,prose=['md','markdown','txt'].includes(ext(docPath));
   return EditorState.create({doc:e.content,extensions:[EditorState.lineSeparator.of(e.diskContent.includes('\r\n')?'\r\n':'\n'),basicSetup,language(docPath),...(e.kind==='original'?[EditorState.readOnly.of(true),EditorView.editable.of(false)]:[]),syntaxHighlighting(colors),spanField,gitField,gitSlot.of([]),
-    themeSlot.of(theme()),liveSlot.of(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables]:[]),
+    themeSlot.of(theme()),liveSlot.of(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables,textSelection]:[]),
     ...(prose?[EditorView.lineWrapping,EditorView.theme({'.cm-scroller':{fontFamily:'var(--prose)',fontSize:'var(--prose-font-size)'},'.cm-content':{maxWidth:'850px',margin:'0 auto',width:'100%'},'.cm-lineNumbers, .cm-foldGutter':{display:'none'}})]:[]),
     keymap.of([{key:'Mod-s',run:()=>{guard(saveActive)();return true;}},{key:'Mod-Enter',run:()=>{guard(startComment)();return true;}},{key:'Mod-f',run:openSearchPanel},{key:'Mod-h',run:openSearchPanel},indentWithTab]),
-    EditorView.updateListener.of(u=>{if(u.docChanged){e.content=u.state.sliceDoc();e.dirty=e.content!==e.diskContent;e.state=u.state;contentsController?.update();updateToolbar();renderTabs();}if(u.selectionSet)updateToolbar();if(u.selectionSet||u.docChanged||u.viewportChanged||u.geometryChanged)scheduleSelectionTools();}),
-    EditorView.domEventHandlers({click:event=>{const mark=event.target.closest?.('[data-anchor]');if(mark&&view?.state.selection.main.empty&&event.detail===1){showThread(Number(mark.dataset.anchor));return true;}return false;}})
+    EditorView.updateListener.of(u=>{if(u.docChanged){e.content=u.state.sliceDoc();e.dirty=e.content!==e.diskContent;e.state=u.state;contentsController?.update();updateToolbar();renderTabs();}if(u.selectionSet)updateToolbar();if(u.selectionSet||u.docChanged||u.viewportChanged||u.geometryChanged)scheduleSelectionTools();})
   ]});
 }
 
@@ -363,6 +364,7 @@ async function openFile(path){
   if(switching){queuedFile=path;return;}switching=true;
   try{
     if(active===path)return;
+    threadFloat.restore();
     closeComment();contentsController?.reset();
     syncState();
     let e=tabs.get(path);
@@ -417,7 +419,7 @@ function mountDocument(e){
     const rendered=mountMappedMarkdown(preview,e.content,0,highlightMarkdown);markdownViews.add(rendered);markdownDiagrams(preview);cleanup=()=>markdownViews.delete(rendered);
   }else{
     const parent=document.createElement('div');parent.id='editor';if(['md','markdown','txt'].includes(ext(e.path)))parent.className='prose-editor'+(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?' live-markdown':'');$('#surface').append(parent);view=new EditorView({state:e.state||makeState(e),parent});
-    view.dispatch({effects:[themeSlot.reconfigure(theme()),liveSlot.reconfigure(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables]:[])]});
+    view.dispatch({effects:[themeSlot.reconfigure(theme()),liveSlot.reconfigure(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables,textSelection]:[])]});
     guard(refreshBaseline)();
   }
   updateToolbar();
@@ -460,11 +462,15 @@ function renderDiscussions(data,key){
   previewThreads();const e=entry();
   if(view&&e&&!e.dirty)view.dispatch({effects:spansEffect.of(spansFor(currentThreads,e.content))});
   if(data.html!==lastThreadHTML||key!==lastThreadKey){
+    const floating=key===lastThreadKey?threadFloat.id:null,floatY=threadFloat.y,floatScroll=$('.floating-discussion').scrollTop;
     const drafts=new Map($$('.reply-form').map(f=>[f.closest('.thread').dataset.thread,f.querySelector('textarea').value]));
     const focused=document.activeElement,focusId=focused?.id,start=focused?.selectionStart,end=focused?.selectionEnd;
+    threadFloat.restore();
     $('#threads').innerHTML=data.html;lastThreadHTML=data.html;lastThreadKey=key;
+    for(const body of $$('.comment-markdown')){const source=body.textContent;renderMarkdown(body,source,highlightMarkdown);markdownDiagrams(body);}
     for(const form of $$('.reply-form')){const draft=drafts.get(form.closest('.thread').dataset.thread);if(draft)form.querySelector('textarea').value=draft;}
-    if(focusId&&$('#threads').contains(document.getElementById(focusId))){const field=document.getElementById(focusId);field.focus({preventScroll:true});field.setSelectionRange(start,end);}
+    if(floating&&key===lastThreadKey){filterThreads();threadFloat.show($('.thread[data-thread="'+floating+'"]'),floatY);$('.floating-discussion').scrollTop=floatScroll;}
+    if(focusId){const field=document.getElementById(focusId);if(field?.closest('.thread')){field.focus({preventScroll:true});field.setSelectionRange?.(start,end);}}
   }
   for(const form of $$('.reply-form'))composers.render(form);
   filterThreads();refreshMarkdownHighlights();if(entry()?.kind==='history')cleanup.updateCounts?.(data.index);
@@ -491,12 +497,12 @@ async function getNavigationIndex(){
   if(Date.now()-indexTime>2000){navigationIndex=await api('thread-index');indexTime=Date.now();}
   return navigationIndex;
 }
-function filterThreads(){if(zenMode&&!currentThreads.some(t=>t.id===activeThread&&(!t.resolved||$('#show-resolved').checked))){activeThread=currentThreads.find(t=>!t.resolved||$('#show-resolved').checked)?.id||null;zenCollapsed=false;}$$('.thread').forEach(t=>{t.hidden=t.dataset.resolved==='true'&&!$('#show-resolved').checked;t.classList.toggle('active',Number(t.dataset.thread)===activeThread);t.classList.toggle('collapsed',zenMode?(Number(t.dataset.thread)!==activeThread||zenCollapsed):collapsedThreads.has(Number(t.dataset.thread)));t.querySelector('[data-action=collapse-thread]')?.setAttribute('aria-expanded',String(!t.classList.contains('collapsed')));const reply=t.querySelector('.reply-form');if(reply)reply.hidden=Number(t.dataset.thread)!==activeThread;});}
-function showThread(id){
+function filterThreads(){if(zenMode&&!currentThreads.some(t=>t.id===activeThread&&(!t.resolved||$('#show-resolved').checked))){activeThread=currentThreads.find(t=>!t.resolved||$('#show-resolved').checked)?.id||null;zenCollapsed=false;}$$('.thread').forEach(t=>{t.hidden=t.dataset.resolved==='true'&&!$('#show-resolved').checked;t.classList.toggle('active',Number(t.dataset.thread)===activeThread);t.classList.toggle('collapsed',zenMode?(Number(t.dataset.thread)!==activeThread||zenCollapsed):collapsedThreads.has(Number(t.dataset.thread)));t.querySelector('[data-action=collapse-thread]')?.setAttribute('aria-expanded',String(!t.classList.contains('collapsed')));const reply=t.querySelector('.reply-form');if(reply)reply.hidden=Number(t.dataset.thread)!==activeThread;});const floating=$('.floating-thread');if(floating&&(floating.hidden||floating.classList.contains('collapsed')))threadFloat.restore();}
+function showThread(id,anchorY){
   activeThread=id;zenCollapsed=false;if(!zenMode){collapsedThreads.delete(id);rememberCollapsed();}filterThreads();
   previewThreads();refreshMarkdownHighlights();
   if(view)view.dispatch({effects:spansEffect.of(view.state.field(spanField))});
-  $('.thread[data-thread="'+id+'"]')?.scrollIntoView({block:'nearest'});
+  threadFloat.show($('.thread[data-thread="'+id+'"]'),anchorY);
 }
 async function jump(id,target=null){
   let t=target||currentThreads.find(t=>t.id===id);if(!t)return;
@@ -517,7 +523,7 @@ async function jump(id,target=null){
   if(entry().dirty&&!span){notify('Save your draft before navigating to this passage. Its local anchor is unavailable.');return;}
   const from=span?.from??toUnits(entry().content,t.start),to=span?.to??toUnits(entry().content,t.end);
   if(to<=view.state.doc.length){view.dispatch({selection:{anchor:from,head:to},effects:EditorView.scrollIntoView(from,{y:'center'})});view.focus();}
-  $('.thread[data-thread="'+id+'"]')?.scrollIntoView({block:'nearest'});
+  threadFloat.layout();
 }
 let navigationQueue=Promise.resolve();
 function navigate(direction){
@@ -810,7 +816,7 @@ document.addEventListener('click',event=>{
 });
 document.addEventListener('htmx:responseError',event=>notify('Sidebar request failed: '+event.detail.xhr.status,true));
 function beginSelection(event){
-  if(event.button===0&&event.target.closest?.('#editor,.markdown-preview')){selectingText=true;scheduleSelectionTools();}
+  if(event.button===0&&event.target.closest?.('#editor,#surface .markdown-preview')){selectingText=true;scheduleSelectionTools();}
 }
 function settleSelection(){
   if(!selectingText)return;selectingText=false;
@@ -829,7 +835,7 @@ for(const type of ['pointermove','mousemove'])window.addEventListener(type,event
 },true);
 window.addEventListener('blur',settleSelection);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)settleSelection();});
-document.addEventListener('selectionchange',()=>{updateToolbar();scheduleSelectionTools();});
+document.addEventListener('selectionchange',()=>{updateNativeTextSelection();updateToolbar();scheduleSelectionTools();});
 document.addEventListener('scroll',scheduleSelectionTools,true);
 window.addEventListener('resize',()=>{scheduleSelectionTools();if($('#comment-dialog').open){const location=selectionLocation();if(location)placeNearSelection($('#comment-dialog'),location);}});
 document.addEventListener('keydown',event=>{
@@ -850,14 +856,30 @@ document.addEventListener('keydown',event=>{
   if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='p'){event.preventDefault();event.stopPropagation();guard(showQuickOpen)();}
   if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='f'&&jsonlSearch&&!document.querySelector('dialog:modal')){event.preventDefault();jsonlSearch();}
   if(event.key==='Escape'&&$('#comment-dialog').open){event.preventDefault();closeComment();view?.focus();}
+  else if(event.key==='Escape'&&threadFloat.id){event.preventDefault();threadFloat.restore();}
 },true);
+document.addEventListener('pointerdown',event=>{
+  if(threadFloat.id&&!threadFloat.contains(event.target))threadFloat.restore();
+  const mark=event.button===0&&event.target.closest?.('#surface [data-anchor]');
+  pressedPassage=mark?{id:Number(mark.dataset.anchor),path:active,x:event.clientX,y:event.clientY}:null;
+},true);
+document.addEventListener('pointermove',event=>{if(pressedPassage&&Math.hypot(event.clientX-pressedPassage.x,event.clientY-pressedPassage.y)>4)pressedPassage=null;},true);
+document.addEventListener('pointerup',event=>{
+  const passage=pressedPassage;pressedPassage=null;if(!passage||event.button!==0)return;
+  // Moving the caret may replace the pressed node, suppressing its click event.
+  // Wait until CodeMirror settles; an actual text selection always takes priority.
+  requestAnimationFrame(()=>{if(active===passage.path&&!window.getSelection()?.toString()&&(!view||view.state.selection.main.empty))showThread(passage.id,passage.y);});
+},true);
+document.addEventListener('pointercancel',()=>pressedPassage=null,true);
+document.addEventListener('focusin',event=>{if(threadFloat.id&&!threadFloat.contains(event.target))threadFloat.restore();});
 document.addEventListener('click',guard(async event=>{
-  const anchor=event.target.closest('[data-anchor]');if(anchor&&!window.getSelection()?.toString()){showThread(Number(anchor.dataset.anchor));return;}
+  const anchor=event.target.closest('#surface [data-anchor]'),passage=anchor?Number(anchor.dataset.anchor):null;
+  if(passage&&event.detail===1&&!window.getSelection()?.toString()&&(!view||view.state.selection.main.empty)){showThread(passage,event.clientY);return;}
   const file=event.target.closest('.file-entry');if(file)await openFile(file.dataset.path);
   const close=event.target.closest('[data-close]');if(close)close.closest('dialog').close();
   const action=event.target.closest('[data-action]');if(!action)return;
   const id=Number(action.closest('.thread').dataset.thread),t=currentThreads.find(t=>t.id===id);
-  if(action.dataset.action==='collapse-thread'){if(zenMode)zenCollapsed=true;else collapsedThreads.add(id);rememberCollapsed();filterThreads();return;}
+  if(action.dataset.action==='collapse-thread'){threadFloat.restore();if(zenMode)zenCollapsed=true;else collapsedThreads.add(id);rememberCollapsed();filterThreads();return;}
   if(action.dataset.action==='expand-thread'){showThread(id);return;}
   if(action.dataset.action==='original'||action.dataset.action==='message-original'){await openOriginal(id,action.dataset.message);showThread(id);return;}
   if(action.dataset.action.endsWith('-attachment')){
@@ -936,7 +958,7 @@ $('#download-file').onclick=guard(()=>{
   setTimeout(()=>URL.revokeObjectURL(url),1000);
 });
 $('#save').onclick=guard(saveActive);$('#annotate').onclick=guard(startComment);
-$('#collapse-threads').onclick=()=>{if(zenMode)zenCollapsed=true;else for(const t of currentThreads)collapsedThreads.add(t.id);rememberCollapsed();filterThreads();};
+$('#collapse-threads').onclick=()=>{threadFloat.restore();if(zenMode)zenCollapsed=true;else for(const t of currentThreads)collapsedThreads.add(t.id);rememberCollapsed();filterThreads();};
 $('#expand-threads').onclick=()=>{for(const t of currentThreads)collapsedThreads.delete(t.id);rememberCollapsed();filterThreads();};
 $('#previous').onclick=guard(()=>navigate(-1));$('#next').onclick=guard(()=>navigate(1));$('#show-resolved').onchange=filterThreads;
 $('#thread-scope').checked=localStorage.getItem('looking-glass-thread-scope:'+root)==='all';
@@ -989,10 +1011,11 @@ $('#explorer-toggle').onclick=()=>setExplorerHidden(!explorerHidden,true);
 setExplorerHidden(explorerHidden);
 let discussionsHidden=localStorage.getItem('looking-glass-discussions-hidden')==='true';
 function setDiscussionsHidden(hidden,focus=false){
+  if(hidden)threadFloat.restore();
   discussionsHidden=hidden;document.body.classList.toggle('discussions-hidden',hidden);
   const button=$('#discussions-toggle'),label=(hidden?'Show':'Hide')+' discussions';
   button.setAttribute('aria-expanded',String(!hidden));button.setAttribute('aria-label',label);button.title=label;
-  for(const child of $('#discussion-sidebar').children)if(child!==button)child.hidden=hidden;
+  for(const child of $('#discussion-sidebar').children)if(child!==button&&!child.classList.contains('floating-discussion'))child.hidden=hidden;
   localStorage.setItem('looking-glass-discussions-hidden',String(hidden));
   sizeSidebar();sizeDiscussions();view?.requestMeasure();
   if(focus)button.focus({preventScroll:true});

@@ -33,20 +33,20 @@ def test_rendered_table_selection_matches_prose_in_both_themes(workspace_page,mo
         expect(cell.locator('.passage-highlight')).to_have_text('width')
         if mode=='live':
             page.locator('.cm-line').first.click();page.keyboard.press('Home');page.keyboard.press('Shift+End')
-            expect(page.locator('.cm-selectionBackground').first).to_be_visible()
+            expect(page.locator('.cm-text-selection').first).to_be_visible()
         # The focused native table region must override CodeMirror's blue fallback.
         region.focus();select_text(page,host+' tbody strong')
         assert page.evaluate('window.getSelection().toString()')=='width'
-        native=cell.evaluate('el=>getComputedStyle(el,"::selection").backgroundColor')
+        native=cell.evaluate('el=>getComputedStyle(el,"::highlight(looking-glass-text-selection)").backgroundColor')
         expected=page.evaluate('''()=>{
           const probe=document.createElement('span');probe.style.backgroundColor='var(--selection)';
           document.body.append(probe);const color=getComputedStyle(probe).backgroundColor;probe.remove();return color;
         }''')
         assert native==expected
         if mode=='live':
-            assert page.locator('.cm-selectionBackground').first.evaluate('el=>getComputedStyle(el).backgroundColor')==expected
+            assert page.locator('.cm-text-selection').first.evaluate('el=>getComputedStyle(el).backgroundColor')==expected
         else:
-            assert prose.evaluate('el=>getComputedStyle(el,"::selection").backgroundColor')==expected
+            assert prose.evaluate('el=>getComputedStyle(el,"::highlight(looking-glass-text-selection)").backgroundColor')==expected
         page.evaluate('window.getSelection().removeAllRanges()')
         # Persisted passage marks also use the same style inside and outside tables.
         assert cell.locator('.passage-highlight').evaluate('el=>getComputedStyle(el).backgroundColor')==prose.evaluate('el=>getComputedStyle(el).backgroundColor')

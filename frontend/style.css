@@ -119,3 +119,26 @@ dialog:modal{margin:auto}.directory-list{height:260px;overflow:auto;margin-top:8
 .markdown-table-scroll{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin;scrollbar-color:var(--border) var(--panel);padding-bottom:4px}.markdown-table-scroll:focus-visible{outline:1px solid var(--purple);outline-offset:2px}.markdown-table-scroll::-webkit-scrollbar{height:7px}.markdown-table-scroll::-webkit-scrollbar-track{background:var(--panel)}.markdown-table-scroll::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
 .md-table .markdown-table-scroll table,.markdown-preview .markdown-table-scroll table{width:max-content;min-width:0;margin:0 auto;table-layout:auto;font-size:.85em;line-height:1.45}
 .md-table .markdown-table-scroll th,.md-table .markdown-table-scroll td,.markdown-preview .markdown-table-scroll th,.markdown-preview .markdown-table-scroll td{min-width:0;max-width:32rem;padding:3px 6px;white-space:normal;overflow-wrap:anywhere}
+
+/* Paint each text run; CodeMirror's default rectangles include full-line gaps. */
+.live-markdown .cm-selectionBackground{background:transparent!important}
+.cm-text-selection{background:var(--selection);border-radius:1px}
+@supports selector(::highlight(looking-glass-text-selection)){
+  #surface .markdown-preview::selection,#surface .markdown-preview ::selection,#surface .md-table::selection,#surface .md-table ::selection{background:transparent!important}
+  ::highlight(looking-glass-text-selection){background:var(--selection);color:inherit}
+}
+
+/* Reuse document Markdown rules at a compact discussion scale. */
+.message>.comment-markdown{display:block;padding:0;margin:6px 0 0;font:14px/1.55 var(--prose);overflow-wrap:anywhere;min-width:0;white-space:normal}
+.discussion-sidebar .comment-markdown p{font-size:inherit;line-height:inherit;white-space:normal;margin:6px 0}
+.comment-markdown>:first-child{margin-top:0}.comment-markdown>:last-child{margin-bottom:0}
+.comment-markdown h1{font-size:19px}.comment-markdown h2{font-size:17px}.comment-markdown h3{font-size:15px}.comment-markdown h4,.comment-markdown h5,.comment-markdown h6{font:600 14px var(--font-sans)}
+.comment-markdown h1,.comment-markdown h2,.comment-markdown h3{margin:12px 0 6px}
+.comment-markdown code{font-size:11px}.comment-markdown pre{padding:8px;white-space:pre;max-width:100%;line-height:1.5}
+.discussion-sidebar .comment-markdown blockquote{font:italic 14px/1.55 var(--prose);background:transparent;max-height:none;cursor:text;white-space:normal}
+.comment-markdown img{max-width:100%;height:auto}.comment-markdown .mermaid-diagram{padding:8px}
+
+.discussion-content{overflow-anchor:none;overscroll-behavior:contain}
+.floating-discussion{position:absolute;left:12px;right:12px;z-index:10;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;border:1px solid var(--purple);border-radius:7px;background:var(--paper);box-shadow:0 5px 20px #0002}
+.floating-discussion>.thread{margin:0;border:0;box-shadow:none;width:100%}
+.thread-placeholder{pointer-events:none}

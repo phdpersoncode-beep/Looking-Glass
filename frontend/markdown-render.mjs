@@ -82,9 +82,7 @@ function visibleMap(raw,from,text,code=false) {
   return null;
 }
 
-export function mountMappedMarkdown(host,source,offset=0,decorate=()=>{}) {
-  host.innerHTML=DOMPurify.sanitize(mappedMarkdownHTML(source,offset));
-  decorate(host);
+function wrapMarkdownTables(host) {
   for(const table of host.querySelectorAll('table')){
     const scroller=document.createElement('div');scroller.className='markdown-table-scroll';
     // Native table drags must focus this region rather than the surrounding
@@ -92,6 +90,26 @@ export function mountMappedMarkdown(host,source,offset=0,decorate=()=>{}) {
     scroller.setAttribute('role','region');scroller.setAttribute('aria-label','Markdown table');scroller.tabIndex=0;
     table.replaceWith(scroller);scroller.append(table);
   }
+}
+
+export function renderMarkdown(host,source,decorate=()=>{}) {
+  // Discussion HTML is content, never application controls. Keep saved Markdown
+  // unchanged and prevent authored attributes from impersonating sidebar actions.
+  host.innerHTML=DOMPurify.sanitize(marked.parse(source),{
+    ALLOW_DATA_ATTR:false,FORBID_ATTR:['id','name','style'],
+    FORBID_TAGS:['button','form','select','textarea','iframe','object','embed']
+  });
+  for(const element of host.querySelectorAll('[class]')) {
+    const language=element.tagName==='CODE'&&[...element.classList].find(name=>/^language-[\w-]+$/.test(name));
+    element.removeAttribute('class');if(language)element.className=language;
+  }
+  for(const link of host.querySelectorAll('a')){link.target='_blank';link.rel='noopener noreferrer';}
+  decorate(host);wrapMarkdownTables(host);
+}
+
+export function mountMappedMarkdown(host,source,offset=0,decorate=()=>{}) {
+  host.innerHTML=DOMPurify.sanitize(mappedMarkdownHTML(source,offset));
+  decorate(host);wrapMarkdownTables(host);
   let lastHighlights=null;
   const leaves=[...host.querySelectorAll('.md-mapped-text')],nodes=new WeakMap();
   for(const leaf of leaves) {
