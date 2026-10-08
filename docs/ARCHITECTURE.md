@@ -33,6 +33,19 @@ Thread search, filters, pagination, summaries, and source context live in
 `workspace.py` and are exposed through the HTTP API. Existing unpaginated calls
 remain available for the browser. The CLI uses the shared query implementation.
 
+Discussion bodies remain Markdown in SQLite and API responses. The client uses
+`frontend/markdown-render.mjs` for sanitized rendering, shared table overflow,
+syntax highlighting, and diagrams. Comment markup cannot supply application
+controls or styling. Compact typography uses the document's Markdown rules.
+`frontend/text-selection.mjs` paints selected text runs instead of block boxes,
+without changing selection contents or anchor coordinates. CodeMirror uses a
+measurement layer; native rendered selections use CSS Custom Highlights.
+`frontend/thread-float.mjs` temporarily moves the selected card into the sidebar
+viewport, leaving a sized placeholder in the list. Collapse, Escape, defocus,
+and navigation away restore that same card. Refreshes preserve reply drafts,
+focus/cursor positions, and card scroll. Only explicit passage navigation moves
+the reading pane; opening a discussion does not scroll it.
+
 Anchors use Unicode character offsets plus quotes and context. Sequence matching
 maps unchanged passages and ordinary edits inside a passage. Removed passages,
 duplicate relocation candidates and uncertain matches become `needs_reattachment`.

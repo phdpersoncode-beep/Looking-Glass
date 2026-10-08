@@ -97,7 +97,7 @@ export function renderMarkdown(host,source,decorate=()=>{}) {
   // unchanged and prevent authored attributes from impersonating sidebar actions.
   host.innerHTML=DOMPurify.sanitize(marked.parse(source),{
     ALLOW_DATA_ATTR:false,FORBID_ATTR:['id','name','style'],
-    FORBID_TAGS:['button','form','select','textarea','iframe','object','embed']
+    FORBID_TAGS:['button','form','select','textarea','iframe','object','embed','style']
   });
   for(const element of host.querySelectorAll('[class]')) {
     const language=element.tagName==='CODE'&&[...element.classList].find(name=>/^language-[\w-]+$/.test(name));

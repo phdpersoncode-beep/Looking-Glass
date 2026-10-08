@@ -82,6 +82,7 @@ graph TD
 ```
 
 <script>window.commentInjected=true</script><img src="/missing.png" onerror="window.commentInjected=true">
+<style>.thread { display:none }</style>
 <button data-action="delete-thread">Bad action</button><span class="thread" data-thread="99" id="author">Safe text</span>
 '''
     thread=ws.create_thread('note.md',0,17,body,'Tester',ws.read('note.md')['version'])
@@ -91,6 +92,8 @@ graph TD
     expect(content.locator('table strong')).to_have_text('width');expect(content.locator('table code')).to_have_text('12')
     expect(content.locator('pre .tok-keyword').first).to_be_visible();expect(content.locator('.mermaid-diagram svg')).to_be_visible()
     assert content.locator('script,button,[data-action],[data-thread],#author,.thread').count()==0
+    # Mermaid generates an SVG-local style element after sanitization.
+    assert all(content.locator('style').evaluate_all('els=>els.map(el=>!!el.closest("svg"))'))
     assert not page.evaluate('!!window.commentInjected')
     assert content.locator('a').get_attribute('target')=='_blank'
     assert content.evaluate('el=>parseFloat(getComputedStyle(el).fontSize)')<page.locator('.cm-scroller').evaluate('el=>parseFloat(getComputedStyle(el).fontSize)')
@@ -119,8 +122,8 @@ def test_float_thread_keeps_reading_and_list_positions(workspace_page,mode):
     page.goto(url);open_file(page,'note.md');page.locator('#mode').select_option(mode)
     page.locator('#show-resolved').check()
     pane=page.locator('#surface' if mode=='preview' else '.cm-scroller')
-    pane.evaluate('el=>el.scrollTop=650')
-    page.wait_for_function('selector=>document.querySelector(selector).scrollTop>600',arg='#surface' if mode=='preview' else '.cm-scroller')
+    pane.evaluate('el=>el.scrollTop=400')
+    page.wait_for_function('selector=>document.querySelector(selector).scrollTop>300',arg='#surface' if mode=='preview' else '.cm-scroller')
     target=page.locator('#surface .passage-highlight').filter(has_text='Passage 12').first
     target.scroll_into_view_if_needed();before=pane.evaluate('el=>el.scrollTop')
     sidebar=page.locator('.discussion-content');sidebar.evaluate('el=>el.scrollTop=180');side_before=sidebar.evaluate('el=>el.scrollTop')
@@ -155,4 +158,33 @@ def test_float_thread_keeps_reading_and_list_positions(workspace_page,mode):
     overlay.locator('[data-action=jump]').first.click()
     expect(page.locator('.thread.active')).to_have_attribute('data-thread',str(threads[12]['id']))
     page.locator('#collapse-threads').click();expect(overlay).not_to_be_visible()
+    page.locator('#discussions-toggle').click();target.click()
+    expect(page.locator('#discussions-toggle')).to_have_attribute('aria-label','Hide discussions')
+    expect(overlay).to_be_visible()
     assert (root/'note.md').read_text()==text
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_html_thread_float_preserves_report_scroll_and_defocus(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    source=''.join(f'<p id="p{i}">Report passage {i:02}.</p><div style="height:90px"></div>' for i in range(25))+'<button>Report control</button>'
+    (root/'report.html').write_text(source);version=ws.read('report.html')['version'];threads=[]
+    for i in range(25):
+        quote=f'Report passage {i:02}.';start=source.index(quote)
+        threads.append(ws.create_thread('report.html',start,start+len(quote),'**HTML** review.\n\n'+'Details. '*70,'Reviewer',version))
+    page.goto(url);open_file(page,'report.html');frame=page.frame_locator('#html-preview')
+    passage=frame.locator('#p18');passage.scroll_into_view_if_needed()
+    before=passage.evaluate('()=>window.scrollY')
+    point=endpoint(passage,3);bounds=page.locator('#html-preview').bounding_box()
+    page.mouse.click(bounds['x']+point['x'],bounds['y']+point['y'])
+    overlay=page.locator('.floating-discussion');expect(overlay).to_be_visible()
+    expect(overlay.locator('.thread')).to_have_attribute('data-thread',str(threads[18]['id']))
+    expect(overlay.locator('.comment-markdown strong')).to_have_text('HTML')
+    assert abs(passage.evaluate('()=>window.scrollY')-before)<2
+    overlay.locator('[data-action=collapse-thread]').click();expect(overlay).not_to_be_visible()
+    assert abs(passage.evaluate('()=>window.scrollY')-before)<2
+    page.mouse.click(bounds['x']+point['x'],bounds['y']+point['y']);expect(overlay).to_be_visible()
+    frame.locator('#p18+div').click();expect(overlay).not_to_be_visible()
+    assert abs(passage.evaluate('()=>window.scrollY')-before)<2
+    assert (root/'report.html').read_text()==source

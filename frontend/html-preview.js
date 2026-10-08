@@ -117,9 +117,10 @@ document.addEventListener('keydown',event=>{
   if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='p'){event.preventDefault();event.stopPropagation();send('quick-open');}
 },true);
 document.addEventListener('keydown',event=>{if((event.ctrlKey||event.metaKey)&&event.key==='Enter'&&!['INPUT','TEXTAREA','SELECT'].includes(event.target.tagName)){capture();if(selected){event.preventDefault();send('comment');}}});
+document.addEventListener('pointerdown',()=>send('defocus-thread'),true);
 document.addEventListener('click',event=>{
   if(!getSelection()?.isCollapsed||event.target.closest('a,button,input,textarea,select'))return;
-  for(const [id,matches] of ranges){if(threads.find(t=>t.id===id)?.resolved)continue;for(const range of matches)for(const rect of range.getClientRects())if(event.clientX>=rect.left&&event.clientX<=rect.right&&event.clientY>=rect.top&&event.clientY<=rect.bottom){send('thread',{id});return;}}
+  for(const [id,matches] of ranges){if(threads.find(t=>t.id===id)?.resolved)continue;for(const range of matches)for(const rect of range.getClientRects())if(event.clientX>=rect.left&&event.clientX<=rect.right&&event.clientY>=rect.top&&event.clientY<=rect.bottom){send('thread',{id,top:event.clientY});return;}}
 });
 let mutationTimer=0;
 new MutationObserver(()=>{clearTimeout(mutationTimer);mutationTimer=setTimeout(()=>{paint();capture();},150);}).observe(document.body,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['class','style','hidden']});

@@ -316,7 +316,7 @@ function showTabMenu(e,x,y){
 }
 async function closeTab(path){
   const e=tabs.get(path);if(e.dirty&&!confirm('Discard unsaved edits in '+path+'?'))return;
-  if(path===active){closeComment();syncState();view?.destroy();view=null;cleanup();cleanup=()=>{};active=null;}
+  if(path===active){threadFloat.restore();closeComment();syncState();view?.destroy();view=null;cleanup();cleanup=()=>{};active=null;}
   tabs.delete(path);remember();renderTabs();
   if(!active&&tabs.size)await openFile([...tabs.keys()].at(-1));
   else if(!active){lastThreadHTML='';lastThreadKey='';$('#surface').innerHTML='<div class="welcome"><h1>Open a file to begin.</h1></div>';$('#threads').replaceChildren();currentThreads=[];$('#thread-count').textContent='0';updateToolbar();await refreshThreads();}
@@ -499,6 +499,7 @@ async function getNavigationIndex(){
 }
 function filterThreads(){if(zenMode&&!currentThreads.some(t=>t.id===activeThread&&(!t.resolved||$('#show-resolved').checked))){activeThread=currentThreads.find(t=>!t.resolved||$('#show-resolved').checked)?.id||null;zenCollapsed=false;}$$('.thread').forEach(t=>{t.hidden=t.dataset.resolved==='true'&&!$('#show-resolved').checked;t.classList.toggle('active',Number(t.dataset.thread)===activeThread);t.classList.toggle('collapsed',zenMode?(Number(t.dataset.thread)!==activeThread||zenCollapsed):collapsedThreads.has(Number(t.dataset.thread)));t.querySelector('[data-action=collapse-thread]')?.setAttribute('aria-expanded',String(!t.classList.contains('collapsed')));const reply=t.querySelector('.reply-form');if(reply)reply.hidden=Number(t.dataset.thread)!==activeThread;});const floating=$('.floating-thread');if(floating&&(floating.hidden||floating.classList.contains('collapsed')))threadFloat.restore();}
 function showThread(id,anchorY){
+  if(discussionsHidden)setDiscussionsHidden(false);
   activeThread=id;zenCollapsed=false;if(!zenMode){collapsedThreads.delete(id);rememberCollapsed();}filterThreads();
   previewThreads();refreshMarkdownHighlights();
   if(view)view.dispatch({effects:spansEffect.of(view.state.field(spanField))});
@@ -792,7 +793,8 @@ window.addEventListener('message',guard(async event=>{
   if(message.type==='comment')await startComment();
   if(message.type==='quick-open')await showQuickOpen();
   if(message.type==='zen')toggleZen();
-  if(message.type==='thread'&&currentThreads.some(t=>t.id===message.id&&t.path===active))showThread(message.id);
+  if(message.type==='defocus-thread')threadFloat.restore();
+  if(message.type==='thread'&&currentThreads.some(t=>t.id===message.id&&t.path===active))showThread(message.id,Number.isFinite(message.top)?preview.frame.getBoundingClientRect().top+message.top:undefined);
   if(message.type==='anchors'&&Array.isArray(message.statuses)){
     let changed=false;
     for(const status of message.statuses){const thread=currentThreads.find(t=>t.id===status.id&&t.anchor_kind==='rendered');if(!thread||typeof status.attached!=='boolean')continue;
@@ -966,7 +968,7 @@ $('#thread-scope').onchange=guard(async()=>{localStorage.setItem('looking-glass-
 async function setMode(value){const e=entry();syncState();e.mode=value;view?.destroy();view=null;mountDocument(e);await refreshThreads();remember();}
 $('#mode').onchange=guard(()=>setMode($('#mode').value));
 $('#html-toggle').onclick=guard(()=>setMode(entry().mode==='rendered'?'source':'rendered'));
-$('#theme').onclick=()=>{const value=document.documentElement.dataset.theme==='light'?'dark':'light';document.documentElement.dataset.theme=value;localStorage.setItem('looking-glass-theme',value);$('#theme').textContent=value==='dark'?'Light mode':'Dark mode';if(view)view.dispatch({effects:themeSlot.reconfigure(theme())});if(entry()?.mode==='preview'){$$('.mermaid-diagram').forEach(host=>{const source=host.dataset.diagramSource;if(source)renderMermaid(host,source);});}};
+$('#theme').onclick=()=>{const value=document.documentElement.dataset.theme==='light'?'dark':'light';document.documentElement.dataset.theme=value;localStorage.setItem('looking-glass-theme',value);$('#theme').textContent=value==='dark'?'Light mode':'Dark mode';if(view)view.dispatch({effects:themeSlot.reconfigure(theme())});$$('.mermaid-diagram').forEach(host=>{const source=host.dataset.diagramSource;if(source)renderMermaid(host,source);});};
 $('#font-smaller').onclick=()=>{fontStep=Math.max(-4,fontStep-1);localStorage.setItem('looking-glass-font-step',fontStep);applyFontSize();};
 $('#font-larger').onclick=()=>{fontStep=Math.min(12,fontStep+1);localStorage.setItem('looking-glass-font-step',fontStep);applyFontSize();};
 applyFontSize();

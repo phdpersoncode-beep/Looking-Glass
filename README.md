@@ -66,6 +66,14 @@ are excluded. Symlinks are not opened. No project code is executed.
    passages. Reply fields appear for the active thread.
 6. Save with Ctrl+S. The dot on a tab marks an unsaved draft.
 
+Selections in live Markdown and reading preview highlight the text without
+painting the side margins. Discussion messages render Markdown with compact
+prose, tables, highlighted code, and diagrams; their stored text stays Markdown.
+Clicking a passage brings its discussion into a temporary card in the sidebar
+without scrolling the document. Collapse it, press Escape, or click elsewhere
+to return it to its list position. Click the quoted passage, thread number, or
+navigation arrows when you want to move the document to a discussion.
+
 Use **×** beside a comment to delete that comment. **Delete thread** removes the
 whole discussion and its highlight. Deleting the last comment also removes its thread.
 The application asks for confirmation before deletion. Turn on **Across files** above

@@ -6,7 +6,7 @@ export function selectedTextRanges(range,host) {
   const result=[],walker=document.createTreeWalker(host,NodeFilter.SHOW_TEXT);
   let node;
   while((node=walker.nextNode())) {
-    if(!node.textContent.trim()||!range.intersectsNode(node))continue;
+    if(!node.textContent.trim()||node.parentElement.closest('button,input,textarea,select,.markdown-source-controls')||!range.intersectsNode(node))continue;
     const part=document.createRange();part.selectNodeContents(node);
     if(range.startContainer===node)part.setStart(node,range.startOffset);
     if(range.endContainer===node)part.setEnd(node,range.endOffset);
