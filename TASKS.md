@@ -1,3 +1,14 @@
+# Markdown selections and discussion reading
+
+Branch: `feature/markdown-discussion-reading-polish`, based on main after merging HTML source annotations (PR #7).
+
+- [ ] Paint live and reading-preview selections over text only, including wrapped and multiline passages.
+- [ ] Render discussion messages with the shared Markdown/table/code/diagram renderer at a compact size; preserve raw stored bodies and safe HTML handling.
+- [ ] Show selected discussions temporarily beside the reading pane without scrolling it; restore their list positions on collapse or defocus and preserve reply drafts through refreshes.
+- [ ] Cover these behaviors in Chromium and Firefox and run the existing regression suite, asset reproducibility, and package checks.
+
+---
+
 # Sidebar and Markdown review improvements
 
 Use this checklist for the current feature branch. Commit and push each completed item with its regression tests and rebuilt frontend assets.
