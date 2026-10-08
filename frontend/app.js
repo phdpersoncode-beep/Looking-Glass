@@ -498,20 +498,21 @@ async function getNavigationIndex(){
   return navigationIndex;
 }
 function filterThreads(){if(zenMode&&!currentThreads.some(t=>t.id===activeThread&&(!t.resolved||$('#show-resolved').checked))){activeThread=currentThreads.find(t=>!t.resolved||$('#show-resolved').checked)?.id||null;zenCollapsed=false;}$$('.thread').forEach(t=>{t.hidden=t.dataset.resolved==='true'&&!$('#show-resolved').checked;t.classList.toggle('active',Number(t.dataset.thread)===activeThread);t.classList.toggle('collapsed',zenMode?(Number(t.dataset.thread)!==activeThread||zenCollapsed):collapsedThreads.has(Number(t.dataset.thread)));t.querySelector('[data-action=collapse-thread]')?.setAttribute('aria-expanded',String(!t.classList.contains('collapsed')));const reply=t.querySelector('.reply-form');if(reply)reply.hidden=Number(t.dataset.thread)!==activeThread;});const floating=$('.floating-thread');if(floating&&(floating.hidden||floating.classList.contains('collapsed')))threadFloat.restore();}
-function showThread(id,anchorY){
+function showThread(id,anchorY,floating=true){
   if(discussionsHidden)setDiscussionsHidden(false);
   activeThread=id;zenCollapsed=false;if(!zenMode){collapsedThreads.delete(id);rememberCollapsed();}filterThreads();
   previewThreads();refreshMarkdownHighlights();
   if(view)view.dispatch({effects:spansEffect.of(view.state.field(spanField))});
-  threadFloat.show($('.thread[data-thread="'+id+'"]'),anchorY);
+  const card=$('.thread[data-thread="'+id+'"]');
+  if(floating)threadFloat.show(card,anchorY);else threadFloat.reveal(card);
 }
 async function jump(id,target=null){
   let t=target||currentThreads.find(t=>t.id===id);if(!t)return;
-  if(t.anchor_kind==='commit'||t.anchor_kind==='branch'){if(!t.git_target)t=await api('threads/'+id);await openFile(HISTORY);cleanup.selectTarget?.(t.git_target);await refreshThreads();showThread(id);return;}
-  if(t.anchor_status==='needs_reattachment'||tabs.get(t.path)?.conflict?.deleted){await openOriginal(id);showThread(id);notify('Showing original reviewed content.');return;}
-  if(t.path!==active){showThread(id);try{await openFile(t.path);}catch(error){if(error.status===404){await openOriginal(id);showThread(id);return;}notify(error.message,true);return;}}
+  if(t.anchor_kind==='commit'||t.anchor_kind==='branch'){if(!t.git_target)t=await api('threads/'+id);await openFile(HISTORY);cleanup.selectTarget?.(t.git_target);await refreshThreads();showThread(id,undefined,false);return;}
+  if(t.anchor_status==='needs_reattachment'||tabs.get(t.path)?.conflict?.deleted){await openOriginal(id);showThread(id,undefined,false);notify('Showing original reviewed content.');return;}
+  if(t.path!==active){showThread(id,undefined,false);try{await openFile(t.path);}catch(error){if(error.status===404){await openOriginal(id);showThread(id,undefined,false);return;}notify(error.message,true);return;}}
   t=currentThreads.find(item=>item.id===id)||t;
-  showThread(id);
+  showThread(id,undefined,false);
   if(t.anchor_kind==='rendered'||entry().mode==='rendered'&&t.anchor_kind==='source'){
     if(entry().mode!=='rendered'){syncState();view?.destroy();view=null;entry().mode='rendered';mountDocument(entry());remember();}
     renderedJump=id;
@@ -524,7 +525,6 @@ async function jump(id,target=null){
   if(entry().dirty&&!span){notify('Save your draft before navigating to this passage. Its local anchor is unavailable.');return;}
   const from=span?.from??toUnits(entry().content,t.start),to=span?.to??toUnits(entry().content,t.end);
   if(to<=view.state.doc.length){view.dispatch({selection:{anchor:from,head:to},effects:EditorView.scrollIntoView(from,{y:'center'})});view.focus();}
-  threadFloat.layout();
 }
 let navigationQueue=Promise.resolve();
 function navigate(direction){
@@ -567,7 +567,7 @@ async function submitComment(event){
     const anchor=selection.git_target?{git_target:selection.git_target}:{path:selection.path,...(selection.render_anchor?{render_anchor:selection.render_anchor}:{start:selection.start,end:selection.end}),version:e.version};
     const result=await composers.post('threads',{...anchor,body,author},$('#comment-form'));
     composers.clear($('#comment-form'));
-    if(active===selection.path){closeComment();if(selection.html)previewMessage('clear-selection');activeThread=result.id;await refreshThreads();showThread(result.id);view?.focus();}
+    if(active===selection.path){closeComment();if(selection.html)previewMessage('clear-selection');activeThread=result.id;await refreshThreads();showThread(result.id,undefined,false);view?.focus();}
     notify('Discussion created');
   }finally{postingComment=false;composers.setSending($('#comment-form'),false);}
 }
@@ -937,7 +937,7 @@ document.addEventListener('submit',event=>{
       composers.clear(form);
       // Keep text entered while a reply was being sent.
       const current=document.getElementById('reply-'+id);if(current?.value===body)current.value='';
-      await refreshThreads();showThread(id);notify('Reply added');
+      await refreshThreads();if(activeThread===id)showThread(id,undefined,threadFloat.id===id);notify('Reply added');
     }catch(error){composers.status(form,error.message,true);throw error;}
     finally{composers.setSending(form,false);}
 

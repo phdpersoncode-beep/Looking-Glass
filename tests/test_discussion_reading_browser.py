@@ -156,6 +156,7 @@ def test_float_thread_keeps_reading_and_list_positions(workspace_page,mode):
     target.click();expect(overlay).to_be_visible()
     # Explicit navigation is allowed to move the document.
     overlay.locator('[data-action=jump]').first.click()
+    expect(overlay).not_to_be_visible()
     expect(page.locator('.thread.active')).to_have_attribute('data-thread',str(threads[12]['id']))
     page.locator('#collapse-threads').click();expect(overlay).not_to_be_visible()
     page.locator('#discussions-toggle').click();target.click()
