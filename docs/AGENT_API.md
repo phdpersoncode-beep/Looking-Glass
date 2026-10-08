@@ -60,8 +60,10 @@ quote requires a one-based `--occurrence`. Empty/missing/ambiguous quotes and st
 file versions fail without changing the anchor. Reattachment preserves comments,
 attachments, immutable original context, and open/resolved state. It also repairs
 an already attached thread pointing at the wrong passage. It never edits the file.
-Rendered HTML threads require selecting visible text in the browser; source quotes
-cannot reliably identify script-generated rendered content.
+Rendered selections from authored HTML create ordinary source threads with raw
+HTML quotes and offsets. Rendered-only threads (legacy or script-generated content)
+require selecting visible text in the browser; source quotes cannot reliably
+identify runtime-generated content.
 
 After a file edit, automatic source reconciliation shares work across all its
 threads. Unchanged ranges and unique exact quotes remain attached. Repeated quotes
@@ -186,7 +188,9 @@ A response thread includes `id`, `path`, `start`, `end`, `quote`, `anchor_status
 `attached` or `needs_reattachment`. Treat an orphan as a question for a human,
 not permission to guess another passage.
 
-Threads also include `anchor_kind`: `source` or `rendered`. A rendered thread has
+HTML selections with provable source mappings use `anchor_kind: "source"`, raw HTML
+`quote`/offsets, ordinary source context, and CLI reattachment. No preview markup is
+saved in the workspace. Rendered-only threads use `anchor_kind: "rendered"` and have
 `render_anchor` containing `quote`, `prefix`, and `suffix`. Its `start` and `end`
 are placeholders, not HTML-source positions. Agents can list, read, reply, resolve,
 reopen, and delete rendered threads through the existing CLI.

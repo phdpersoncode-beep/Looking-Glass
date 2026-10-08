@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {parse} from 'parse5';
-import {prepareHTMLPreview} from '../frontend/html-source.mjs';
+import {prepareHTMLPreview,sourceOffsets} from '../frontend/html-source.mjs';
 import {htmlTextMap} from '../frontend/html-text-map.mjs';
 
 const marker='data-lg-test';
@@ -52,4 +52,12 @@ test('script, styles, templates, noscript, and form values are excluded',()=>{
 test('marker collisions and invalid attribute names are rejected',()=>{
   assert.throws(()=>prepareHTMLPreview('<p DATA-LG-TEST>text</p>',marker));
   assert.throws(()=>prepareHTMLPreview('<p>text</p>','onclick'));
+});
+
+test('batch Unicode offsets preserve raw CRLF and scan large sibling lists safely',()=>{
+  assert.deepEqual([...sourceOffsets('A😀\r\nB',[5,2,1,2,0])],[[0,0],[1,1],[2,3],[5,6]]);
+  const source='<main>'+('<p>same &amp; text</p>\n'.repeat(10000))+'</main>';
+  const prepared=prepareHTMLPreview(source,marker);
+  assert.equal(prepared.mapping.records.length,20000);
+  assert.equal(prepared.content.replace(/ data-lg-test="\d+"/g,''),source);
 });

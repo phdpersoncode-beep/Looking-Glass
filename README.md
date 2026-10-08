@@ -257,10 +257,15 @@ them in your terminal first. Checkpoints do not push. Saving never commits.
    **Download** saves the current HTML draft for opening directly in a browser,
    without saving pending edits to the workspace. Self-contained reports retain
    their scripts and styling in the downloaded file.
-   Source HTML also supports anchored comments. Each thread records its anchor mode.
-   Rendered anchors store the selected text and surrounding context. Missing or
-   ambiguous passages request reattachment. Select a new rendered passage and click
-   **Attach to selection**. Comments persist in SQLite; the HTML file stays unchanged.
+   Selections from authored HTML anchor to exact raw-source ranges, including
+   inline tags, entities, and table cells. The same threads highlight in rendered
+   and source views and retain their original reviewed content after edits.
+   Missing or ambiguous source passages request reattachment; select replacement
+   text in either view and choose **Attach to selection**.
+   Script-generated text with no provable source range is labelled **Rendered-only**;
+   these threads use visible quotes and context, as do older rendered threads.
+   Comments persist in SQLite. Temporary preview markers never enter saved files
+   or downloads.
 
 ## Development and checks
 

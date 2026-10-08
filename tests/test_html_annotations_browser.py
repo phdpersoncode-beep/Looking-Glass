@@ -30,6 +30,11 @@ def highlights(page,name='looking-glass-passages'):
     return page.frame_locator('#html-preview').locator('body').evaluate('(_,name)=>[...CSS.highlights.get(name)||[]].map(r=>r.toString())',name)
 
 
+def expect_highlights(page,expected,name='looking-glass-active'):
+    frame=page.locator('#html-preview').element_handle().content_frame()
+    frame.wait_for_function("([name,expected])=>JSON.stringify([...CSS.highlights.get(name)||[]].map(r=>r.toString()))===JSON.stringify(expected)",arg=[name,expected],timeout=5000)
+
+
 @pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
 def test_html_source_selection_navigation_and_persistence(workspace_page):
     from playwright.sync_api import expect
@@ -45,7 +50,7 @@ def test_html_source_selection_navigation_and_persistence(workspace_page):
     t=ws.threads()[0];quote='Hello <strong>world</strong> &amp; friends.'
     assert t['anchor_kind']=='source' and t['quote']==quote and t['start']==source.index(quote)
     expect(page.frame_locator('#html-preview').locator('body')).to_be_visible()
-    assert ''.join(highlights(page))=='Hello world & friends.'
+    expect_highlights(page,['Hello ','world',' & friends.'],'looking-glass-passages')
     page.locator('#html-toggle').click()
     expect(page.locator('.passage-highlight')).to_have_text(quote)
     page.locator('.thread .jump').click();expect(page.locator('#html-toggle span.active')).to_have_text('Source')
@@ -56,7 +61,7 @@ def test_html_source_selection_navigation_and_persistence(workspace_page):
     assert next(t for t in ws.threads() if t['messages'][0]['body']=='Astral entity')['quote']=='&#x1F600;'
     page.locator(f'.thread[data-thread="{second["id"]}"] .jump').click()
     expect(page.locator('#html-toggle span.active')).to_have_text('Rendered')
-    assert highlights(page,'looking-glass-active')==['same']
+    expect_highlights(page,['same'])
     page.frame_locator('#html-preview').get_by_role('button',name='Run',exact=True).click()
     expect(page.frame_locator('#html-preview').get_by_role('button',name='Works',exact=True)).to_be_visible()
     assert page.frame_locator('#html-preview').locator('body').evaluate('()=>{try{return !!parent.document}catch{return false}}') is False
@@ -69,6 +74,7 @@ def test_html_source_selection_navigation_and_persistence(workspace_page):
     thread.locator('.reply-form button[type=submit]').click();expect(page.get_by_text('Same source thread',exact=True)).to_be_visible()
     thread.get_by_role('button',name='Resolve thread',exact=True).click()
     page.locator('#show-resolved').check();thread.get_by_role('button',name='Reopen thread',exact=True).click()
+    expect(thread.get_by_role('button',name='Resolve thread',exact=True)).to_be_visible()
     assert ws.get_thread(second['id'])['resolved'] is False
 
 
@@ -93,8 +99,10 @@ def test_html_edits_reattachment_and_original_context(workspace_page):
     assert ws.origins.read(t['id'])['content']==original
     # An unsaved source edit is saved before a rendered selection is submitted.
     open_file(page,'report.html');page.locator('#html-toggle').click()
-    page.locator('.cm-content').click();page.keyboard.press('Control+End');page.keyboard.insert_text('<p id="draft">Unsaved draft passage.</p>')
-    page.locator('#html-toggle').click();select(page,'#draft');comment(page,'Saved with annotation')
+    page.locator('.cm-content').click();page.keyboard.press('Control+Home');page.keyboard.insert_text('<h2>🪞 Added draft title.</h2>')
+    page.keyboard.press('Control+End');page.keyboard.insert_text('<p id="draft">Unsaved draft passage.</p>')
+    page.locator('#html-toggle').click();expect_highlights(page,['A replacement passage.'],'looking-glass-passages')
+    select(page,'#draft');comment(page,'Saved with annotation')
     assert 'Unsaved draft passage.' in path.read_text()
     assert next(t for t in ws.threads() if t['messages'][0]['body']=='Saved with annotation')['quote']=='Unsaved draft passage.'
 
@@ -123,3 +131,51 @@ def test_html_dynamic_and_legacy_anchors_stay_rendered_only(workspace_page):
     expect(page.locator('#html-toggle span.active')).to_have_text('Source')
     expect(page.locator('.passage-highlight')).to_have_text('Static passage.')
     assert ws.get_thread(legacy['id'])['anchor_kind']=='rendered'
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_html_fragment_whitespace_partial_entities_and_reverse_mapping(workspace_page):
+    root,page,url,ws=workspace_page
+    source='Plain fragment <p hidden>same</p><p id="visible">same</p><pre id="pre">\r\nLine one\r\nLine two</pre><p id="entities">X &copy Y &NotEqualTilde; Z</p>'
+    (root/'fragment.htm').write_bytes(source.encode())
+    start=source.index('same</p>',source.index('id="visible"'))
+    ws.create_thread('fragment.htm',start,start+4,'Created in source','Reviewer',ws.read('fragment.htm')['version'])
+    page.goto(url);open_file(page,'fragment.htm');page.locator('.thread .jump').click()
+    expect_highlights(page,['same'])
+    select(page,'pre',0,17);comment(page,'Preserve CRLF')
+    assert next(t for t in ws.threads() if t['messages'][0]['body']=='Preserve CRLF')['quote']=='Line one\r\nLine two'
+    select(page,'#entities',2,3);comment(page,'Legacy entity')
+    assert next(t for t in ws.threads() if t['messages'][0]['body']=='Legacy entity')['quote']=='&copy'
+    select(page,'#entities',6,7);comment(page,'Part of multi-character entity')
+    assert next(t for t in ws.threads() if t['messages'][0]['body']=='Part of multi-character entity')['quote']=='&NotEqualTilde;'
+    page.frame_locator('#html-preview').locator('body').evaluate('''el=>{
+      const range=document.createRange();range.setStart(el.firstChild,0);range.setEnd(el.firstChild,5);
+      getSelection().removeAllRanges();getSelection().addRange(range);
+    }''')
+    comment(page,'Body fragment')
+    assert next(t for t in ws.threads() if t['messages'][0]['body']=='Body fragment')['quote']=='Plain'
+    assert (root/'fragment.htm').read_bytes()==source.encode()
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_html_native_drag_scroll_and_highlight_click(workspace_page):
+    import re
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    source='''<!doctype html><style>body{font:18px sans-serif;padding:32px}p{width:500px}table{border-collapse:collapse}td{padding:12px;border:1px solid #ccc}</style>
+    <p id="drag">A naturally selected passage.</p><table><tr><td id="cell">A table cell.</td></tr></table><div style="height:1800px"></div><p id="later">A later review passage.</p>'''
+    (root/'report.html').write_text(source)
+    page.goto(url);open_file(page,'report.html')
+    frame=page.frame_locator('#html-preview');box=frame.locator('#drag').bounding_box()
+    page.mouse.move(box['x']+2,box['y']+box['height']/2);page.mouse.down();page.mouse.move(box['x']+250,box['y']+box['height']/2,steps=15);page.mouse.up()
+    comment(page,'Native drag selection')
+    t=ws.threads()[0];assert t['anchor_kind']=='source' and source[t['start']:t['end']]==t['quote']
+    assert frame.locator('#drag').evaluate("el=>getComputedStyle(el,'::selection').backgroundColor")=='rgba(184, 77, 255, 0.27)'
+    select(page,'#later');comment(page,'Lower passage')
+    page.locator(f'.thread[data-thread="{t["id"]}"] .jump').click();expect(frame.locator('#drag')).to_be_in_viewport()
+    frame.locator('#drag').evaluate('()=>getSelection().removeAllRanges()')
+    frame.locator('#drag').click(position={'x':15,'y':10})
+    expect(page.locator(f'.thread[data-thread="{t["id"]}"]')).to_have_class(re.compile(r'\bactive\b'))
+    select(page,'#cell');comment(page,'Table annotation')
+    assert next(t for t in ws.threads() if t['messages'][0]['body']=='Table annotation')['quote']=='A table cell.'
+    assert frame.locator('table').evaluate('el=>el.querySelectorAll("span").length')==0

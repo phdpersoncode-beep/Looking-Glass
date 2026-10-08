@@ -1,4 +1,4 @@
-import {prepareHTMLPreview} from './html-source.mjs';
+import {prepareHTMLPreview,sourceOffsets} from './html-source.mjs';
 import {createComposers} from './composer.mjs';
 import {mountHistory} from './history.mjs';
 import {formatJSON} from './json-format.mjs';
@@ -64,8 +64,9 @@ function toRawUnits(text,units){let at=0;for(let i=0;i<text.length;i++){if(at===
 function previewMessage(type,data={}){const preview=renderedPreview;if(preview?.ready)preview.frame.contentWindow.postMessage({lookingGlass:preview.channel,type,...data},'*');}
 function previewThreads(){
   const e=entry();if(!renderedPreview||!e)return;
-  const points=Array.from(e.content),rawOffset=point=>points.slice(0,point).join('').length;
-  previewMessage('threads',{threads:currentThreads.filter(t=>t.path===active&&(t.anchor_kind==='rendered'||t.anchor_kind==='source'&&t.anchor_status==='attached')).map(t=>({id:t.id,render_anchor:t.render_anchor,resolved:t.resolved,source:t.anchor_kind==='source'?{from:rawOffset(t.start),to:rawOffset(t.end)}:null})),active:activeThread});
+  const draft=e.dirty?new Map((e.state?.field(spanField)||[]).map(span=>[span.id,{from:toRawUnits(e.content,span.from),to:toRawUnits(e.content,span.to)}])):null;
+  const offsets=sourceOffsets(e.content,currentThreads.filter(t=>t.path===active&&t.anchor_kind==='source').flatMap(t=>[t.start,t.end]));
+  previewMessage('threads',{threads:currentThreads.filter(t=>t.path===active&&(t.anchor_kind==='rendered'||t.anchor_kind==='source'&&t.anchor_status==='attached'&&(!draft||draft.has(t.id)))).map(t=>({id:t.id,render_anchor:t.render_anchor,resolved:t.resolved,source:t.anchor_kind==='source'?(draft?.get(t.id)||{from:offsets.get(t.start),to:offsets.get(t.end)}):null})),active:activeThread});
 }
 async function captureHTMLSelection(){
   const preview=renderedPreview;if(!preview?.ready)return;
@@ -504,7 +505,7 @@ async function jump(id,target=null){
   if(t.path!==active){showThread(id);try{await openFile(t.path);}catch(error){if(error.status===404){await openOriginal(id);showThread(id);return;}notify(error.message,true);return;}}
   t=currentThreads.find(item=>item.id===id)||t;
   showThread(id);
-  if(t.anchor_kind==='rendered'||renderedPreview&&t.anchor_kind==='source'){
+  if(t.anchor_kind==='rendered'||entry().mode==='rendered'&&t.anchor_kind==='source'){
     if(entry().mode!=='rendered'){syncState();view?.destroy();view=null;entry().mode='rendered';mountDocument(entry());remember();}
     renderedJump=id;
     previewMessage('jump',{id});return;
@@ -559,7 +560,7 @@ async function submitComment(event){
     const anchor=selection.git_target?{git_target:selection.git_target}:{path:selection.path,...(selection.render_anchor?{render_anchor:selection.render_anchor}:{start:selection.start,end:selection.end}),version:e.version};
     const result=await composers.post('threads',{...anchor,body,author},$('#comment-form'));
     composers.clear($('#comment-form'));
-    if(active===selection.path){closeComment();activeThread=result.id;await refreshThreads();showThread(result.id);view?.focus();}
+    if(active===selection.path){closeComment();if(selection.html)previewMessage('clear-selection');activeThread=result.id;await refreshThreads();showThread(result.id);view?.focus();}
     notify('Discussion created');
   }finally{postingComment=false;composers.setSending($('#comment-form'),false);}
 }

@@ -5,7 +5,7 @@ let threads=[], active=null, ranges=new Map(), selected=null;
 let sourceBindings=new WeakMap(),sourceText='';
 function bindSource(mapping){
   sourceBindings=new WeakMap();sourceText=mapping.source;
-  const elements=new Map();
+  const elements=new Map(),childCounts=new WeakMap();
   for(const element of document.querySelectorAll('['+mapping.attribute+']')){
     const id=element.getAttribute(mapping.attribute);
     elements.set(id,elements.has(id)?null:element);
@@ -13,7 +13,9 @@ function bindSource(mapping){
   for(const record of mapping.records){
     let node=record.id===null?document.body:elements.get(record.id);
     for(const index of record.path)node=node?.childNodes[index];
-    if(node?.nodeType!==Node.TEXT_NODE||node.data!==record.text||[...node.parentNode.childNodes].filter(n=>!n.matches?.('[data-looking-glass-overlay]')).length!==record.siblings)continue;
+    if(node?.nodeType!==Node.TEXT_NODE||node.data!==record.text)continue;
+    if(!childCounts.has(node.parentNode))childCounts.set(node.parentNode,[...node.parentNode.childNodes].filter(n=>!n.matches?.('[data-looking-glass-overlay]')).length);
+    if(childCounts.get(node.parentNode)!==record.siblings)continue;
     const item={...record,node,map:undefined};sourceBindings.set(node,item);
   }
 }
@@ -99,6 +101,7 @@ function paint(){
 window.addEventListener('message',event=>{
   if(event.source!==parent||event.origin!==config.parentOrigin||event.data?.lookingGlass!==config.channel)return;
   const message=event.data;
+  if(message.type==='clear-selection'||message.type==='jump'){getSelection()?.removeAllRanges();capture();}
   if(message.type==='capture')capture(message.requestId);
   if(message.type==='initialize'){bindSource(message.mapping);paint();capture();}
   if(message.type==='threads'){threads=message.threads;active=message.active;paint();}

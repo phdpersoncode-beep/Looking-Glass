@@ -120,10 +120,11 @@ def test_review_workflow_features(tmp_path):
 
 
 def test_rendered_html_discussions(tmp_path):
+    # Script-generated passages keep the legacy rendered-only lifecycle.
     from playwright.sync_api import sync_playwright, expect
     report=tmp_path/'report.html'
     report.write_text('''<!doctype html><html><body><h1>Report</h1>
-<p id="passage">Hello <strong>world</strong> &amp; friends.</p>
+<p id="passage"></p><script>document.querySelector('#passage').innerHTML='Hello <strong>world</strong> &amp; friends.';</script>
 <button id="interactive" onclick="document.querySelector('#result').textContent='Clicked'">Run</button><p id="result"></p>
 <div style="height:1800px"></div><p id="later">A later passage.</p>
 </body></html>''')

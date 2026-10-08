@@ -15,20 +15,32 @@ export function prepareHTMLPreview(source, attribute) {
       node.marker=id;
     }
     if(node.nodeName==='#text'&&node.sourceCodeLocation){
-      let ancestor=node.parentNode,path=[ancestor.childNodes.indexOf(node)];
+      let ancestor=node.parentNode,path=[node.childIndex];
       while(ancestor&&!ancestor.marker&&ancestor.marker!=='0'&&ancestor.tagName!=='body'){
         const parent=ancestor.parentNode;if(!parent)break;
-        path.unshift(parent.childNodes.indexOf(ancestor));ancestor=parent;
+        path.unshift(ancestor.childIndex);ancestor=parent;
       }
       if(ancestor?.marker!==undefined||ancestor?.tagName==='body')records.push({id:ancestor.marker??null,path,siblings:node.parentNode.childNodes.length,text:node.value,from:node.sourceCodeLocation.startOffset,to:node.sourceCodeLocation.endOffset});
     }
     // Template contents and script/style text are never annotation surfaces.
     if(!['script','style','noscript','template','textarea','title','xmp','iframe','noembed','noframes','plaintext'].includes(node.tagName)){
-      for(let i=(node.childNodes?.length||0)-1;i>=0;i--)stack.push(node.childNodes[i]);
+      for(let i=(node.childNodes?.length||0)-1;i>=0;i--){node.childNodes[i].childIndex=i;stack.push(node.childNodes[i]);}
     }
   }
   const parts=[];let cursor=0;
   for(const item of insertions.sort((a,b)=>a.at-b.at)){parts.push(source.slice(cursor,item.at),item.text);cursor=item.at;}
   parts.push(source.slice(cursor));
   return {content:parts.join(''),mapping:{attribute,records,source}};
+}
+
+// Batch API code-point offsets into browser UTF-16 offsets in one source scan.
+export function sourceOffsets(source,points){
+  const wanted=[...new Set(points)].sort((a,b)=>a-b),offsets=new Map();let point=0,unit=0,index=0;
+  for(const ch of source){
+    while(wanted[index]===point){offsets.set(point,unit);index++;}
+    if(index===wanted.length)return offsets;
+    point++;unit+=ch.length;
+  }
+  if(wanted[index]===point)offsets.set(point,unit);
+  return offsets;
 }
