@@ -296,3 +296,47 @@ GitHub's separate browser job uses the repository's pinned Playwright dependenci
 Source-backed threads never depend on quote-only DOM matching. Runtime-generated
 or otherwise unprovable mappings remain explicitly rendered-only; existing
 rendered-only threads are preserved without speculative migration.
+
+## Markdown selections and discussion reading (2026-10-08)
+
+Implementation: `4208669`, on `feature/markdown-discussion-reading-polish`, based
+on main after merging [PR #7](https://github.com/phdpersoncode-beep/Looking-Glass/pull/7).
+
+- Frontend: **11 passed**. Backend: **80 passed** locally and in GitHub's locked
+  dependency job. Frontend assets rebuild reproducibly; Python wheel and source
+  distribution builds pass.
+- Full browser suite: **119 passed** locally in **431.06 seconds**, and
+  **119 passed** in **425.00 seconds** in the
+  [locked-dependency run](https://github.com/phdpersoncode-beep/Looking-Glass/actions/runs/37848191803).
+- Twenty new Chromium/Firefox cases cover forward/backward native multiline
+  selections in live and reading-preview Markdown, wrapped prose, Unicode/CRLF,
+  exact saved source anchors, and clean side margins. Both themes retain the
+  existing purple selection color, including rendered tables.
+- Discussion bodies and replies share Markdown styling, compact tables, syntax
+  coloring, and Mermaid diagrams. Checks cover headings, lists, quotes, links,
+  smaller fonts, theme changes, reloads, unchanged stored Markdown, and sanitized
+  HTML that cannot execute scripts or impersonate discussion controls.
+- Thirty long Markdown threads exercise floating-card placement and independent
+  scrolling in live, preview, and source views. Opening keeps document/sidebar
+  scroll within two pixels. Dismissal restores the original card order and keeps
+  the reading position stable; external updates preserve reply drafts, focus,
+  and cursor selection.
+  Twenty-five HTML threads verify report-scroll preservation and defocus behavior;
+  existing iframe isolation and source-annotation regressions remain in the suite.
+- Final focused Markdown/discussion browser checks: **40 passed**. Immediate Escape dismissal cancels
+  delayed passage activation. Posting, sidebar expansion, original context, and
+  explicit passage navigation keep controls in the normal list. Replies preserve
+  whether the card is floating or in the list; passage clicks temporarily float it.
+- A live-table regression failed before the repair: a new background discussion
+  replaced the selected table and cleared its native selection. Annotation-only
+  updates now reuse the DOM and defer mark changes during selection. Both browser
+  cases pass and verify posting the preserved exact quote after the update. The
+  encoded-character test helper now focuses the native table region like a real
+  cell drag, instead of leaving CodeMirror's source caret focused.
+- Text-only selections and compact discussion tables/code were visually inspected
+  in light and dark themes.
+
+Local focused browser checks used Playwright 1.56, Chromium 141, and Firefox 142.
+The complete final browser gate uses the repository's pinned Playwright/browser
+versions in GitHub Actions. Local Firefox process-sandbox relaxation was only for
+container compatibility; the report iframe's opaque-origin isolation stayed enabled.

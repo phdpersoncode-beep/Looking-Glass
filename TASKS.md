@@ -2,10 +2,16 @@
 
 Branch: `feature/markdown-discussion-reading-polish`, based on main after merging HTML source annotations (PR #7).
 
-- [ ] Paint live and reading-preview selections over text only, including wrapped and multiline passages.
-- [ ] Render discussion messages with the shared Markdown/table/code/diagram renderer at a compact size; preserve raw stored bodies and safe HTML handling.
-- [ ] Show selected discussions temporarily beside the reading pane without scrolling it; restore their list positions on collapse or defocus and preserve reply drafts through refreshes.
-- [ ] Cover these behaviors in Chromium and Firefox and run the existing regression suite, asset reproducibility, and package checks.
+- [x] Paint live and reading-preview selections over text only, including wrapped and multiline passages.
+- [x] Render discussion messages with the shared Markdown/table/code/diagram renderer at a compact size; preserve raw stored bodies and safe HTML handling.
+- [x] Show selected discussions temporarily beside the reading pane without scrolling it; restore their list positions on collapse or defocus and preserve reply drafts through refreshes.
+- [x] Cover these behaviors in Chromium and Firefox and run the existing regression suite, asset reproducibility, and package checks.
+
+Verification: 11 frontend tests, 80 backend tests, and all 119 browser checks pass
+locally and on GitHub.
+Frontend assets rebuild reproducibly; Python wheel/source builds pass. Final locked
+dependency verification and coverage are recorded in `docs/VERIFICATION.md` and
+[PR #8](https://github.com/phdpersoncode-beep/Looking-Glass/pull/8).
 
 ---
 

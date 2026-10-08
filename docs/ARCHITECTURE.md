@@ -40,6 +40,8 @@ controls or styling. Compact typography uses the document's Markdown rules.
 `frontend/text-selection.mjs` paints selected text runs instead of block boxes,
 without changing selection contents or anchor coordinates. CodeMirror uses a
 measurement layer; native rendered selections use CSS Custom Highlights.
+Live tables update annotation marks in place while their source and offset stay
+unchanged, preserving native cell selections through background discussion updates.
 `frontend/thread-float.mjs` temporarily moves the selected card into the sidebar
 viewport, leaving a sized placeholder in the list. Collapse, Escape, defocus,
 and navigation away restore that same card. Refreshes preserve reply drafts,
