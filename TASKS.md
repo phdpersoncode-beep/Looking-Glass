@@ -31,3 +31,19 @@ Branch: `bugfix/git-history-layout`, based on the latest sidebar/Markdown branch
 - [x] Add Chromium/Firefox regressions for crowded local/remote labels, narrow panes, keyboard selection, all/partial/empty branch selections, reloads, and clearing an in-flight request.
 
 The layout regression failed before the fix (text width approximately 42 px; metadata outside the row). Both new regression scenarios pass in Chromium and Firefox. Backend tests: 73 passed; frontend unit tests: 4 passed. Full browser suite: 88 passed, 1 failed (the existing live Markdown encoded-character selection check timed out waiting for Add comment). That check passed when rerun alone on both this fix and the unchanged `09309df` baseline; no Markdown code was changed for it. All 11 history browser tests passed. Frontend assets and Python wheel/source builds succeeded; the repaired layout was also visually inspected.
+
+## Rendered HTML source annotations
+
+Branch: `feature/rendered-html-source-annotations` (from main).
+
+- [x] Parse HTML with source locations; mark only the disposable preview, preserving original bytes and report behavior.
+- [x] Map rendered selections to source ranges across tags, entities, Unicode, CRLF, tables, and repeated text.
+- [x] Reuse source thread persistence, original context, edits/reattachment, and highlight/navigation in both views.
+- [x] Keep legacy and script-generated passages usable as explicitly rendered-only threads; never guess a source range.
+- [x] Match Markdown/code selection controls and purple highlights; preserve iframe isolation.
+- [x] Add unit, backend, and Chromium/Firefox regressions; run the full suite and package builds.
+
+Verification: 11 frontend tests, 80 backend tests, and all 99 browser tests pass.
+Frontend assets rebuild reproducibly; Python wheel/source builds pass. See
+[PR #7](https://github.com/phdpersoncode-beep/Looking-Glass/pull/7) and
+`docs/VERIFICATION.md` for coverage and test-environment details.

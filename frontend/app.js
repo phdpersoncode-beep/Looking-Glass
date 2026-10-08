@@ -1,3 +1,4 @@
+import {prepareHTMLPreview,sourceOffsets} from './html-source.mjs';
 import {createComposers} from './composer.mjs';
 import {mountHistory} from './history.mjs';
 import {formatJSON} from './json-format.mjs';
@@ -61,7 +62,26 @@ function refreshMarkdownHighlights(){const spans=markdownSpans();for(const rende
 function toRawUnits(text,units){let at=0;for(let i=0;i<text.length;i++){if(at===units)return i;if(text[i]==='\r'&&text[i+1]==='\n')i++;at++;}return text.length;}
 
 function previewMessage(type,data={}){const preview=renderedPreview;if(preview?.ready)preview.frame.contentWindow.postMessage({lookingGlass:preview.channel,type,...data},'*');}
-function previewThreads(){previewMessage('threads',{threads:currentThreads.filter(t=>t.path===active&&t.anchor_kind==='rendered').map(t=>({id:t.id,render_anchor:t.render_anchor,resolved:t.resolved})),active:activeThread});}
+function previewThreads(){
+  const e=entry();if(!renderedPreview||!e)return;
+  const draft=e.dirty?new Map((e.state?.field(spanField)||[]).map(span=>[span.id,{from:toRawUnits(e.content,span.from),to:toRawUnits(e.content,span.to)}])):null;
+  const offsets=sourceOffsets(e.content,currentThreads.filter(t=>t.path===active&&t.anchor_kind==='source').flatMap(t=>[t.start,t.end]));
+  previewMessage('threads',{threads:currentThreads.filter(t=>t.path===active&&(t.anchor_kind==='rendered'||t.anchor_kind==='source'&&t.anchor_status==='attached'&&(!draft||draft.has(t.id)))).map(t=>({id:t.id,render_anchor:t.render_anchor,resolved:t.resolved,source:t.anchor_kind==='source'?(draft?.get(t.id)||{from:offsets.get(t.start),to:offsets.get(t.end)}):null})),active:activeThread});
+}
+async function captureHTMLSelection(){
+  const preview=renderedPreview;if(!preview?.ready)return;
+  const requestId=crypto.randomUUID();preview.requests??=new Map();
+  await new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>{preview.requests.delete(requestId);reject(new Error('The HTML preview did not respond. Select the passage again.'));},2000);
+    preview.requests.set(requestId,()=>{clearTimeout(timer);resolve();});previewMessage('capture',{requestId});
+  });
+  if(renderedPreview!==preview)throw new Error('The document changed. Select the passage again.');
+}
+function htmlSelection(){
+  const source=renderedSelection?.source,text=entry()?.content;
+  if(!source||typeof text!=='string'||!Number.isInteger(source.from)||!Number.isInteger(source.to)||source.from<0||source.to<=source.from||source.to>text.length)return null;
+  return {start:Array.from(text.slice(0,source.from)).length,end:Array.from(text.slice(0,source.to)).length};
+}
 let fontStep = Math.max(-4,Math.min(12,Number(localStorage.getItem('looking-glass-font-step'))||0));
 function applyFontSize(){document.documentElement.style.setProperty('--document-font-size',(14+fontStep)+'px');document.documentElement.style.setProperty('--prose-font-size',(18+fontStep)+'px');document.documentElement.style.setProperty('--document-font-step',fontStep+'px');view?.requestMeasure();}
 const themeSlot = new Compartment(), liveSlot = new Compartment(), gitSlot=new Compartment();
@@ -389,7 +409,7 @@ function mountDocument(e){
     const frame=document.createElement('iframe');frame.id='html-preview';frame.title='Isolated HTML report';frame.setAttribute('sandbox','allow-scripts allow-forms allow-modals');
     // A separate preview capability grants no application API access. The
     // iframe and response sandbox both enforce an opaque report origin.
-    guard(async()=>{const preview=await api('preview','POST',{path:e.path,content:e.content});if(frame.isConnected){renderedPreview={frame,path:e.path,channel:preview.url.split('/').pop(),ready:false};frame.src=preview.url;}})();
+    guard(async()=>{const prepared=prepareHTMLPreview(e.content,'data-lg-'+crypto.randomUUID());const preview=await api('preview','POST',{path:e.path,content:prepared.content});if(frame.isConnected){renderedPreview={frame,path:e.path,mapping:prepared.mapping,channel:preview.url.split('/').pop(),ready:false};frame.src=preview.url;}})();
     cleanup=()=>{renderedPreview=null;renderedSelection=null;renderedJump=null;};
     $('#surface').append(frame);
   }else if(e.mode==='preview'){
@@ -485,7 +505,7 @@ async function jump(id,target=null){
   if(t.path!==active){showThread(id);try{await openFile(t.path);}catch(error){if(error.status===404){await openOriginal(id);showThread(id);return;}notify(error.message,true);return;}}
   t=currentThreads.find(item=>item.id===id)||t;
   showThread(id);
-  if(t.anchor_kind==='rendered'){
+  if(t.anchor_kind==='rendered'||entry().mode==='rendered'&&t.anchor_kind==='source'){
     if(entry().mode!=='rendered'){syncState();view?.destroy();view=null;entry().mode='rendered';mountDocument(entry());remember();}
     renderedJump=id;
     previewMessage('jump',{id});return;
@@ -516,15 +536,16 @@ function startGitComment(target){
 }
 function presentComment(){
   const location=selectionLocation();
-  $('#selected-quote').textContent=pending.quote;$('#comment-body').value='';$('#comment-error').textContent='';$('#comment-dialog').show();
+  $('#selected-quote').textContent=pending.quote;$('#anchor-note').hidden=!pending.html;$('#anchor-note').textContent=pending.html?(pending.render_anchor?'Rendered-only passage · no matching HTML source':'Anchored to HTML source'):'';$('#comment-body').value='';$('#comment-error').textContent='';$('#comment-dialog').show();
   if(location)placeNearSelection($('#comment-dialog'),location);
   else {$('#comment-dialog').style.left='calc(50% - 160px)';$('#comment-dialog').style.top='30%';}
   scheduleSelectionTools();$('#comment-body').focus();
 }
-function selectedContent(selection){return selection.git_target?'':selection.render_anchor||selection.markdown&&!view?entry()?.content:view?.state.sliceDoc();}
+function selectedContent(selection){return selection.git_target?'':selection.html||selection.render_anchor||selection.markdown&&!view?entry()?.content:view?.state.sliceDoc();}
 async function startComment(){
   const e=entry();if(!e||e.kind)return;
-  if(renderedPreview&&renderedSelection)pending={path:e.path,render_anchor:renderedSelection.anchor,quote:renderedSelection.anchor.quote,content:e.content};
+  if(renderedPreview)await captureHTMLSelection();
+  if(renderedPreview&&renderedSelection){const source=htmlSelection();pending={path:e.path,...(source||{render_anchor:renderedSelection.anchor}),quote:renderedSelection.anchor.quote,content:e.content,html:true};}
   else if(markdownSelection()){const selected=markdownSelection(),text=view?view.state.sliceDoc():e.content;const start=view?selectionPoints(view.state,selected.from):Array.from(text.slice(0,selected.from)).length,end=view?selectionPoints(view.state,selected.to):Array.from(text.slice(0,selected.to)).length;pending={path:e.path,start,end,quote:Array.from(text).slice(start,end).join(''),content:text,markdown:true};}
   else{if(!view||view.state.selection.main.empty)return;const {from,to}=view.state.selection.main;pending={path:e.path,start:selectionPoints(view.state,from),end:selectionPoints(view.state,to),quote:view.state.sliceDoc(from,to),content:view.state.sliceDoc()};}
   presentComment();
@@ -539,7 +560,7 @@ async function submitComment(event){
     const anchor=selection.git_target?{git_target:selection.git_target}:{path:selection.path,...(selection.render_anchor?{render_anchor:selection.render_anchor}:{start:selection.start,end:selection.end}),version:e.version};
     const result=await composers.post('threads',{...anchor,body,author},$('#comment-form'));
     composers.clear($('#comment-form'));
-    if(active===selection.path){closeComment();activeThread=result.id;await refreshThreads();showThread(result.id);view?.focus();}
+    if(active===selection.path){closeComment();if(selection.html)previewMessage('clear-selection');activeThread=result.id;await refreshThreads();showThread(result.id);view?.focus();}
     notify('Discussion created');
   }finally{postingComment=false;composers.setSending($('#comment-form'),false);}
 }
@@ -751,16 +772,21 @@ document.addEventListener('htmx:beforeSwap',event=>{
 window.addEventListener('message',guard(async event=>{
   const preview=renderedPreview,message=event.data;
   if(!preview||event.source!==preview.frame.contentWindow||event.origin!=='null'||message?.lookingGlass!==preview.channel)return;
-  if(message.type==='ready'){preview.ready=true;previewThreads();if(renderedJump)previewMessage('jump',{id:renderedJump});}
+  if(message.type==='ready'){preview.ready=true;previewMessage('initialize',{mapping:preview.mapping});previewThreads();if(renderedJump)previewMessage('jump',{id:renderedJump});}
   if(message.type==='selection'){
     const selection=message.selection;
     renderedSelection=selection&&typeof selection.anchor?.quote==='string'&&selection.anchor.quote.length<=50000&&['left','right','top','bottom'].every(key=>Number.isFinite(selection.rect?.[key]))?selection:null;
+    preview.requests?.get(message.requestId)?.();preview.requests?.delete(message.requestId);
     updateToolbar();
+  }
+  if(message.type==='unmapped'){
+    const thread=currentThreads.find(t=>t.id===message.id&&t.path===active&&t.anchor_kind==='source');
+    if(thread){await setMode('source');await jump(thread.id);notify('Showing the anchored HTML source.');}
   }
   if(message.type==='comment')await startComment();
   if(message.type==='quick-open')await showQuickOpen();
   if(message.type==='zen')toggleZen();
-  if(message.type==='thread'&&currentThreads.some(t=>t.id===message.id&&t.anchor_kind==='rendered'))showThread(message.id);
+  if(message.type==='thread'&&currentThreads.some(t=>t.id===message.id&&t.path===active))showThread(message.id);
   if(message.type==='anchors'&&Array.isArray(message.statuses)){
     let changed=false;
     for(const status of message.statuses){const thread=currentThreads.find(t=>t.id===status.id&&t.anchor_kind==='rendered');if(!thread||typeof status.attached!=='boolean')continue;
@@ -871,7 +897,9 @@ document.addEventListener('click',guard(async event=>{
   }
   if(action.dataset.action==='reattach'){
     if(t.path!==active){await openFile(t.path);showThread(id);notify('Select the new passage in this file, then attach the thread.');return;}
+    if(renderedPreview)await captureHTMLSelection();
     if(t.anchor_kind==='rendered'){if(!renderedSelection)throw new Error('Select the new passage in the rendered report first.');await saveActive();await api('threads/'+id,'PATCH',{render_anchor:renderedSelection.anchor,version:entry().version});await refreshThreads();await jump(id);return;}
+    if(renderedPreview){const source=htmlSelection();if(!source)throw new Error('Select a passage with matching HTML source, or attach it in source mode.');await saveActive();await api('threads/'+id,'PATCH',{...source,version:entry().version});await refreshThreads();await jump(id);return;}
     if(!view||view.state.selection.main.empty)throw new Error('Select the new passage in the editor first.');const {from,to}=view.state.selection.main;const start=selectionPoints(view.state,from),end=selectionPoints(view.state,to);await saveActive();await api('threads/'+id,'PATCH',{start,end,version:entry().version});await refreshThreads();await jump(id);
   }
 }));

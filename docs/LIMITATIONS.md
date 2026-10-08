@@ -4,8 +4,12 @@
   and drops tabs from the previous workspace. No multi-user collaboration, built-in model calls, or editing-pass orchestration.
 - Rendered HTML annotations cover selectable document text, including script-generated
   text. Canvas, images, nested frames, and shadow DOM have no text anchors.
-  Highlights require the browser's CSS Custom Highlight API. Anchor matching occurs
-  when the report is open; runtime-only content must reappear after reopening.
+  Authored text maps to source ranges; script-generated/replaced text and selections
+  whose source order differs from DOM order use explicit rendered-only anchors.
+  Existing rendered-only threads keep their original anchor mode. Source ranges
+  reconcile on disk even with the preview closed. Only rendered-only matching
+  requires an open report, and runtime text must reappear after reopening.
+  Highlights require the browser's CSS Custom Highlight API.
   Large DOM updates can delay matching. Reports that replace the entire document,
   block injected scripts with their own security policy, or contain malformed script
   markup can prevent the annotation bridge from running.

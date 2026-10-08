@@ -43,8 +43,17 @@ dirty document and verifies the current content hash.
 HTML uses a sandboxed iframe without `allow-same-origin`. Creating a preview needs
 the application token; its separate temporary URL grants access only to that HTML.
 Report scripts receive no API token and cannot read the parent or call protected APIs.
-The preview is self-contained; local linked assets and rendered-HTML annotations
-are deferred. Source HTML supports the same anchored discussions as code.
+`frontend/html-source.mjs` uses parse5 source locations to add temporary identities
+only to existing tags in the preview copy. The bundled `frontend/html-preview.js`
+bridge binds unchanged text nodes, decodes entity/line-ending boundaries, and sends
+raw UTF-16 selection ranges. The parent converts these to Python code points and
+uses ordinary source threads; source highlights project back into visible text.
+Mappings are conservative: dynamic or reordered selections without a provable
+contiguous source range retain rendered-only quote/context anchors. Runtime DOM
+changes cannot mark a valid on-disk source anchor detached. Navigation falls back
+to source when its text is not visible. The parent requests a fresh selection
+before posting or reattaching, and validates the preview window/channel/origin.
+Local linked assets remain unsupported; reports should be self-contained.
 
 Git is optional until a user explicitly initializes a repository. Saving never
 commits. Checkpoints build a temporary index from HEAD, add only selected paths,

@@ -73,3 +73,6 @@ Some entries are build-time dependencies, which are not shipped as runtime code.
 - `three`: [license](licenses/three.txt)
 - `to-regex-range`: [license](licenses/to-regex-range.txt)
 - `w3c-keyname`: [license](licenses/w3c-keyname.txt)
+
+- `parse5`: [license](licenses/parse5.txt)
+- `entities`: [license](licenses/entities.txt)

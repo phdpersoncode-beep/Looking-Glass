@@ -3,6 +3,7 @@ import {execFileSync} from 'node:child_process';
 import {copyFileSync,readFileSync,writeFileSync} from 'node:fs';
 import {gzipSync} from 'node:zlib';
 await build({entryPoints:['frontend/app.js'],external:['/static/mermaid.js'],bundle:true,minify:true,sourcemap:false,format:'esm',outfile:'looking_glass/static/app.js'});
+await build({entryPoints:['frontend/html-preview.js'],bundle:true,minify:true,format:'iife',outfile:'looking_glass/static/html-preview.js'});
 const diagrams=await build({entryPoints:['frontend/diagrams.mjs'],bundle:true,minify:true,format:'esm',write:false,outfile:'mermaid.js'});
 writeFileSync('looking_glass/static/mermaid.js.gz',gzipSync(diagrams.outputFiles[0].contents,{level:9}));
 execFileSync('node',['node_modules/@tailwindcss/cli/dist/index.mjs','-i','frontend/style.css','-o','looking_glass/static/style.css','--minify'],{stdio:'inherit'});

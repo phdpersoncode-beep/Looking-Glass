@@ -255,7 +255,7 @@ def create_app(root):
         # The bridge has no API token. It only sends selections and receives
         # highlight/navigation commands through the parent window.
         config = json.dumps(dict(channel=key,parentOrigin=request.host_url.rstrip('/')))
-        return Response(item[0]+'\n<script>\n(()=>{const config='+config+';\n'+bridge+'\n})();\n</script>',mimetype='text/html')
+        return Response(item[0]+'<script data-looking-glass-overlay>\n(()=>{const config='+config+';\n'+bridge+'\n})();\n</script>',mimetype='text/html')
 
     @app.get('/api/threads')
     def threads():
