@@ -1008,8 +1008,9 @@ $('#download-file').onclick=guard(()=>{
 });
 $('#save').onclick=guard(saveActive);$('#annotate').onclick=guard(startComment);
 $('#all-discussions').onclick=()=>{passageActivation++;threadSpotlight.restore();};
-$('#collapse-threads').onclick=()=>{if(zenMode)zenCollapsed=true;else for(const t of currentThreads)collapsedThreads.add(t.id);rememberCollapsed();filterThreads();};
-$('#expand-threads').onclick=()=>{for(const t of currentThreads)collapsedThreads.delete(t.id);rememberCollapsed();filterThreads();};
+function visibleThreadIds(){return threadSpotlight.active?threadSpotlight.ids:currentThreads.map(t=>t.id);}
+$('#collapse-threads').onclick=()=>{if(zenMode)zenCollapsed=true;else for(const id of visibleThreadIds())collapsedThreads.add(id);rememberCollapsed();filterThreads();};
+$('#expand-threads').onclick=()=>{for(const id of visibleThreadIds())collapsedThreads.delete(id);rememberCollapsed();filterThreads();};
 $('#previous').onclick=guard(()=>navigate(-1));$('#next').onclick=guard(()=>navigate(1));$('#show-resolved').onchange=filterThreads;
 $('#thread-scope').checked=localStorage.getItem('looking-glass-thread-scope:'+root)==='all';
 $('#thread-scope').onchange=guard(async()=>{threadSpotlight.restore();localStorage.setItem('looking-glass-thread-scope:'+root,threadScope());await refreshThreads(true);});

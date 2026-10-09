@@ -151,6 +151,12 @@ def test_spotlight_keeps_reading_and_restores_list_positions(workspace_page,mode
     assert abs(sidebar.evaluate('el=>el.scrollTop')-side_before)<2
     assert page.locator('#threads>.thread').evaluate_all('els=>els.map(el=>Number(el.dataset.thread))')==[t['id'] for t in threads]
     target.click();expect(heading).to_be_visible()
+    page.locator('#surface .passage-highlight').filter(has_text='Passage 13').first.click()
+    expect(page.locator('.thread:visible')).to_have_attribute('data-thread',str(threads[13]['id']))
+    page.locator('#all-discussions').click()
+    assert abs(sidebar.evaluate('el=>el.scrollTop')-side_before)<2
+    assert abs(pane.evaluate('el=>el.scrollTop')-before)<2
+    target.click();expect(heading).to_be_visible()
     card.locator('[data-action=collapse-thread]').click();expect(heading).to_be_visible()
     card.locator('[data-action=expand-thread]').click();expect(heading).to_be_visible()
     expect(card.locator('textarea')).to_have_value('Unsent **draft**')
@@ -271,7 +277,13 @@ def test_spotlight_groups_overlaps_and_refreshes_in_place(workspace_page,mode):
     # Expanding a sibling changes the active reply field, never the focused group.
     sibling=page.locator(f'.thread[data-thread="{second["id"]}"]');sibling.locator('[data-action=expand-thread]').click()
     expect(header).to_have_text('This passage · 3 threads');sibling.locator('textarea').fill('Sibling draft')
+    # Bulk controls act on the focused passage, preserving the surrounding list.
+    page.locator('#collapse-threads').click()
+    expect(page.locator('.thread:visible.collapsed')).to_have_count(3)
+    page.locator('#expand-threads').click()
+    expect(page.locator('.thread:visible.collapsed')).to_have_count(0)
     page.locator('#all-discussions').click();expect(page.locator('#passage-spotlight')).not_to_be_visible()
+    expect(page.locator(f'.thread[data-thread="{other["id"]}"]')).to_have_class('thread collapsed')
     expect(page.locator(f'#reply-{first["id"]}')).to_have_value('Retained draft')
     expect(page.locator(f'#reply-{second["id"]}')).to_have_value('Sibling draft')
     target.click();expect(header).to_have_text('This passage · 3 threads')
