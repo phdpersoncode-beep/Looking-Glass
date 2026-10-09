@@ -30,7 +30,11 @@ const $ = selector => document.querySelector(selector);
 const token = $('meta[name=looking-glass-token]').content;
 const root = $('.root-label').textContent;
 const threadSpotlight=createThreadSpotlight($('.discussion-sidebar'),filterThreads);
-const threadSearch=createThreadSearchView($('.discussion-sidebar'),{onInput:()=>{threadSpotlight.restore();filterThreads();},onOpen:guard(focusSidebarThread)});
+const threadSearch=createThreadSearchView($('.discussion-sidebar'),{onInput:()=>{threadSpotlight.restore();filterThreads();},onOpen:guard(focusSidebarThread),onRefresh:filterThreads,loadIndex:async etag=>{
+  const response=await fetch('/api/thread-search-index',{headers:{'X-Looking-Glass-Token':token,...(etag?{'If-None-Match':etag}:{})}});
+  if(!response.ok&&response.status!==304)throw new Error('Unable to search other discussions.');
+  return {data:response.status===304?null:await response.json(),etag:response.headers.get('ETag')};
+}});
 const composers=createComposers({token,api,onError:message=>notify(message,true)});
 const tabs = new Map();
 const HISTORY='looking-glass://history',ORIGINAL='looking-glass://thread/';
@@ -845,7 +849,7 @@ async function poll(){
     updateToolbar();
     await refreshBaseline();
     // Avoid replacing a reply field while the user is writing.
-    if(!document.activeElement?.matches('.reply-form textarea')&&!$$('.reply-form textarea').some(t=>t.value))await refreshThreads();
+    if(threadSearch.query||!document.activeElement?.matches('.reply-form textarea')&&!$$('.reply-form textarea').some(t=>t.value))await refreshThreads();
   }catch(e){notify(e.message,true);}finally{polling=false;}
 }
 
@@ -1120,7 +1124,7 @@ function setDiscussionsHidden(hidden,focus=false){
   discussionsHidden=hidden;document.body.classList.toggle('discussions-hidden',hidden);
   const button=$('#discussions-toggle'),label=(hidden?'Show':'Hide')+' discussions';
   button.setAttribute('aria-expanded',String(!hidden));button.setAttribute('aria-label',label);button.title=label;
-  for(const child of $('#discussion-sidebar').children)if(child!==button&&child.id!=='passage-spotlight')child.hidden=hidden;
+  for(const child of $('#discussion-sidebar').children)if(child!==button&&child.id!=='passage-spotlight'&&child.id!=='thread-search-status')child.hidden=hidden;
   localStorage.setItem('looking-glass-discussions-hidden',String(hidden));
   sizeSidebar();sizeDiscussions();view?.requestMeasure();
   if(focus)button.focus({preventScroll:true});

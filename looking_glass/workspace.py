@@ -271,6 +271,16 @@ class Workspace:
         with self.connection() as db:
             return [dict(row) for row in db.execute('SELECT id,path,start,resolved,anchor_status,anchor_kind,target_ref FROM threads ORDER BY path,start,id')]
 
+    def thread_search_index(self):
+        """Search text only: no file reads, reconciliation, origins or attachments."""
+        with self.lock, self.connection() as db:
+            threads = {row['id']: {**dict(row), 'resolved': bool(row['resolved']), 'messages': []}
+                       for row in db.execute('SELECT id,path,quote,resolved FROM threads ORDER BY id')}
+            for row in db.execute('SELECT thread_id,body FROM messages ORDER BY id'):
+                if row['thread_id'] in threads:
+                    threads[row['thread_id']]['messages'].append(dict(body=row['body']))
+            return list(threads.values())
+
     @staticmethod
     def message(author, body, allow_empty=False):
         if not isinstance(author, str) or not author.strip() or len(author) > 120:

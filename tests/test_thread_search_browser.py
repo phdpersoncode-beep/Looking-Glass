@@ -96,7 +96,7 @@ def test_search_keeps_drafts_and_updates_from_external_replies(workspace_page):
     root,page,url,ws=workspace_page
     first,second,_=seed(root,ws)
     page.goto(url);open_file(page,'note.md')
-    page.locator(f'.thread[data-thread="{first["id"]}"] [data-action=jump]').click()
+    page.locator(f'.thread[data-thread="{first["id"]}"] .jump').click()
     draft=page.locator(f'#reply-{first["id"]}');draft.fill('Unsent reply draft')
     identity=draft.evaluate('el=>{window.savedReply=el;return true}')
     assert identity
@@ -126,3 +126,34 @@ def test_collapsed_search_results_remain_readable_in_both_themes_and_zen(workspa
     page.keyboard.press('Escape');expect(page.locator('.thread-search-match:visible')).to_have_count(2)
     page.locator('#discussions-toggle').click();expect(search).not_to_be_visible()
     page.locator('#discussions-toggle').click();expect(search).to_be_visible();expect(search).to_have_value('geometry')
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_empty_search_hints_reveal_only_the_required_scopes(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    first,second,_=seed(root,ws)
+    ws.update_thread(first['id'],resolved=True)
+    (root/'other.txt').write_text('Outside passage.')
+    outside=ws.create_thread('other.txt',0,7,'Outsideonly observation','Agent',ws.read('other.txt')['version'])
+    closed=ws.create_thread('other.txt',0,7,'Closedoutside observation','Agent',ws.read('other.txt')['version'])
+    ws.update_thread(closed['id'],resolved=True)
+    requests=[];page.on('request',lambda request:requests.append(request.url))
+    page.goto(url);open_file(page,'note.md')
+    assert not any('/api/thread-search-index' in url for url in requests)
+    search=page.locator('#thread-search');hints=page.locator('#thread-search-hints')
+    search.fill('verifier');expect(hints).to_contain_text('1 match in resolved threads')
+    hints.get_by_role('button',name='1 match in resolved threads',exact=True).click()
+    expect(page.locator('#show-resolved')).to_be_checked();expect(page.locator('#thread-search-empty')).not_to_be_visible()
+    page.locator('#show-resolved').uncheck();search.fill('outsideonly')
+    expect(hints).to_contain_text('1 match in other files');assert visible_ids(page)==[]
+    hints.get_by_role('button',name='1 match in other files',exact=True).click()
+    expect(page.locator('#thread-scope')).to_be_checked();expect(page.locator('#thread-search-status')).to_contain_text('1 match')
+    assert visible_ids(page)==[outside['id']]
+    expect(page.locator('#show-resolved')).not_to_be_checked()
+    page.locator('#thread-scope').uncheck();search.fill('closedoutside')
+    expect(hints).to_contain_text('1 match in resolved threads in other files');assert visible_ids(page)==[]
+    hints.get_by_role('button',name='1 match in resolved threads in other files',exact=True).click()
+    expect(page.locator('#thread-scope')).to_be_checked();expect(page.locator('#show-resolved')).to_be_checked()
+    expect(page.locator('#thread-search-status')).to_contain_text('1 match');assert visible_ids(page)==[closed['id']]
+    search.fill('trulyabsent');expect(page.locator('#thread-search-empty')).to_be_visible();expect(hints.locator('button')).to_have_count(0)

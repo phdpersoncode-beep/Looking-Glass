@@ -1,10 +1,27 @@
 import {createThreadSearch} from './thread-search.mjs';
 
-export function createThreadSearchView(sidebar,{onInput,onOpen}) {
+export function createThreadSearchView(sidebar,{onInput,onOpen,onRefresh,loadIndex}) {
   const input=sidebar.querySelector('#thread-search'),clear=sidebar.querySelector('#thread-search-clear');
   const status=sidebar.querySelector('#thread-search-status'),empty=sidebar.querySelector('#thread-search-empty');
   const host=sidebar.querySelector('#threads'),scroller=sidebar.querySelector('.discussion-content');
+  const hints=sidebar.querySelector('#thread-search-hints'),scope=sidebar.querySelector('#thread-scope'),resolved=sidebar.querySelector('#show-resolved');
   let indexed=null,search=()=>[],results=[],listScroll=0,searching=false;
+  let globalThreads=[],globalSearch=()=>[],hintTag=null,hintTime=0,hintLoading=false;
+  async function refreshHints(){
+    if(hintLoading||Date.now()-hintTime<2000)return;
+    hintLoading=true;hintTime=Date.now();
+    try{
+      const result=await loadIndex(hintTag);hintTag=result.etag;
+      if(result.data){globalThreads=result.data;globalSearch=createThreadSearch(globalThreads);}
+      onRefresh();
+    }catch{/* Hint discovery should never interrupt the local search. */}
+    finally{hintLoading=false;}
+  }
+  function hint(count,label,enableScope,enableResolved){
+    if(!count)return;
+    const button=document.createElement('button');button.type='button';button.textContent=`${count} ${count===1?'match':'matches'} ${label}`;
+    button.onclick=()=>{if(enableResolved&&!resolved.checked)resolved.click();if(enableScope&&!scope.checked)scope.click();};hints.append(button);
+  }
   function changed(){
     const next=!!input.value.trim();
     if(next&&!searching)listScroll=scroller.scrollTop;
@@ -37,10 +54,25 @@ export function createThreadSearchView(sidebar,{onInput,onOpen}) {
   function update(threads,spotlight,showResolved){
     if(indexed!==threads){indexed=threads;search=createThreadSearch(threads);}
     const query=input.value.trim(),enabled=!!query&&!spotlight;
+    const back=sidebar.querySelector('#all-discussions');back.firstChild.textContent=query?'Search results ':'All discussions ';back.title=(query?'Search results':'All discussions')+' (Esc)';
     const ids=new Set(threads.filter(t=>showResolved||!t.resolved).map(t=>t.id));
     results=query?search(query).filter(result=>ids.has(result.id)):[];
     clear.hidden=!input.value;status.hidden=!enabled;empty.hidden=!enabled||!!results.length;
     status.textContent=`${results.length} ${results.length===1?'match':'matches'} · Best matches first`;
+    hints.replaceChildren();
+    if(enabled&&!results.length){
+      const localIds=new Set(threads.map(t=>t.id));
+      const all=scope.checked?threads:[...globalThreads.filter(t=>!localIds.has(t.id)),...threads];
+      const byId=new Map(all.map(t=>[t.id,t]));
+      // The current scope is authoritative even while the global hint cache loads.
+      const found=new Set([...search(query).map(r=>r.id),...(!scope.checked?globalSearch(query).filter(r=>!localIds.has(r.id)).map(r=>r.id):[])]);
+      let elsewhere=0,closed=0,both=0;
+      for(const id of found){const t=byId.get(id);if(!t)continue;const outside=!scope.checked&&!localIds.has(id),hiddenResolved=t.resolved&&!showResolved;
+        if(outside&&hiddenResolved)both++;else if(outside)elsewhere++;else if(hiddenResolved)closed++;
+      }
+      hint(elsewhere,'in other files',true,false);hint(closed,'in resolved threads',false,true);hint(both,'in resolved threads in other files',true,true);
+      if(!scope.checked)refreshHints();
+    }
     sidebar.classList.toggle('thread-searching',enabled);
     const matches=new Map(results.map(result=>[result.id,result]));
     const cards=new Map([...host.querySelectorAll(':scope>.thread')].map(card=>[Number(card.dataset.thread),card]));
