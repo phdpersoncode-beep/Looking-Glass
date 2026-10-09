@@ -43,12 +43,19 @@
     <div id="discussion-resize" role="separator" tabindex="0" aria-label="Resize discussions" aria-orientation="vertical" aria-controls="threads"></div>
     <div class="panel-heading"><span>DISCUSSIONS <span id="thread-count">0</span></span><div class="flex gap-1"><button id="collapse-threads" class="fold-all" aria-label="Collapse all threads" title="Collapse all threads"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3l6 5 6-5M4 17l6-5 6 5M4 10h12"/></svg></button><button id="expand-threads" class="fold-all" aria-label="Expand all threads" title="Expand all threads"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7l6-5 6 5M4 13l6 5 6-5M4 10h12"/></svg></button><button id="previous" title="Previous passage" aria-label="Previous passage">↑</button><button id="next" title="Next passage" aria-label="Next passage">↓</button></div></div>
     <div id="passage-spotlight" hidden><span role="status" aria-live="polite"></span><button id="all-discussions" aria-controls="threads" aria-keyshortcuts="Escape" title="All discussions (Esc)">All discussions <kbd aria-hidden="true">Esc</kbd></button></div>
+    <div class="thread-search-bar" role="search" aria-label="Search discussions">
+      <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="8" r="5"/><path d="m12 12 5 5"/></svg>
+      <input id="thread-search" type="search" aria-label="Search threads" aria-controls="threads" aria-describedby="thread-search-status" placeholder="Search threads, passages, #…" maxlength="160" autocomplete="off" spellcheck="false">
+      <button id="thread-search-clear" type="button" aria-label="Clear thread search" title="Clear search (Esc)" hidden>×</button>
+    </div>
+    <div id="thread-search-status" role="status" aria-live="polite" hidden></div>
     <div class="discussion-content">
     <label class="author-label">Your author label<input id="author" value="Altay" maxlength="120"></label>
     <label class="thread-scope"><input type="checkbox" role="switch" id="thread-scope" aria-label="Across files"> Across files</label>
     <label class="resolved-toggle"><input type="checkbox" id="show-resolved"> Show resolved threads</label>
     <div id="threads-loading" role="status" aria-live="polite" hidden><span class="loading-ring" aria-hidden="true"></span><span>Loading discussions</span></div>
     <div id="threads" aria-busy="false"><div class="empty-discussions">Select text or code to leave a comment.<p>Feedback opens a conversation. Edits stay yours to make.</p></div></div>
+    <div id="thread-search-empty" class="empty-discussions" hidden>No matching threads.<p>Try another term, search across files, or show resolved threads.</p><div id="thread-search-hints" aria-live="polite"></div></div>
     </div>
   </aside>
 </main>

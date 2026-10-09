@@ -160,3 +160,15 @@ html[data-theme="dark"] { --review-human: #78d49a; --review-agent: #84b4ff; --re
 .document-toolbar { flex-wrap: wrap; }
 .edit-comment { border: 0; padding: 0 3px; color: var(--muted); font-size: 10px; }
 .document-toolbar > .flex { max-width: 100%; flex-wrap: wrap; justify-content: flex-end; }
+.thread-search-bar{display:flex;align-items:center;gap:7px;flex-shrink:0;margin:0 12px 10px;padding:0 9px;border:1px solid var(--border);border-radius:6px;background:var(--paper);color:var(--muted)}
+.thread-search-bar:focus-within{border-color:var(--purple)}.thread-search-bar svg{flex-shrink:0}
+.thread-search-bar input{flex:1;min-width:0;width:100%;border:0;background:transparent;padding:8px 0;font-size:11px;outline:none;outline-offset:0}
+.thread-search-bar input::-webkit-search-cancel-button{display:none}.thread-search-bar button{border:0;padding:2px 3px;font-size:16px;line-height:1;color:var(--muted)}
+#thread-search-status{flex-shrink:0;padding:0 17px 10px;font-size:10px;color:var(--muted)}
+.thread-search-match{display:block;width:100%;text-align:left;border:0;padding:5px 0;white-space:normal;overflow-wrap:anywhere}
+.search-match-label{display:block;font-size:9px;color:var(--muted);margin-bottom:3px}.search-match-excerpt{display:block;font-size:12px;line-height:1.5}
+.thread-search-match mark{background:var(--highlight);color:var(--purple);border-radius:2px}.thread-search-match:hover{background:transparent}.thread-search-match:hover .search-match-excerpt{color:var(--purple)}
+.thread-searching .thread.collapsed{width:auto;padding:10px 12px}.thread-searching .thread:not(.active)>.thread-body{display:none}
+.thread-searching .thread-summary{font-size:11px}.thread-searching .thread-file{display:block}
+#thread-search-hints{margin-top:8px}#thread-search-hints button{display:block;border:0;padding:3px 0;font-size:10px;color:var(--muted);white-space:normal;text-align:left}#thread-search-hints button:hover{background:transparent;color:var(--purple)}
+.discussions-hidden #thread-search-status{display:none}

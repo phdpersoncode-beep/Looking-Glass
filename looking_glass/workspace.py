@@ -288,6 +288,24 @@ class Workspace:
                     WHERE t.review_id IS NULL OR t.review_id IN (SELECT id FROM review_drafts WHERE status='pending') ORDER BY t.path,start,t.id""")]
             return [dict(row) for row in db.execute('SELECT id,path,start,resolved,anchor_status,anchor_kind,target_ref,review_id FROM threads WHERE review_id IS NULL ORDER BY path,start,id')]
 
+    def thread_search_index(self, review=None):
+        """Search text only: no file reads, reconciliation, origins or attachments."""
+        with self.lock, self.connection() as db:
+            if review:
+                rows = db.execute("""SELECT t.id,t.path,COALESCE(a.quote,t.quote) AS quote,t.resolved
+                    FROM threads t LEFT JOIN review_anchors a ON a.thread_id=t.id
+                    AND a.review_id IN (SELECT id FROM review_drafts WHERE status='pending')
+                    WHERE t.review_id IS NULL OR t.review_id IN
+                    (SELECT id FROM review_drafts WHERE status='pending') ORDER BY t.id""")
+            else:
+                rows = db.execute('SELECT id,path,quote,resolved FROM threads WHERE review_id IS NULL ORDER BY id')
+            threads = {row['id']: {**dict(row), 'resolved': bool(row['resolved']), 'messages': []}
+                       for row in rows}
+            for row in db.execute('SELECT thread_id,body FROM messages ORDER BY id'):
+                if row['thread_id'] in threads:
+                    threads[row['thread_id']]['messages'].append(dict(body=row['body']))
+            return list(threads.values())
+
     @staticmethod
     def message(author, body, allow_empty=False):
         if not isinstance(author, str) or not author.strip() or len(author) > 120:

@@ -12,6 +12,49 @@ def api(tmp_path):
     f=ws.read('note.txt');t=ws.create_thread('note.txt',0,9,'Review','Tester',f['version'])
     return tmp_path,ws,client,headers,t
 
+def test_thread_search_index_is_lean_authenticated_cached_and_never_reads_files(api,monkeypatch):
+    root,ws,c,h,t=api
+    (root/'other.txt').write_text('Other passage.')
+    other=ws.create_thread('other.txt',0,5,'Cross-file comment','Agent',ws.read('other.txt')['version'])
+    ws.update_thread(other['id'],resolved=True);ws.reply(t['id'],'Second message','Agent')
+    def forbidden(*args,**kwargs):
+        raise AssertionError('Search indexing must not read documents or reconcile anchors')
+    monkeypatch.setattr(ws,'text',forbidden);monkeypatch.setattr(ws,'reconcile',forbidden)
+    assert c.get('/api/thread-search-index').status_code==401
+    response=c.get('/api/thread-search-index',headers=h);assert response.status_code==200
+    data=response.json;assert [item['id'] for item in data]==[t['id'],other['id']]
+    assert data[0]['messages']==[{'body':'Review'},{'body':'Second message'}]
+    assert data[1]['resolved'] is True
+    assert all(set(item)=={'id','path','quote','resolved','messages'} for item in data)
+    conditional={**h,'If-None-Match':response.headers['ETag']}
+    assert c.get('/api/thread-search-index',headers=conditional).status_code==304
+    with ws.connection() as db:
+        db.execute('UPDATE threads SET resolved=0 WHERE id=?',(other['id'],))
+    assert c.get('/api/thread-search-index',headers=conditional).status_code==200
+
+def test_search_index_respects_review_visibility_and_passage_versions(api,monkeypatch):
+    root,ws,c,h,t=api
+    file=ws.read('note.txt');draft=ws.reviews.start('note.txt',file['version'])
+    draft=ws.reviews.update(draft['id'],draft['version'],[dict(start=2,end=2,insert='draft ')],'Agent','agent')
+    only=ws.reviews.create_thread(draft['id'],draft['version'],2,7,'Draft-only comment','Agent')
+    def forbidden(*args,**kwargs):
+        raise AssertionError('Search indexing must not read documents or reconcile anchors')
+    with monkeypatch.context() as patch:
+        patch.setattr(ws,'text',forbidden);patch.setattr(ws,'reconcile',forbidden)
+        ordinary=c.get('/api/thread-search-index',headers=h)
+        assert [item['id'] for item in ordinary.json]==[t['id']]
+        assert ordinary.json[0]['quote']==t['quote']
+        reviewed=c.get(f'/api/thread-search-index?review={draft["id"]}',headers={**h,'If-None-Match':ordinary.headers['ETag']})
+        assert reviewed.status_code==200
+        assert [item['id'] for item in reviewed.json]==[t['id'],only['id']]
+        assert reviewed.json[0]['quote']=='A draft passage'
+        assert reviewed.json[1]['messages']==[{'body':'Draft-only comment'}]
+        assert c.get(f'/api/thread-search-index?review={draft["id"]}',headers={**h,'If-None-Match':reviewed.headers['ETag']}).status_code==304
+    ws.reviews.approve(draft['id'],draft['version'])
+    promoted=c.get('/api/thread-search-index',headers=h).json
+    assert [item['id'] for item in promoted]==[t['id'],only['id']]
+    assert promoted[0]['quote']=='A draft passage'
+
 def test_attachment_roundtrip_and_cleanup(api,monkeypatch):
     root,ws,c,h,t=api
     values=[('visual.svg',b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'),('mesh.stl',b'\0\1\2'),('data.json',b'{"x": 1}')]
