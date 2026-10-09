@@ -731,7 +731,9 @@ async function jump(id,target=null,spotlight=false){
   if(t.anchor_kind==='commit'||t.anchor_kind==='branch'){if(!t.git_target)t=await api('threads/'+id);await openFile(HISTORY);cleanup.selectTarget?.(t.git_target);await refreshThreads();show();return;}
   if(t.anchor_kind==='review_removed'&&entry()?.workMode==='review'&&active===t.path){const ghost=$$('.review-deletion').find(el=>Number(el.dataset.reviewDeletion)===t.render_anchor?.edit_id&&el.textContent===t.render_anchor?.text);if(ghost){show();ghost.scrollIntoView({block:'center'});return;}}
   if(t.anchor_kind==='review_removed'){await openOriginal(id);show();return;}
-  if(t.anchor_status==='needs_reattachment'||tabs.get(t.path)?.conflict?.deleted){await openOriginal(id);show();notify('Showing original reviewed content.');return;}
+  // Rendered-only anchors must reopen the report so a missing runtime passage
+  // can be reattached there, even when preview validation has already finished.
+  if((t.anchor_kind!=='rendered'&&t.anchor_status==='needs_reattachment')||tabs.get(t.path)?.conflict?.deleted){await openOriginal(id);show();notify('Showing original reviewed content.');return;}
   if(t.path!==active){if(!spotlight)showThread(id);try{await openFile(t.path);}catch(error){if(error.status===404){await openOriginal(id);show();return;}notify(error.message,true);return;}}
   t=currentThreads.find(item=>item.id===id)||t;
   show();
