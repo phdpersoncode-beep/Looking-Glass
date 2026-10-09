@@ -100,3 +100,11 @@ Verification: 11 frontend tests, 80 backend tests, and all 99 browser tests pass
 Frontend assets rebuild reproducibly; Python wheel/source builds pass. See
 [PR #7](https://github.com/phdpersoncode-beep/Looking-Glass/pull/7) and
 `docs/VERIFICATION.md` for coverage and test-environment details.
+
+## Non-destructive review mode
+
+- [ ] Persistent per-file review drafts, provenance segments, and chronological operation history.
+- [ ] Revision-checked local API and agent CLI for draft editing and history.
+- [ ] Minimal edit/review toggle, colored insertions/deletions, and active-file approval.
+- [ ] Preserve rendered Markdown/tables, syntax highlighting, and review-local discussions.
+- [ ] Verify persistence, source preservation, approval/conflicts, browser regressions, and bounded performance.
