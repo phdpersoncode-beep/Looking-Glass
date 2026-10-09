@@ -4,14 +4,22 @@ Continue on `feature/markdown-discussion-reading-polish` (PR #8).
 
 - [x] Remove floating cards; highlight clicks filter the sidebar to the passage's discussions without moving the reading pane.
 - [x] Add a quiet “This passage · N threads” header and “All discussions”; preserve the original list order, scroll position, drafts, and refresh behavior.
-- [ ] Cover overlapping passages, Markdown tables, HTML reports, dismissal, explicit navigation, and background updates in both browsers.
-- [ ] Rebuild assets, run regression/package checks, and update the pull request with verification.
+- [x] Cover overlapping passages, Markdown tables, HTML reports, dismissal, explicit navigation, and background updates in both browsers.
+- [x] Rebuild assets, run regression/package checks, and update the pull request with verification.
+
+Verification at `adf344a`: 131 browser tests pass locally and in the
+[locked-dependency workflow](https://github.com/phdpersoncode-beep/Looking-Glass/actions/runs/37911110074).
+All 80 backend and 11 frontend tests pass; reproducible frontend assets and
+Python wheel/source builds pass. Light/dark layouts were visually inspected.
+See `docs/VERIFICATION.md` and [PR #8](https://github.com/phdpersoncode-beep/Looking-Glass/pull/8).
 
 ---
 
-# Markdown selections and discussion reading
+# Markdown selections and discussion reading (initial implementation)
 
 Branch: `feature/markdown-discussion-reading-polish`, based on main after merging HTML source annotations (PR #7).
+
+The initial floating-card behavior below is superseded by the passage spotlight above.
 
 - [x] Paint live and reading-preview selections over text only, including wrapped and multiline passages.
 - [x] Render discussion messages with the shared Markdown/table/code/diagram renderer at a compact size; preserve raw stored bodies and safe HTML handling.

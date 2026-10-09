@@ -340,3 +340,33 @@ Local focused browser checks used Playwright 1.56, Chromium 141, and Firefox 142
 The complete final browser gate uses the repository's pinned Playwright/browser
 versions in GitHub Actions. Local Firefox process-sandbox relaxation was only for
 container compatibility; the report iframe's opaque-origin isolation stayed enabled.
+
+## Passage sidebar spotlight (2026-10-09)
+
+Implementation: `adf344a`, on `feature/markdown-discussion-reading-polish`.
+This replaces the previous floating-card interaction; text-only selections,
+compact Markdown messages, and live-table selection preservation remain intact.
+
+Full browser suite: **131 passed** locally in **630.29 seconds**, and
+**131 passed** in **489.18 seconds** in the
+[locked-dependency run](https://github.com/phdpersoncode-beep/Looking-Glass/actions/runs/37911110074).
+
+- Frontend: **11 passed**; backend: **80 passed**. Frontend assets rebuild
+  reproducibly; Python wheel/source distribution builds pass. GitHub's locked
+  dependency fast job also passes.
+- The discussion-reading browser module now contains **32 cases**. Its 12
+  additional cases cover overlapping passages in live/preview/source Markdown
+  and live tables, new passage threads during refreshes, unrelated discussions,
+  deletion, file changes, and resolution without zen-mode navigation.
+- Thirty long threads exercise reading-scroll stability, original card identity
+  and order, restored list scroll after switching passages, collapse/expand,
+  Escape (including the delayed pointer-release race), explicit navigation,
+  and reopening the hidden sidebar. Refreshes preserve reply drafts, focus,
+  and cursor selection. Bulk controls affect only spotlighted discussions.
+- Twenty-five HTML threads plus an overlapping rendered-only discussion exercise
+  report-scroll stability, passage grouping, persistent focus through report
+  interactions, and Escape inside the isolated iframe. Existing report isolation
+  and exact source-anchor tests remain in the complete suite.
+- Light/dark sidebar layouts were visually inspected. The small passage header
+  stays above the sidebar scroller; cards remain in their original DOM/list order,
+  without placeholders, overlays, or motion.
