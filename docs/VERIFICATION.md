@@ -370,3 +370,35 @@ Full browser suite: **131 passed** locally in **630.29 seconds**, and
 - Light/dark sidebar layouts were visually inspected. The small passage header
   stays above the sidebar scroller; cards remain in their original DOM/list order,
   without placeholders, overlays, or motion.
+
+## Spotlight navigation and reading-position fixes (2026-10-09)
+
+Implementation: `8e5f448`, on `feature/markdown-discussion-reading-polish` (PR #8).
+
+- Full local browser suite: **161 passed** in **677.25 seconds**, using Chromium
+  and Firefox. Backend: **80 passed** in **12.92 seconds**; frontend: **11 passed**.
+- The new navigation module contains **30 browser cases**. Actual pointer clicks
+  cover highlights eight pixels from the reading pane's bottom, live/source/preview
+  Markdown, long hidden link URLs, live tables, and isolated HTML reports. Narrow
+  viewports exercise reopening the sidebar and the resulting document reflow.
+- Before the fix, revealing live link syntax moved the reading position by about
+  153 pixels and moved the clicked glyph by about 306 pixels. Reopening a sidebar
+  could push the clicked glyph below the viewport. Regressions now require the
+  clicked glyph to remain within two pixels of its prior screen position; when
+  the sidebar is already open, the scroll offset also remains within two pixels.
+  If opening the sidebar changes wrapping, the scroll offset compensates for that
+  reflow to keep the clicked text in place.
+- Sidebar icon tests require deliberate passage navigation with surrounding
+  context and sidebar spotlight, including cross-file navigation. Escape restores
+  the full list position and preserves the reply draft. Live table highlight
+  clicks also work after a prior source-range selection. Wheel scrolling,
+  highlight dragging, keyboard editing, and unchanged disk contents are checked.
+- A small Esc key hint is visible next to All discussions, with accessible shortcut
+  metadata. Escape works from the editor, reply field, and isolated report iframe.
+  Existing overlap, refresh, zen-mode, anchor, and selection checks remain green.
+- Frontend assets rebuild reproducibly; wheel/source distribution builds pass.
+  Packaged template and JavaScript/CSS bytes match the checkout. Light/dark sidebar
+  layouts were visually inspected, including the return control and key hint.
+- The [locked-dependency workflow](https://github.com/phdpersoncode-beep/Looking-Glass/actions/runs/37918336516)
+  passes its fast job, including backend/frontend tests, rebuilt asset equality,
+  and packaging. Its browser job is still running when these notes are written.

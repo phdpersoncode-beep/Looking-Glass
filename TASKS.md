@@ -5,7 +5,13 @@ Continue on `feature/markdown-discussion-reading-polish` (PR #8).
 - [x] Make collapsed sidebar comment icons navigate to the passage and focus its discussion in spotlight.
 - [x] Preserve the clicked text's screen position near the viewport bottom, through live syntax and sidebar reflow; keep drag, wheel, and keyboard navigation usable.
 - [x] Show a compact Esc hint beside All discussions and verify Escape from both panes.
-- [ ] Cover the reproduced jumps in Chromium/Firefox, rebuild assets, run regression/package checks, and push the fixes.
+- [x] Cover the reproduced jumps in Chromium/Firefox, rebuild assets, run regression/package checks, and push the fixes.
+
+Implementation pushed at `8e5f448`: all 161 browser checks pass locally in
+Chromium/Firefox, alongside 80 backend and 11 frontend tests. Reproducible assets,
+package builds, packaged asset contents, and light/dark visual checks pass.
+The GitHub fast job also passes; see `docs/VERIFICATION.md` for coverage and
+the workflow link.
 
 ---
 
