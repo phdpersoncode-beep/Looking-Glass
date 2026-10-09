@@ -1,7 +1,7 @@
 import {htmlTextMap} from './html-text-map.mjs';
 // Runs inside the opaque-origin report. Never receives application credentials.
 const send = (type, data={}) => parent.postMessage({lookingGlass:config.channel,type,...data},config.parentOrigin);
-let threads=[], active=null, ranges=new Map(), selected=null;
+let threads=[], active=null, ranges=new Map(), selected=null,reviewChanges=[],reviewSignature='';
 let readingPosition=null;
 function retainReadingPosition(event){
   const caret=document.caretPositionFromPoint?.(event.clientX,event.clientY),point=!caret&&document.caretRangeFromPoint?.(event.clientX,event.clientY);
@@ -106,11 +106,21 @@ function locate(map,anchor){
   const from=supported.length===1?supported[0]:candidates.length===1?candidates[0]:null;
   return from===null?null:rangeFor(map,from,from+anchor.quote.length);
 }
-const style=document.createElement('style');style.textContent='::selection{background:#b84dff45;color:inherit}::highlight(looking-glass-passages){background:#a84dff30;text-decoration:underline #9935ee}::highlight(looking-glass-active){background:#a84dff60}';document.head.append(style);
+const style=document.createElement('style');style.textContent='::selection{background:#b84dff45;color:inherit}::highlight(looking-glass-passages){background:#a84dff30;text-decoration:underline #9935ee}::highlight(looking-glass-active){background:#a84dff60}::highlight(looking-glass-review-human){color:#18733b}::highlight(looking-glass-review-agent){color:#235fca}.looking-glass-review-deletion{color:#bf303c!important;text-decoration:line-through!important;white-space:pre-wrap;font-family:monospace;}';document.head.append(style);
 function paint(){
   const map=textMap(),statuses=[];ranges=new Map();
   for(const thread of threads){const matches=thread.source?sourceRanges(map,thread.source.from,thread.source.to):[locate(map,thread.render_anchor)].filter(Boolean);if(matches.length)ranges.set(thread.id,matches);if(!thread.source)statuses.push({id:thread.id,attached:!!matches.length});}
   if(window.CSS?.highlights){CSS.highlights.set('looking-glass-passages',new Highlight(...threads.filter(t=>!t.resolved).flatMap(t=>ranges.get(t.id)||[])));CSS.highlights.set('looking-glass-active',new Highlight(...(ranges.get(active)||[])));}
+  if(window.CSS?.highlights){for(const role of ['human','agent'])CSS.highlights.set('looking-glass-review-'+role,new Highlight(...reviewChanges.filter(s=>s.kind==='insert'&&s.role===role).flatMap(s=>sourceRanges(map,s.from,s.to))));}
+  const signature=JSON.stringify(reviewChanges);
+  if(signature!==reviewSignature){
+    reviewSignature=signature;document.querySelectorAll('.looking-glass-review-deletion').forEach(el=>el.remove());
+    for(const change of reviewChanges.filter(s=>s.kind==='delete')){
+      const target=map.nodes.find(item=>sourceBindings.get(item.node)?.to>=change.from)||map.nodes.at(-1);
+      const ghost=document.createElement('span');ghost.className='looking-glass-review-deletion';ghost.setAttribute('data-looking-glass-overlay','');ghost.textContent=change.text;ghost.title='Removed by '+change.author+' ('+change.role+') · '+change.at;
+      if(target)target.node.parentNode.insertBefore(ghost,target.node);else document.body.append(ghost);
+    }
+  }
   send('anchors',{statuses});
 }
 window.addEventListener('message',event=>{
@@ -119,6 +129,7 @@ window.addEventListener('message',event=>{
   if(message.type==='clear-selection'||message.type==='jump'){getSelection()?.removeAllRanges();capture();}
   if(message.type==='capture')capture(message.requestId);
   if(message.type==='initialize'){bindSource(message.mapping);paint();capture();}
+  if(message.type==='review'){reviewChanges=message.changes||[];paint();}
   if(message.type==='threads'){threads=message.threads;active=message.active;paint();}
   if(message.type==='jump'){
     readingPosition=null;

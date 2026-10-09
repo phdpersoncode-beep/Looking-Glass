@@ -143,3 +143,20 @@ dialog:modal{margin:auto}.directory-list{height:260px;overflow:auto;margin-top:8
 #passage-spotlight>span{min-width:0}#all-discussions{border:0;padding:3px 0;color:var(--purple);font-size:10px}
 #all-discussions kbd{font-size:8px;margin-left:3px;padding:1px 3px;letter-spacing:0}
 .passage-focused .discussion-content>:is(.author-label,.thread-scope,.resolved-toggle){display:none}
+
+/* Review colors override syntax colors while preserving ordinary document styles. */
+:root { --review-human: #18733b; --review-agent: #235fca; --review-deletion: #bf303c; }
+html[data-theme="dark"] { --review-human: #78d49a; --review-agent: #84b4ff; --review-deletion: #ff929b; }
+.review-human, .review-human * { color: var(--review-human) !important; }
+.review-agent, .review-agent * { color: var(--review-agent) !important; }
+.review-deletion, .review-deletion *, .review-event del { color: var(--review-deletion) !important; text-decoration: line-through; }
+.review-deletion { white-space: pre-wrap; cursor: text; user-select: text; }
+.review-approve { color: var(--review-human); border: 1px solid currentColor; }
+#review-status { color: var(--muted); font-size: 11px; white-space: nowrap; }
+#review-history { font-size: 11px; padding: 2px 5px; }
+#review-events { max-height: 65vh; overflow: auto; }
+.review-event { padding: 12px 0; border-bottom: 1px solid var(--border); white-space: pre-wrap; font-family: var(--mono); font-size: 12px; }
+.review-event p { font-family: var(--font-sans); color: var(--muted); margin-bottom: 5px; }
+.document-toolbar { flex-wrap: wrap; }
+.edit-comment { border: 0; padding: 0 3px; color: var(--muted); font-size: 10px; }
+.document-toolbar > .flex { max-width: 100%; flex-wrap: wrap; justify-content: flex-end; }

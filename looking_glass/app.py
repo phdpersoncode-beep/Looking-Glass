@@ -223,7 +223,7 @@ def create_app(root):
     def read_review(identifier):
         # Check only small metadata on unchanged polls, not file content/diffs.
         with ws.connection() as db:
-            row=db.execute('SELECT id,revision,status FROM review_drafts WHERE id=?',(identifier,)).fetchone()
+            row=db.execute('SELECT id,revision,status FROM review_heads WHERE id=?',(identifier,)).fetchone()
         if not row: raise Problem('Review draft not found.',404)
         if row['status']=='pending' and request.args.get('version')==ws.reviews.version(row):
             return Response(status=304)
@@ -232,7 +232,7 @@ def create_app(root):
     @app.patch('/api/reviews/<int:identifier>')
     def edit_review(identifier):
         data=body()
-        return jsonify(ws.reviews.update(identifier,data.get('version'),data.get('operations'),data.get('author'),data.get('role')))
+        return jsonify(ws.reviews.update(identifier,data.get('version'),data.get('operations'),data.get('author'),data.get('role'),minimal=data.get('minimal') is True))
 
     @app.get('/api/reviews/<int:identifier>/edits')
     def review_edits(identifier):
@@ -312,6 +312,10 @@ def create_app(root):
         if 'review_id' in data:
             draft=ws.reviews.read(data['review_id'])
             if draft['path']!=data['path']: raise Problem('Review belongs to another file.')
+            if 'removed_anchor' in data:
+                return jsonify(save_review(lambda empty:ws.reviews.create_removed_thread(data['review_id'],data.get('version'),data['removed_anchor'],data.get('body'),data.get('author'),allow_empty=empty),files,new_thread=True)),201
+            if 'render_anchor' in data:
+                return jsonify(save_review(lambda empty:ws.reviews.create_rendered_thread(data['review_id'],data.get('version'),data['render_anchor'],data.get('body'),data.get('author'),allow_empty=empty),files,new_thread=True)),201
             return jsonify(save_review(lambda empty:ws.reviews.create_thread(data['review_id'],data.get('version'),data.get('start'),data.get('end'),data.get('body'),data.get('author'),allow_empty=empty),files,new_thread=True)),201
         if 'render_anchor' in data:
             return jsonify(save_review(lambda empty:ws.create_rendered_thread(data.get('path'),data['render_anchor'],data.get('body'),data.get('author'),data.get('version'),allow_empty=empty),files,new_thread=True)),201
@@ -334,12 +338,16 @@ def create_app(root):
     @app.post('/api/threads/<int:identifier>/replies')
     def reply(identifier):
         data,files = review_body()
-        return jsonify(save_review(lambda empty:ws.reply(identifier,data.get('body'),data.get('author'),allow_empty=empty),files)),201
+        return jsonify(save_review(lambda empty:ws.reply(identifier,data.get('body'),data.get('author'),allow_empty=empty,review=data.get('review_id')),files)),201
+
+    @app.patch('/api/threads/<int:identifier>/messages/<int:message_id>')
+    def edit_message(identifier,message_id):
+        return jsonify(ws.edit_message(identifier,message_id,body().get('body')))
 
     @app.patch('/api/threads/<int:identifier>')
     def update_thread(identifier):
         data = body()
-        if not set(data).issubset({'resolved','start','end','version','render_anchor','render_attached'}):
+        if not set(data).issubset({'resolved','start','end','version','render_anchor','render_attached','review_id'}):
             raise Problem('Unknown thread update fields.')
         return jsonify(ws.update_thread(identifier,**data))
 

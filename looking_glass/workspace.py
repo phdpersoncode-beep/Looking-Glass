@@ -246,12 +246,13 @@ class Workspace:
                         db.execute("UPDATE threads SET anchor_status='needs_reattachment' WHERE path=?", (name,))
                     else:
                         raise
-            conditions = ['(review_id IS NULL OR review_id=?)']
-            parameters = [review]
+            across_reviews=bool(review and path is None)
+            conditions = ["(review_id IS NULL OR review_id IN (SELECT id FROM review_drafts WHERE status='pending'))"] if across_reviews else ['(review_id IS NULL OR review_id=?)']
+            parameters = [] if across_reviews else [review]
             if path:
                 conditions.append('path=?'); parameters.append(path)
             rows = db.execute('SELECT * FROM threads WHERE ' + ' AND '.join(conditions) + ' ORDER BY start,id', parameters).fetchall()
-            anchors = {r['thread_id']:dict(r) for r in db.execute('SELECT * FROM review_anchors WHERE review_id=?',(review,))} if review else {}
+            anchors = {r['thread_id']:dict(r) for r in db.execute("SELECT a.* FROM review_anchors a JOIN review_drafts d ON d.id=a.review_id WHERE d.status='pending'" if across_reviews else 'SELECT * FROM review_anchors WHERE review_id=?',() if across_reviews else (review,))} if review else {}
             messages, attachments = {}, {}
             origins = self.origins.public(db,path)
             suffix = ' WHERE thread_id IN (SELECT id FROM threads WHERE path=?)' if path else ''
@@ -264,7 +265,8 @@ class Workspace:
                 t = dict(row)
                 if t['id'] in anchors:
                     t.update({k:anchors[t['id']][k] for k in ('start','end','quote','anchor_status')})
-                    t['review_context'] = review
+                    if anchors[t['id']]['render_anchor'] is not None: t['render_anchor']=anchors[t['id']]['render_anchor']
+                    t['review_context'] = anchors[t['id']]['review_id']
                 t['origin'] = origins.get(t['origin_id'])
                 t['commit_hash'] = (t['origin'] or {}).get('commit_hash')
                 t['git_target'] = (dict(kind=t['anchor_kind'],ref=t['target_ref'],commit_hash=t['commit_hash'],
@@ -279,7 +281,12 @@ class Workspace:
 
     def thread_index(self, review=None):
         with self.connection() as db:
-            return [dict(row) for row in db.execute('SELECT id,path,start,resolved,anchor_status,anchor_kind,target_ref,review_id FROM threads WHERE review_id IS NULL OR review_id=? ORDER BY path,start,id',(review,))]
+            if review:
+                return [dict(row) for row in db.execute("""SELECT t.id,t.path,COALESCE(a.start,t.start) AS start,t.resolved,
+                    COALESCE(a.anchor_status,t.anchor_status) AS anchor_status,t.anchor_kind,t.target_ref,t.review_id
+                    FROM threads t LEFT JOIN review_anchors a ON a.thread_id=t.id AND a.review_id IN (SELECT id FROM review_drafts WHERE status='pending')
+                    WHERE t.review_id IS NULL OR t.review_id IN (SELECT id FROM review_drafts WHERE status='pending') ORDER BY t.path,start,t.id""")]
+            return [dict(row) for row in db.execute('SELECT id,path,start,resolved,anchor_status,anchor_kind,target_ref,review_id FROM threads WHERE review_id IS NULL ORDER BY path,start,id')]
 
     @staticmethod
     def message(author, body, allow_empty=False):
@@ -343,6 +350,8 @@ class Workspace:
                 t['context'] = dict(t['git_target'],content=self.origins.read(identifier)['content'])
             elif t['anchor_kind'] == 'rendered':
                 t['context'] = dict(kind='rendered', **t['render_anchor'])
+            elif t['anchor_kind'] == 'review_removed':
+                t['context'] = dict(kind='removed',content=self.origins.read(identifier)['content'],review_id=t.get('review_id'))
             elif t['anchor_status'] != 'attached':
                 t['context'] = dict(kind='unavailable', reason='Anchor needs reattachment; source positions are unreliable.')
             else:
@@ -458,7 +467,9 @@ class Workspace:
                 return self.get_thread(identifier)
             provenance='captured'
             try:
-                if t.get('review_id') or t.get('review_context'):
+                if t['anchor_kind']=='review_removed':
+                    content=self.origins.read(identifier)['content']
+                elif t.get('review_id') or t.get('review_context'):
                     content = self.reviews.read(t.get('review_context') or t['review_id'])['content']
                 else:
                     content, _ = self.text(t['path'])
@@ -477,36 +488,51 @@ class Workspace:
                 db.execute('INSERT INTO messages(thread_id,author,body,origin_id) VALUES(?,?,?,?)', (identifier,author,body,origin))
         return self.get_thread(identifier)
 
-    def update_thread(self, identifier, resolved=None, start=None, end=None, version=None, render_anchor=None, render_attached=None):
-        t = self.get_thread(identifier)
-        with self.lock, self.connection() as db:
-            if render_anchor is not None or render_attached is not None:
-                if t['anchor_kind'] != 'rendered':
-                    raise Problem('This thread has a source anchor.')
-                _, current = self.text(t['path'])
-                if current != version:
-                    raise Problem('Report changed on disk. Reload before updating its anchor.',409)
-            if render_anchor is not None:
-                anchor = self.rendered_anchor(render_anchor)
-                db.execute("UPDATE threads SET quote=?,render_anchor=?,anchor_status='attached' WHERE id=?", (anchor['quote'],json.dumps(anchor),identifier))
-            if render_attached is not None:
-                if type(render_attached) is not bool:
-                    raise Problem('render_attached must be a boolean.')
-                db.execute('UPDATE threads SET anchor_status=? WHERE id=?', ('attached' if render_attached else 'needs_reattachment',identifier))
-            if resolved is not None:
-                if type(resolved) is not bool:
-                    raise Problem('resolved must be a boolean.')
-                db.execute('UPDATE threads SET resolved=? WHERE id=?', (resolved,identifier))
-            if start is not None or end is not None:
-                if t['anchor_kind'] != 'source':
-                    raise Problem('Select the passage in the rendered report to reattach this thread.')
-                content, current = self.text(t['path'])
-                if current != version:
-                    raise Problem('Selection is stale.', 409)
-                if type(start) is not int or type(end) is not int or not 0 <= start < end <= len(content):
-                    raise Problem('Select a nonempty passage.')
-                db.execute("UPDATE threads SET start=?,end=?,quote=?,anchor_status='attached' WHERE id=?", (start,end,content[start:end],identifier))
+    def edit_message(self, identifier, message_id, body):
+        _,body=self.message('author',body)
+        with self.lock,self.connection() as db:
+            if not db.execute('SELECT 1 FROM messages WHERE id=? AND thread_id=?',(message_id,identifier)).fetchone():
+                raise Problem('Comment not found.',404)
+            db.execute('UPDATE messages SET body=? WHERE id=? AND thread_id=?',(body,message_id,identifier))
         return self.get_thread(identifier)
+
+    def update_thread(self, identifier, resolved=None, start=None, end=None, version=None, render_anchor=None, render_attached=None, review_id=None):
+        t = self.get_thread(identifier,review=review_id)
+        review_id = review_id or t.get('review_id')
+        with self.lock, self.connection() as db:
+            if review_id:
+                row=self.reviews.row(db,review_id)
+                if row['path']!=t['path']: raise Problem('Review belongs to another file.')
+                self.reviews.check(row,version) if any(x is not None for x in (start,end,render_anchor,render_attached)) else None
+                content,current=row['content'],self.reviews.version(row)
+                db.execute('INSERT OR IGNORE INTO review_anchors(review_id,thread_id,start,end,quote,anchor_status,render_anchor) VALUES(?,?,?,?,?,?,?)',
+                           (review_id,identifier,t['start'],t['end'],t['quote'],t['anchor_status'],json.dumps(t['render_anchor']) if t['render_anchor'] else None))
+            else:
+                content,current=self.text(t['path']) if any(x is not None for x in (start,end,render_anchor,render_attached)) else (None,None)
+            def update_anchor(fields,values):
+                if review_id:
+                    db.execute('UPDATE review_anchors SET '+fields+' WHERE review_id=? AND thread_id=?',(*values,review_id,identifier))
+                else:
+                    db.execute('UPDATE threads SET '+fields+' WHERE id=?',(*values,identifier))
+            if render_anchor is not None or render_attached is not None:
+                if t['anchor_kind'] != 'rendered': raise Problem('This thread has a source anchor.')
+                if current != version: raise Problem('Report changed. Reload before updating its anchor.',409)
+            if render_anchor is not None:
+                anchor=self.rendered_anchor(render_anchor)
+                update_anchor("quote=?,render_anchor=?,anchor_status='attached'",(anchor['quote'],json.dumps(anchor)))
+            if render_attached is not None:
+                if type(render_attached) is not bool: raise Problem('render_attached must be a boolean.')
+                update_anchor('anchor_status=?',('attached' if render_attached else 'needs_reattachment',))
+            if resolved is not None:
+                if type(resolved) is not bool: raise Problem('resolved must be a boolean.')
+                db.execute('UPDATE threads SET resolved=? WHERE id=?',(resolved,identifier))
+            if start is not None or end is not None:
+                if t['anchor_kind'] not in ('source','review_removed'): raise Problem('Select the passage in the rendered report to reattach this thread.')
+                if current != version: raise Problem('Selection is stale.',409)
+                if type(start) is not int or type(end) is not int or not 0 <= start < end <= len(content): raise Problem('Select a nonempty passage.')
+                update_anchor("start=?,end=?,quote=?,anchor_status='attached'",(start,end,content[start:end]))
+                if t['anchor_kind']=='review_removed': db.execute("UPDATE threads SET anchor_kind='source',render_anchor=NULL WHERE id=?",(identifier,))
+        return self.get_thread(identifier,review=review_id)
 
     def delete_thread(self, identifier):
         with self.lock, self.connection() as db:

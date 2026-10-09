@@ -127,3 +127,93 @@ def test_api_auth_revision_poll_and_agent_contract(review):
     assert c.get(f'/api/reviews/{identifier}/edits',headers=h).json['edits'][0]['author']=='Codex'
     assert c.post(f'/api/reviews/{identifier}/approve',headers=h,json={'version':draft['version']}).status_code==409
     assert c.post(f'/api/reviews/{identifier}/approve',headers=h,json={'version':result.json['version']}).status_code==200
+
+
+def test_removed_passage_discussions_and_approval_recovery(review):
+    ws,draft=review
+    draft=edit(ws,draft,[dict(start=0,end=5,insert='')])
+    segment=next(s for s in draft['segments'] if s['kind']=='delete')
+    anchor=dict(edit_id=segment['edit_id'],text=segment['text'],start=0,end=5)
+    t=ws.reviews.create_removed_thread(draft['id'],draft['version'],anchor,'Why remove this?','Altay')
+    assert ws.thread_context(t['id'])['context']['kind']=='removed'
+    assert ws.origins.read(t['id'])['content']=='first'
+    ws.reply(t['id'],'Explain removal','Codex')
+    ws.edit_message(t['id'],t['messages'][0]['id'],'Edited question')
+    assert ws.get_thread(t['id'])['messages'][0]['body']=='Edited question'
+    # Simulate the crash boundary between the disk save and SQLite promotion.
+    ws.save(draft['path'],draft['content'],draft['base_version'])
+    ws.reviews.approve(draft['id'],draft['version'])
+    assert ws.get_thread(t['id'])['anchor_status']=='needs_reattachment'
+    assert ws.origins.read(t['id'])['content']=='first'
+
+
+def test_minimal_human_save_does_not_transfer_document(review):
+    ws,draft=review
+    small=ws.reviews.update(draft['id'],draft['version'],[dict(start=0,end=0,insert='x')],'Altay','human',minimal=True)
+    assert len(json.dumps(small))<500
+    assert 'base' not in small and 'segments' not in small and 'content' not in small
+    assert small['edit']['edit_id']==ws.reviews.history(draft['id'])['edits'][0]['id']
+
+
+def test_rendered_review_anchor_updates_do_not_change_original(tmp_path):
+    (tmp_path/'report.html').write_text('<p>Old</p>')
+    ws=Workspace(tmp_path);f=ws.read('report.html');anchor=dict(quote='runtime',prefix='',suffix='')
+    original=ws.create_rendered_thread(f['path'],anchor,'question','Altay',f['version'])
+    draft=ws.reviews.start(f['path'],f['version'])
+    ws.update_thread(original['id'],render_attached=False,version=draft['version'],review_id=draft['id'])
+    assert ws.get_thread(original['id'])['anchor_status']=='attached'
+    assert ws.get_thread(original['id'],review=draft['id'])['anchor_status']=='needs_reattachment'
+    t=ws.reviews.create_rendered_thread(draft['id'],draft['version'],anchor,'new','Altay')
+    assert len(ws.threads(f['path']))==1
+    assert len(ws.threads(f['path'],review=draft['id']))==2
+    assert ws.get_thread(t['id'])['review_id']==draft['id']
+
+
+def test_partial_undo_cancels_restored_original_without_hiding_other_changes():
+    pieces=[dict(text='abcxyz',kind='base')];meta=dict(author='Altay',role='human',at='now',edit_id=1)
+    pieces=splice(pieces,1,3,'Q',meta);pieces=splice(pieces,5,5,'!',meta)
+    pieces=splice(pieces,1,2,'bc',meta)
+    assert accepted(pieces)=='abcxyz!'
+    assert [p['text'] for p in pieces if p['kind']!='base']==['!']
+
+
+def test_random_operations_preserve_accepted_and_original_order():
+    import random
+    randomizer=random.Random(43);base='abc 🧠 café\r\nxyz'*30;current=base;pieces=[dict(text=base,kind='base')]
+    for i in range(500):
+        start=randomizer.randrange(len(current)+1);end=randomizer.randrange(start,min(start+10,len(current))+1)
+        insertion=randomizer.choice(['new','🧠','\r\n','','é'])
+        current=current[:start]+insertion+current[end:]
+        pieces=splice(pieces,start,end,insertion,dict(author='test',role='human',at='now',edit_id=i))
+        assert accepted(pieces)==current
+        assert ''.join(p['text'] for p in pieces if p['kind'] in ('base','delete'))==base
+
+
+def test_agent_review_cli_uses_running_api_and_stale_revision_rejection(review,tmp_path):
+    import subprocess
+    import sys
+    import threading
+    from werkzeug.serving import make_server
+    ws,draft=review;app=create_app(ws.root);server=make_server('127.0.0.1',0,app,threaded=True)
+    worker=threading.Thread(target=server.serve_forever,daemon=True);worker.start()
+    def cli(*arguments):
+        result=subprocess.run([sys.executable,'-m','looking_glass.cli','agent','--root',str(ws.root),'--url',f'http://127.0.0.1:{server.server_port}',*arguments],capture_output=True,text=True)
+        return result
+    try:
+        assert json.loads(cli('review','list').stdout)['reviews'][0]['id']==draft['id']
+        current=json.loads(cli('review','read',str(draft['id'])).stdout)
+        operations=tmp_path/'edits.json';operations.write_text(json.dumps([dict(start=0,end=0,insert='Agent 🧠\r\n')]))
+        args=('review','edit',str(draft['id']),'--version',current['version'],'--author','Codex','--operations-file',str(operations))
+        updated=cli(*args);assert updated.returncode==0,updated.stderr
+        assert json.loads(updated.stdout)['content'].startswith('Agent 🧠')
+        assert cli(*args).returncode==1
+        assert json.loads(cli('review','history',str(draft['id'])).stdout)['edits'][0]['role']=='agent'
+        created=cli('create','sample.py','--review',str(draft['id']),'--quote','Agent 🧠','--author','Codex','--body','Review this')
+        assert created.returncode==0,created.stderr
+        thread=json.loads(created.stdout)
+        context=json.loads(cli('read',str(thread['id']),'--review',str(draft['id'])).stdout)
+        assert context['context']['content'].startswith('Agent 🧠')
+        assert json.loads(cli('list','--review',str(draft['id'])).stdout)['total']==1
+        assert (ws.root/'sample.py').read_bytes()==draft['base'].encode()
+    finally:
+        server.shutdown();worker.join(timeout=5);server.server_close()

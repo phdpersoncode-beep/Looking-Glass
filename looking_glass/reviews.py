@@ -25,6 +25,7 @@ def splice(segments, start, end, insert, metadata):
     """Offsets address accepted Unicode code points; tombstones consume no offset."""
     before, middle, after = [], [], []
     position = 0
+    removed_base = False
     for segment in segments:
         text, kind = segment['text'], segment['kind']
         if kind == 'delete':
@@ -40,12 +41,13 @@ def splice(segments, start, end, insert, metadata):
             if left:
                 before.append({**segment, 'text':text[:left]})
             if right > left and kind == 'base':
+                removed_base = True
                 middle.append(dict(text=text[left:right], kind='delete', **metadata))
             if right < len(text):
                 after.append({**segment, 'text':text[right:]})
         position = stop
     # Undo a deletion when an exact original tombstone is restored at its offset.
-    if start == end and insert and before and before[-1]['kind'] == 'delete' and before[-1]['text'] == insert:
+    if not removed_base and insert and before and before[-1]['kind'] == 'delete' and before[-1]['text'] == insert:
         before[-1] = dict(text=insert, kind='base')
         insert = ''
     addition = [dict(text=insert, kind='insert', **metadata)] if insert else []
@@ -87,6 +89,9 @@ class Reviews:
                     revision INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'pending',
                     created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
                 CREATE UNIQUE INDEX IF NOT EXISTS review_pending_path ON review_drafts(path) WHERE status='pending';
+                CREATE TABLE IF NOT EXISTS review_heads(
+                    id INTEGER PRIMARY KEY REFERENCES review_drafts(id), path TEXT NOT NULL,
+                    revision INTEGER NOT NULL, status TEXT NOT NULL, updated_at TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS review_edits(
                     id INTEGER PRIMARY KEY, review_id INTEGER NOT NULL REFERENCES review_drafts(id),
                     revision INTEGER NOT NULL, author TEXT NOT NULL, role TEXT NOT NULL,
@@ -96,8 +101,11 @@ class Reviews:
                     review_id INTEGER NOT NULL REFERENCES review_drafts(id),
                     thread_id INTEGER NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
                     start INTEGER NOT NULL, end INTEGER NOT NULL, quote TEXT NOT NULL,
-                    anchor_status TEXT NOT NULL, PRIMARY KEY(review_id,thread_id));
+                    anchor_status TEXT NOT NULL, render_anchor TEXT, PRIMARY KEY(review_id,thread_id));
             ''')
+            if 'render_anchor' not in {r['name'] for r in db.execute('PRAGMA table_info(review_anchors)')}:
+                db.execute('ALTER TABLE review_anchors ADD COLUMN render_anchor TEXT')
+            db.execute('INSERT OR IGNORE INTO review_heads SELECT id,path,revision,status,updated_at FROM review_drafts')
             if 'review_id' not in {r['name'] for r in db.execute('PRAGMA table_info(threads)')}:
                 db.execute('ALTER TABLE threads ADD COLUMN review_id INTEGER REFERENCES review_drafts(id)')
 
@@ -140,7 +148,8 @@ class Reviews:
             with self.ws.connection() as db:
                 identifier = db.execute('INSERT INTO review_drafts(path,base,base_version,content,segments,created_at,updated_at) VALUES(?,?,?,?,?,?,?)',
                     (path,file['content'],version,file['content'],json.dumps(segments),timestamp,timestamp)).lastrowid
-                db.execute("INSERT INTO review_anchors SELECT ?,id,start,end,quote,anchor_status FROM threads WHERE path=? AND review_id IS NULL AND anchor_kind='source'",(identifier,path))
+                db.execute("INSERT INTO review_heads VALUES(?,?,0,'pending',?)",(identifier,path,timestamp))
+                db.execute("INSERT INTO review_anchors SELECT ?,id,start,end,quote,anchor_status,render_anchor FROM threads WHERE path=? AND review_id IS NULL AND anchor_kind IN ('source','rendered')",(identifier,path))
                 return self.public(self.row(db,identifier))
 
     def read(self, identifier):
@@ -149,9 +158,9 @@ class Reviews:
 
     def list(self):
         with self.ws.connection() as db:
-            return [dict(r,version=self.version(r)) for r in db.execute("SELECT id,path,revision,status,updated_at FROM review_drafts WHERE status='pending' ORDER BY path")]
+            return [dict(r,version=self.version(r)) for r in db.execute("SELECT * FROM review_heads WHERE status='pending' ORDER BY path")]
 
-    def update(self, identifier, version, operations, author, role):
+    def update(self, identifier, version, operations, author, role, minimal=False):
         author, _ = self.ws.message(author, 'edit')
         if role not in ('human','agent'):
             raise Problem('Edit role must be human or agent.')
@@ -160,6 +169,7 @@ class Reviews:
         with self.ws.lock, self.ws.connection() as db:
             db.execute('BEGIN IMMEDIATE')
             row = self.row(db,identifier); self.check(row,version)
+            db.execute("INSERT OR IGNORE INTO review_anchors SELECT ?,id,start,end,quote,anchor_status,render_anchor FROM threads WHERE path=? AND review_id IS NULL AND anchor_kind IN ('source','rendered')",(identifier,row['path']))
             content, segments = row['content'], json.loads(row['segments'])
             normalized = []
             timestamp = self.stamp()
@@ -187,6 +197,14 @@ class Reviews:
                 segments = [dict(text=content,kind='base')] if content else []
             # Reconcile only the reviewed file's anchors using known operations.
             for anchor in db.execute('SELECT * FROM review_anchors WHERE review_id=?',(identifier,)).fetchall():
+                thread=db.execute('SELECT anchor_kind,render_anchor FROM threads WHERE id=?',(anchor['thread_id'],)).fetchone()
+                kind=thread['anchor_kind']
+                if kind=='review_removed':
+                    removed=json.loads(thread['render_anchor'])
+                    exists=any(s['kind']=='delete' and s.get('edit_id')==removed['edit_id'] and s['text']==removed['text'] for s in segments)
+                    db.execute('UPDATE review_anchors SET anchor_status=? WHERE review_id=? AND thread_id=?',('attached' if exists else 'needs_reattachment',identifier,anchor['thread_id']))
+                if kind!='source':
+                    continue
                 if anchor['anchor_status'] != 'attached':
                     continue
                 mapped = relocate(anchor['start'],anchor['end'],normalized)
@@ -199,7 +217,12 @@ class Reviews:
             db.execute('UPDATE review_edits SET operations=? WHERE id=?',(json.dumps(normalized,ensure_ascii=False),edit))
             db.execute('UPDATE review_drafts SET content=?,segments=?,revision=revision+1,updated_at=? WHERE id=?',
                 (content,json.dumps(segments,ensure_ascii=False),timestamp,identifier))
-            return self.public(self.row(db,identifier))
+            db.execute('UPDATE review_heads SET revision=revision+1,updated_at=? WHERE id=?',(timestamp,identifier))
+            updated=self.row(db,identifier)
+            if minimal:
+                return dict(id=identifier,version=self.version(updated),revision=updated['revision'],updated_at=timestamp,
+                            edit=dict(author=author,role=role,at=timestamp,edit_id=edit))
+            return self.public(updated)
 
     def history(self, identifier, after=0, limit=100):
         after = self.ws.query_integer(after,'After',0)
@@ -215,13 +238,22 @@ class Reviews:
             draft = self.read(identifier)
             self.check(draft,version)
             # The ordinary save path preserves permissions and checks disk races.
-            saved = self.ws.save(draft['path'],draft['content'],draft['base_version'])
+            try:
+                saved = self.ws.save(draft['path'],draft['content'],draft['base_version'])
+            except Problem as error:
+                # Recover if a process stopped after the atomic disk write but
+                # before promoting anchors. Never rewrite different disk bytes.
+                if error.status!=409: raise
+                saved=self.ws.read(draft['path'])
+                if saved['content']!=draft['content']: raise error
             with self.ws.connection() as db:
                 for anchor in db.execute('SELECT * FROM review_anchors WHERE review_id=?',(identifier,)).fetchall():
-                    db.execute('UPDATE threads SET start=?,end=?,quote=?,anchor_status=? WHERE id=?',
-                        (anchor['start'],anchor['end'],anchor['quote'],anchor['anchor_status'],anchor['thread_id']))
+                    db.execute('UPDATE threads SET start=?,end=?,quote=?,anchor_status=?,render_anchor=COALESCE(?,render_anchor) WHERE id=?',
+                        (anchor['start'],anchor['end'],anchor['quote'],anchor['anchor_status'],anchor['render_anchor'],anchor['thread_id']))
                 db.execute('UPDATE threads SET review_id=NULL WHERE review_id=?',(identifier,))
+                db.execute("UPDATE threads SET anchor_status='needs_reattachment' WHERE id IN (SELECT thread_id FROM review_anchors WHERE review_id=?) AND anchor_kind='review_removed'",(identifier,))
                 db.execute("UPDATE review_drafts SET status='approved',updated_at=? WHERE id=?",(self.stamp(),identifier))
+                db.execute("UPDATE review_heads SET status='approved',updated_at=? WHERE id=?",(self.stamp(),identifier))
             return saved
 
     def create_thread(self, identifier, version, start, end, body, author, allow_empty=False):
@@ -235,6 +267,37 @@ class Reviews:
             origin = self.ws.origins.capture(db,row['path'],content,start,end,quote)
             thread = db.execute('INSERT INTO threads(path,start,end,quote,origin_id,review_id) VALUES(?,?,?,?,?,?)',
                 (row['path'],start,end,quote,origin,identifier)).lastrowid
-            db.execute('INSERT INTO review_anchors VALUES(?,?,?,?,?,?)',(identifier,thread,start,end,quote,'attached'))
+            db.execute('INSERT INTO review_anchors(review_id,thread_id,start,end,quote,anchor_status) VALUES(?,?,?,?,?,?)',(identifier,thread,start,end,quote,'attached'))
+            db.execute('INSERT INTO messages(thread_id,author,body,origin_id) VALUES(?,?,?,?)',(thread,author,body,origin))
+        return self.ws.get_thread(thread,review=identifier)
+
+    def create_removed_thread(self, identifier, version, anchor, body, author, allow_empty=False):
+        author,body = self.ws.message(author,body,allow_empty)
+        if not isinstance(anchor,dict) or set(anchor) != {'edit_id','text','start','end'}:
+            raise Problem('Select a removed passage again.')
+        with self.ws.lock, self.ws.connection() as db:
+            row=self.row(db,identifier); self.check(row,version)
+            segment=next((s for s in json.loads(row['segments']) if s['kind']=='delete' and s.get('edit_id')==anchor['edit_id'] and s['text']==anchor['text']),None)
+            a,b=anchor['start'],anchor['end']
+            if not segment or type(a) is not int or type(b) is not int or not 0<=a<b<=len(segment['text']):
+                raise Problem('Removed passage changed. Select it again.',409)
+            quote=segment['text'][a:b]
+            origin=self.ws.origins.capture(db,row['path'],segment['text'],a,b,quote)
+            thread=db.execute("INSERT INTO threads(path,start,end,quote,origin_id,review_id,anchor_kind,render_anchor) VALUES(?,?,?,?,?,?,'review_removed',?)",
+                (row['path'],a,b,quote,origin,identifier,json.dumps(anchor))).lastrowid
+            db.execute('INSERT INTO review_anchors(review_id,thread_id,start,end,quote,anchor_status) VALUES(?,?,?,?,?,?)',(identifier,thread,a,b,quote,'attached'))
+            db.execute('INSERT INTO messages(thread_id,author,body,origin_id) VALUES(?,?,?,?)',(thread,author,body,origin))
+        return self.ws.get_thread(thread,review=identifier)
+
+    def create_rendered_thread(self, identifier, version, anchor, body, author, allow_empty=False):
+        anchor=self.ws.rendered_anchor(anchor)
+        author,body=self.ws.message(author,body,allow_empty)
+        with self.ws.lock,self.ws.connection() as db:
+            row=self.row(db,identifier);self.check(row,version)
+            if not row['path'].lower().endswith(('.html','.htm')):
+                raise Problem('Rendered anchors require HTML.')
+            origin=self.ws.origins.capture(db,row['path'],row['content'],0,0,anchor['quote'],anchor)
+            thread=db.execute("INSERT INTO threads(path,start,end,quote,origin_id,review_id,anchor_kind,render_anchor) VALUES(?,0,0,?,?,?,'rendered',?)",
+                (row['path'],anchor['quote'],origin,identifier,json.dumps(anchor))).lastrowid
             db.execute('INSERT INTO messages(thread_id,author,body,origin_id) VALUES(?,?,?,?)',(thread,author,body,origin))
         return self.ws.get_thread(thread,review=identifier)
