@@ -5,6 +5,7 @@ import {formatJSON} from './json-format.mjs';
 import {mountMappedMarkdown,renderMarkdown} from './markdown-render.mjs';
 import {textSelection,updateNativeTextSelection} from './text-selection.mjs';
 import {createThreadSpotlight} from './thread-spotlight.mjs';
+import {createThreadSearchView} from './thread-search-view.mjs';
 import {mountMarkdownContents} from './markdown-contents.mjs';
 import {basicSetup} from 'codemirror';
 import {EditorState, StateEffect, StateField, Compartment, Text, RangeSet} from '@codemirror/state';
@@ -29,6 +30,7 @@ const $ = selector => document.querySelector(selector);
 const token = $('meta[name=looking-glass-token]').content;
 const root = $('.root-label').textContent;
 const threadSpotlight=createThreadSpotlight($('.discussion-sidebar'),filterThreads);
+const threadSearch=createThreadSearchView($('.discussion-sidebar'),{onInput:()=>{threadSpotlight.restore();filterThreads();},onOpen:guard(focusSidebarThread)});
 const composers=createComposers({token,api,onError:message=>notify(message,true)});
 const tabs = new Map();
 const HISTORY='looking-glass://history',ORIGINAL='looking-glass://thread/';
@@ -506,10 +508,11 @@ async function getNavigationIndex(){
   return navigationIndex;
 }
 function filterThreads(){
-  if(zenMode&&!threadSpotlight.active&&!currentThreads.some(t=>t.id===activeThread&&(!t.resolved||$('#show-resolved').checked))){activeThread=currentThreads.find(t=>!t.resolved||$('#show-resolved').checked)?.id||null;zenCollapsed=false;}
+  const matches=threadSearch.update(currentThreads,threadSpotlight.active,$('#show-resolved').checked);
+  if(zenMode&&!threadSpotlight.active&&!currentThreads.some(t=>t.id===activeThread&&(!t.resolved||$('#show-resolved').checked)&&(!matches||matches.has(t.id)))){activeThread=(matches?currentThreads.find(t=>matches.has(t.id)):currentThreads.find(t=>!t.resolved||$('#show-resolved').checked))?.id||null;zenCollapsed=false;}
   $$('.thread').forEach(t=>{
     const id=Number(t.dataset.thread);
-    t.hidden=threadSpotlight.active?!threadSpotlight.includes(id):t.dataset.resolved==='true'&&!$('#show-resolved').checked;
+    t.hidden=threadSpotlight.active?!threadSpotlight.includes(id):matches?!matches.has(id):t.dataset.resolved==='true'&&!$('#show-resolved').checked;
     t.classList.toggle('active',id===activeThread);
     t.classList.toggle('collapsed',zenMode?(id!==activeThread||zenCollapsed):collapsedThreads.has(id));
     t.querySelector('[data-action=collapse-thread]')?.setAttribute('aria-expanded',String(!t.classList.contains('collapsed')));
@@ -618,7 +621,7 @@ async function focusSidebarThread(id){
 let navigationQueue=Promise.resolve();
 function navigate(direction){
   navigationQueue=navigationQueue.catch(()=>{}).then(async()=>{
-    const threads=(await getNavigationIndex()).filter(t=>!t.resolved||$('#show-resolved').checked).sort((a,b)=>(a.path>b.path)-(a.path<b.path)||a.start-b.start||a.id-b.id);
+    const threads=threadSearch.query?threadSearch.results.map(r=>currentThreads.find(t=>t.id===r.id)).filter(Boolean):(await getNavigationIndex()).filter(t=>!t.resolved||$('#show-resolved').checked).sort((a,b)=>(a.path>b.path)-(a.path<b.path)||a.start-b.start||a.id-b.id);
     if(!threads.length)return;
     let at=threads.findIndex(t=>t.id===activeThread);
     if(at<0){const local=threads.map((t,i)=>t.path===active?i:-1).filter(i=>i>=0);at=local.length?(direction>0?local[0]:local.at(-1)):(direction>0?0:threads.length-1);}
@@ -1059,7 +1062,7 @@ $('#download-file').onclick=guard(()=>{
 });
 $('#save').onclick=guard(saveActive);$('#annotate').onclick=guard(startComment);
 $('#all-discussions').onclick=()=>{passageActivation++;threadSpotlight.restore();};
-function visibleThreadIds(){return threadSpotlight.active?threadSpotlight.ids:currentThreads.map(t=>t.id);}
+function visibleThreadIds(){return $$('.thread').filter(t=>!t.hidden).map(t=>Number(t.dataset.thread));}
 $('#collapse-threads').onclick=()=>{if(zenMode)zenCollapsed=true;else for(const id of visibleThreadIds())collapsedThreads.add(id);rememberCollapsed();filterThreads();};
 $('#expand-threads').onclick=()=>{for(const id of visibleThreadIds())collapsedThreads.delete(id);rememberCollapsed();filterThreads();};
 $('#previous').onclick=guard(()=>navigate(-1));$('#next').onclick=guard(()=>navigate(1));$('#show-resolved').onchange=filterThreads;

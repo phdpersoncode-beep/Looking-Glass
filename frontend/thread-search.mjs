@@ -11,7 +11,8 @@ function field(text,label) {
     normalized+=folded;at+=char.length;
   }
   offsets.push(text.length);
-  const words=[...normalized.matchAll(/[\p{L}\p{N}_]+/gu)].map(m=>({text:m[0],at:m.index}));
+  const seen=new Set(),words=[];
+  for(const m of normalized.matchAll(/[\p{L}\p{N}_]+/gu))if(!seen.has(m[0])){seen.add(m[0]);words.push({text:m[0],at:m.index});}
   return {text,label,normalized,offsets,words};
 }
 
@@ -32,7 +33,7 @@ function distance(a,b,limit) {
   return previous[b.length];
 }
 
-function match(term,f) {
+function match(term,f,cache) {
   const at=f.normalized.indexOf(term);
   if(at>=0){
     const boundary=at===0||!/[\p{L}\p{N}_]/u.test(f.normalized[at-1]);
@@ -41,16 +42,26 @@ function match(term,f) {
   if(term.length<3||/^\d+$/u.test(term))return null;
   let best=null;
   for(const word of f.words){
+    const key=term+'\0'+word.text;
+    if(cache.has(key)){
+      const found=cache.get(key);
+      if(found&&(!best||found.score>best.score))best={...found,from:word.at+found.from,to:word.at+found.to};
+      continue;
+    }
+    let found=null;
     const limit=term.length>=6?2:term.length>=4?1:0;
     if(limit&&Math.abs(term.length-word.text.length)<=limit){
       const edits=distance(term,word.text,limit);
-      if(edits<=limit){const hit={score:65-edits*8,from:word.at,to:word.at+word.text.length};if(!best||hit.score>best.score)best=hit;}
+      if(edits<=limit)found={score:65-edits*8,from:0,to:word.text.length};
     }
     // Compact abbreviations (e.g. "cfg" → "config") without broad subsequences.
-    if(word.text.length>term.length+3)continue;
-    let next=0,first=-1,last=0;
-    for(let i=0;i<word.text.length&&next<term.length;i++)if(word.text[i]===term[next]){if(first<0)first=i;last=i;next++;}
-    if(next===term.length){const hit={score:40-(last-first+1-term.length),from:word.at+first,to:word.at+last+1};if(!best||hit.score>best.score)best=hit;}
+    if(word.text.length<=term.length+3){
+      let next=0,first=-1,last=0;
+      for(let i=0;i<word.text.length&&next<term.length;i++)if(word.text[i]===term[next]){if(first<0)first=i;last=i;next++;}
+      if(next===term.length){const hit={score:40-(last-first+1-term.length),from:first,to:last+1};if(!found||hit.score>found.score)found=hit;}
+    }
+    cache.set(key,found);
+    if(found&&(!best||found.score>best.score))best={...found,from:word.at+found.from,to:word.at+found.to};
   }
   return best;
 }
@@ -75,7 +86,7 @@ export function createThreadSearch(threads) {
     const normalized=field(query,'').normalized;
     const idQuery=normalized.match(/^#?\s*(\d+)$/u);
     const terms=[...new Set(normalized.match(/#\d+|[\p{L}\p{N}_]+/gu)||[])];
-    const results=[];
+    const results=[],wordCache=new Map();
     if(terms.length)for(const {thread,fields} of index){
       const id=String(thread.id);
       if(idQuery&&id.startsWith(idQuery[1])){
@@ -86,7 +97,7 @@ export function createThreadSearch(threads) {
       for(const term of terms){
         if(term.startsWith('#')){if(term.slice(1)!==id){matched=false;break;}score+=200;continue;}
         let best=null;
-        for(const f of fields){const hit=match(term,f);if(hit&&(!best||hit.score>best.hit.score))best={f,hit};}
+        for(const f of fields){const hit=match(term,f,wordCache);if(hit&&(!best||hit.score>best.hit.score))best={f,hit};}
         if(!best){matched=false;break;}
         score+=best.hit.score;
         if(!fieldHits.has(best.f))fieldHits.set(best.f,[]);fieldHits.get(best.f).push(best.hit);
