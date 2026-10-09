@@ -98,7 +98,7 @@ def test_preview_discussions_repeated_text_entities_unicode_and_navigation(works
     select_text(page,'.markdown-preview tbody td:last-child');page.keyboard.press('Control+Enter')
     expect(page.locator('#comment-dialog')).to_be_visible();page.locator('#comment-body').fill('Second repeated cell');page.locator('#comment-submit').click()
     expect(page.locator('.thread')).to_have_count(2)
-    expect(page.locator('.floating-discussion')).not_to_be_visible()
+    expect(page.locator('#passage-spotlight')).not_to_be_visible()
     second=ws.threads()[1];assert second['start']==text.rindex('repeat')
     page.locator('.thread blockquote').first.click();expect(page.locator('#mode')).to_have_value('preview')
     page.reload();expect(page.locator('.markdown-preview .passage-highlight')).to_have_count(2)

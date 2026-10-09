@@ -2,8 +2,8 @@
 
 Continue on `feature/markdown-discussion-reading-polish` (PR #8).
 
-- [ ] Remove floating cards; highlight clicks filter the sidebar to the passage's discussions without moving the reading pane.
-- [ ] Add a quiet “This passage · N threads” header and “All discussions”; preserve the original list order, scroll position, drafts, and refresh behavior.
+- [x] Remove floating cards; highlight clicks filter the sidebar to the passage's discussions without moving the reading pane.
+- [x] Add a quiet “This passage · N threads” header and “All discussions”; preserve the original list order, scroll position, drafts, and refresh behavior.
 - [ ] Cover overlapping passages, Markdown tables, HTML reports, dismissal, explicit navigation, and background updates in both browsers.
 - [ ] Rebuild assets, run regression/package checks, and update the pull request with verification.
 

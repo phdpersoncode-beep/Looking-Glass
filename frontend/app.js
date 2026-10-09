@@ -4,7 +4,7 @@ import {mountHistory} from './history.mjs';
 import {formatJSON} from './json-format.mjs';
 import {mountMappedMarkdown,renderMarkdown} from './markdown-render.mjs';
 import {textSelection,updateNativeTextSelection} from './text-selection.mjs';
-import {createThreadFloat} from './thread-float.mjs';
+import {createThreadSpotlight} from './thread-spotlight.mjs';
 import {mountMarkdownContents} from './markdown-contents.mjs';
 import {basicSetup} from 'codemirror';
 import {EditorState, StateEffect, StateField, Compartment, Text, RangeSet} from '@codemirror/state';
@@ -28,7 +28,7 @@ import {SVGRenderer} from 'three/addons/renderers/SVGRenderer.js';
 const $ = selector => document.querySelector(selector);
 const token = $('meta[name=looking-glass-token]').content;
 const root = $('.root-label').textContent;
-const threadFloat=createThreadFloat($('.discussion-sidebar'));
+const threadSpotlight=createThreadSpotlight($('.discussion-sidebar'),filterThreads);
 const composers=createComposers({token,api,onError:message=>notify(message,true)});
 const tabs = new Map();
 const HISTORY='looking-glass://history',ORIGINAL='looking-glass://thread/';
@@ -322,7 +322,7 @@ function showTabMenu(e,x,y){
 }
 async function closeTab(path){
   const e=tabs.get(path);if(e.dirty&&!confirm('Discard unsaved edits in '+path+'?'))return;
-  if(path===active){threadFloat.restore();closeComment();syncState();view?.destroy();view=null;cleanup();cleanup=()=>{};active=null;}
+  if(path===active){threadSpotlight.restore();closeComment();syncState();view?.destroy();view=null;cleanup();cleanup=()=>{};active=null;}
   tabs.delete(path);remember();renderTabs();
   if(!active&&tabs.size)await openFile([...tabs.keys()].at(-1));
   else if(!active){lastThreadHTML='';lastThreadKey='';$('#surface').innerHTML='<div class="welcome"><h1>Open a file to begin.</h1></div>';$('#threads').replaceChildren();currentThreads=[];$('#thread-count').textContent='0';updateToolbar();await refreshThreads();}
@@ -370,7 +370,7 @@ async function openFile(path){
   if(switching){queuedFile=path;return;}switching=true;
   try{
     if(active===path)return;
-    threadFloat.restore();
+    threadSpotlight.restore();
     closeComment();contentsController?.reset();
     syncState();
     let e=tabs.get(path);
@@ -468,14 +468,14 @@ function renderDiscussions(data,key){
   previewThreads();const e=entry();
   if(view&&e&&!e.dirty)view.dispatch({effects:spansEffect.of(spansFor(currentThreads,e.content))});
   if(data.html!==lastThreadHTML||key!==lastThreadKey){
-    const floating=key===lastThreadKey?threadFloat.id:null,floatY=threadFloat.y,floatScroll=$('.floating-discussion').scrollTop;
+    if(key!==lastThreadKey)threadSpotlight.restore();
+    const scroll=$('.discussion-content').scrollTop,focusedView=threadSpotlight.active;
     const drafts=new Map($$('.reply-form').map(f=>[f.closest('.thread').dataset.thread,f.querySelector('textarea').value]));
     const focused=document.activeElement,focusId=focused?.id,start=focused?.selectionStart,end=focused?.selectionEnd;
-    threadFloat.restore();
     $('#threads').innerHTML=data.html;lastThreadHTML=data.html;lastThreadKey=key;
     for(const body of $$('.comment-markdown')){const source=body.textContent;renderMarkdown(body,source,highlightMarkdown);markdownDiagrams(body);}
     for(const form of $$('.reply-form')){const draft=drafts.get(form.closest('.thread').dataset.thread);if(draft)form.querySelector('textarea').value=draft;}
-    if(floating&&key===lastThreadKey){filterThreads();threadFloat.show($('.thread[data-thread="'+floating+'"]'),floatY);$('.floating-discussion').scrollTop=floatScroll;}
+    syncSpotlight();filterThreads();if(!focusedView||threadSpotlight.active)$('.discussion-content').scrollTop=scroll;
     if(focusId){const field=document.getElementById(focusId);if(field?.closest('.thread')){field.focus({preventScroll:true});field.setSelectionRange?.(start,end);}}
   }
   for(const form of $$('.reply-form'))composers.render(form);
@@ -503,23 +503,62 @@ async function getNavigationIndex(){
   if(Date.now()-indexTime>2000){navigationIndex=await api('thread-index');indexTime=Date.now();}
   return navigationIndex;
 }
-function filterThreads(){if(zenMode&&!currentThreads.some(t=>t.id===activeThread&&(!t.resolved||$('#show-resolved').checked))){activeThread=currentThreads.find(t=>!t.resolved||$('#show-resolved').checked)?.id||null;zenCollapsed=false;}$$('.thread').forEach(t=>{t.hidden=t.dataset.resolved==='true'&&!$('#show-resolved').checked;t.classList.toggle('active',Number(t.dataset.thread)===activeThread);t.classList.toggle('collapsed',zenMode?(Number(t.dataset.thread)!==activeThread||zenCollapsed):collapsedThreads.has(Number(t.dataset.thread)));t.querySelector('[data-action=collapse-thread]')?.setAttribute('aria-expanded',String(!t.classList.contains('collapsed')));const reply=t.querySelector('.reply-form');if(reply)reply.hidden=Number(t.dataset.thread)!==activeThread;});const floating=$('.floating-thread');if(floating&&(floating.hidden||floating.classList.contains('collapsed')))threadFloat.restore();}
-function showThread(id,anchorY,floating=true){
+function filterThreads(){
+  if(zenMode&&!threadSpotlight.active&&!currentThreads.some(t=>t.id===activeThread&&(!t.resolved||$('#show-resolved').checked))){activeThread=currentThreads.find(t=>!t.resolved||$('#show-resolved').checked)?.id||null;zenCollapsed=false;}
+  $$('.thread').forEach(t=>{
+    const id=Number(t.dataset.thread);
+    t.hidden=threadSpotlight.active?!threadSpotlight.includes(id):t.dataset.resolved==='true'&&!$('#show-resolved').checked;
+    t.classList.toggle('active',id===activeThread);
+    t.classList.toggle('collapsed',zenMode?(id!==activeThread||zenCollapsed):collapsedThreads.has(id));
+    t.querySelector('[data-action=collapse-thread]')?.setAttribute('aria-expanded',String(!t.classList.contains('collapsed')));
+    const reply=t.querySelector('.reply-form');if(reply)reply.hidden=id!==activeThread;
+  });
+}
+let spotlightPassage=null;
+function passageIds(node){
+  const ids=new Set();
+  for(let mark=node?.closest?.('[data-anchor]');mark&&$('#surface').contains(mark);mark=mark.parentElement.closest('[data-anchor]')){
+    for(const id of (mark.dataset.anchors||mark.dataset.anchor).split(','))ids.add(Number(id));
+  }
+  return [...ids];
+}
+function showPassage(ids){
+  const threads=ids.map(id=>currentThreads.find(t=>t.id===id&&t.path===active)).filter(Boolean);
+  if(!threads.length)return;
+  spotlightPassage={path:active,seeds:threads};
+  const selected=threads.find(t=>t.id===activeThread)||threads.reduce((a,b)=>b.anchor_kind==='source'&&b.end-b.start<(a.anchor_kind==='source'?a.end-a.start:Infinity)?b:a);
+  showThread(selected.id,true,threads.map(t=>t.id));
+  syncSpotlight();
+}
+function syncSpotlight(){
+  if(!threadSpotlight.active||!spotlightPassage)return;
+  const seeds=spotlightPassage.seeds.map(seed=>currentThreads.find(t=>t.id===seed.id)||seed);
+  const source=seeds.filter(t=>t.anchor_kind==='source'&&t.anchor_status==='attached');
+  const from=Math.max(...source.map(t=>t.start)),to=Math.min(...source.map(t=>t.end));
+  const ids=currentThreads.filter(t=>t.path===spotlightPassage.path&&(
+    seeds.some(seed=>seed.id===t.id)||
+    t.anchor_kind==='source'&&t.anchor_status==='attached'&&from<to&&t.start<to&&t.end>from||
+    t.anchor_kind==='rendered'&&seeds.some(seed=>seed.anchor_kind==='rendered'&&JSON.stringify(seed.render_anchor)===JSON.stringify(t.render_anchor))
+  )).map(t=>t.id);
+  threadSpotlight.sync(ids);
+}
+function showThread(id,focused=false,ids=[id]){
   passageActivation++;
   if(discussionsHidden)setDiscussionsHidden(false);
-  activeThread=id;zenCollapsed=false;if(!zenMode){collapsedThreads.delete(id);rememberCollapsed();}filterThreads();
+  activeThread=id;zenCollapsed=false;if(!zenMode){collapsedThreads.delete(id);rememberCollapsed();}
+  if(focused)threadSpotlight.show(ids);else{threadSpotlight.restore();filterThreads();}
   previewThreads();refreshMarkdownHighlights();
   if(view)view.dispatch({effects:spansEffect.of(view.state.field(spanField))});
   const card=$('.thread[data-thread="'+id+'"]');
-  if(floating)threadFloat.show(card,anchorY);else threadFloat.reveal(card);
+  if(!focused)threadSpotlight.reveal(card);
 }
 async function jump(id,target=null){
   let t=target||currentThreads.find(t=>t.id===id);if(!t)return;
-  if(t.anchor_kind==='commit'||t.anchor_kind==='branch'){if(!t.git_target)t=await api('threads/'+id);await openFile(HISTORY);cleanup.selectTarget?.(t.git_target);await refreshThreads();showThread(id,undefined,false);return;}
-  if(t.anchor_status==='needs_reattachment'||tabs.get(t.path)?.conflict?.deleted){await openOriginal(id);showThread(id,undefined,false);notify('Showing original reviewed content.');return;}
-  if(t.path!==active){showThread(id,undefined,false);try{await openFile(t.path);}catch(error){if(error.status===404){await openOriginal(id);showThread(id,undefined,false);return;}notify(error.message,true);return;}}
+  if(t.anchor_kind==='commit'||t.anchor_kind==='branch'){if(!t.git_target)t=await api('threads/'+id);await openFile(HISTORY);cleanup.selectTarget?.(t.git_target);await refreshThreads();showThread(id);return;}
+  if(t.anchor_status==='needs_reattachment'||tabs.get(t.path)?.conflict?.deleted){await openOriginal(id);showThread(id);notify('Showing original reviewed content.');return;}
+  if(t.path!==active){showThread(id);try{await openFile(t.path);}catch(error){if(error.status===404){await openOriginal(id);showThread(id);return;}notify(error.message,true);return;}}
   t=currentThreads.find(item=>item.id===id)||t;
-  showThread(id,undefined,false);
+  showThread(id);
   if(t.anchor_kind==='rendered'||entry().mode==='rendered'&&t.anchor_kind==='source'){
     if(entry().mode!=='rendered'){syncState();view?.destroy();view=null;entry().mode='rendered';mountDocument(entry());remember();}
     renderedJump=id;
@@ -574,7 +613,7 @@ async function submitComment(event){
     const anchor=selection.git_target?{git_target:selection.git_target}:{path:selection.path,...(selection.render_anchor?{render_anchor:selection.render_anchor}:{start:selection.start,end:selection.end}),version:e.version};
     const result=await composers.post('threads',{...anchor,body,author},$('#comment-form'));
     composers.clear($('#comment-form'));
-    if(active===selection.path){closeComment();if(selection.html)previewMessage('clear-selection');activeThread=result.id;await refreshThreads();showThread(result.id,undefined,false);view?.focus();}
+    if(active===selection.path){closeComment();if(selection.html)previewMessage('clear-selection');activeThread=result.id;await refreshThreads();showThread(result.id);view?.focus();}
     notify('Discussion created');
   }finally{postingComment=false;composers.setSending($('#comment-form'),false);}
 }
@@ -800,8 +839,8 @@ window.addEventListener('message',guard(async event=>{
   if(message.type==='comment')await startComment();
   if(message.type==='quick-open')await showQuickOpen();
   if(message.type==='zen')toggleZen();
-  if(message.type==='defocus-thread')threadFloat.restore();
-  if(message.type==='thread'&&currentThreads.some(t=>t.id===message.id&&t.path===active))showThread(message.id,Number.isFinite(message.top)?preview.frame.getBoundingClientRect().top+message.top:undefined);
+  if(message.type==='exit-spotlight'){passageActivation++;threadSpotlight.restore();}
+  if(message.type==='thread'&&currentThreads.some(t=>t.id===message.id&&t.path===active))showPassage(Array.isArray(message.ids)?message.ids:[message.id]);
   if(message.type==='anchors'&&Array.isArray(message.statuses)){
     let changed=false;
     for(const status of message.statuses){const thread=currentThreads.find(t=>t.id===status.id&&t.anchor_kind==='rendered');if(!thread||typeof status.attached!=='boolean')continue;
@@ -866,13 +905,12 @@ document.addEventListener('keydown',event=>{
   if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='p'){event.preventDefault();event.stopPropagation();guard(showQuickOpen)();}
   if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='f'&&jsonlSearch&&!document.querySelector('dialog:modal')){event.preventDefault();jsonlSearch();}
   if(event.key==='Escape'&&$('#comment-dialog').open){event.preventDefault();closeComment();view?.focus();}
-  else if(event.key==='Escape'&&threadFloat.id){event.preventDefault();threadFloat.restore();}
+  else if(event.key==='Escape'&&threadSpotlight.active){event.preventDefault();threadSpotlight.restore();}
 },true);
 document.addEventListener('pointerdown',event=>{
   passageActivation++;
-  if(threadFloat.id&&!threadFloat.contains(event.target))threadFloat.restore();
   const mark=event.button===0&&event.target.closest?.('#surface [data-anchor]');
-  pressedPassage=mark?{id:Number(mark.dataset.anchor),path:active,x:event.clientX,y:event.clientY}:null;
+  pressedPassage=mark?{ids:passageIds(mark),path:active,x:event.clientX,y:event.clientY}:null;
 },true);
 document.addEventListener('pointermove',event=>{if(pressedPassage&&Math.hypot(event.clientX-pressedPassage.x,event.clientY-pressedPassage.y)>4)pressedPassage=null;},true);
 document.addEventListener('pointerup',event=>{
@@ -880,20 +918,19 @@ document.addEventListener('pointerup',event=>{
   const generation=passageActivation;
   // Moving the caret may replace the pressed node, suppressing its click event.
   // Wait until CodeMirror settles; an actual text selection always takes priority.
-  requestAnimationFrame(()=>{if(generation===passageActivation&&active===passage.path&&!window.getSelection()?.toString()&&(!view||view.state.selection.main.empty))showThread(passage.id,passage.y);});
+  requestAnimationFrame(()=>{if(generation===passageActivation&&active===passage.path&&!window.getSelection()?.toString()&&(!view||view.state.selection.main.empty))showPassage(passage.ids);});
 },true);
 document.addEventListener('pointercancel',()=>{passageActivation++;pressedPassage=null;},true);
-document.addEventListener('focusin',event=>{if(threadFloat.id&&!threadFloat.contains(event.target))threadFloat.restore();});
 document.addEventListener('click',guard(async event=>{
   const anchor=event.target.closest('#surface [data-anchor]'),passage=anchor?Number(anchor.dataset.anchor):null;
-  if(passage&&event.detail===1&&!window.getSelection()?.toString()&&(!view||view.state.selection.main.empty)){showThread(passage,event.clientY);return;}
+  if(passage&&event.detail===1&&!window.getSelection()?.toString()&&(!view||view.state.selection.main.empty)){showPassage(passageIds(anchor));return;}
   const file=event.target.closest('.file-entry');if(file)await openFile(file.dataset.path);
   const close=event.target.closest('[data-close]');if(close)close.closest('dialog').close();
   const action=event.target.closest('[data-action]');if(!action)return;
   const id=Number(action.closest('.thread').dataset.thread),t=currentThreads.find(t=>t.id===id);
-  if(action.dataset.action==='collapse-thread'){threadFloat.restore();if(zenMode)zenCollapsed=true;else collapsedThreads.add(id);rememberCollapsed();filterThreads();return;}
-  if(action.dataset.action==='expand-thread'){showThread(id,undefined,false);return;}
-  if(action.dataset.action==='original'||action.dataset.action==='message-original'){await openOriginal(id,action.dataset.message);showThread(id,undefined,false);return;}
+  if(action.dataset.action==='collapse-thread'){if(zenMode)zenCollapsed=true;else collapsedThreads.add(id);rememberCollapsed();filterThreads();return;}
+  if(action.dataset.action==='expand-thread'){showThread(id,threadSpotlight.includes(id),threadSpotlight.ids);return;}
+  if(action.dataset.action==='original'||action.dataset.action==='message-original'){await openOriginal(id,action.dataset.message);showThread(id);return;}
   if(action.dataset.action.endsWith('-attachment')){
     const attachmentId=Number(action.closest('[data-attachment]').dataset.attachment),item=t.attachments.find(a=>a.id===attachmentId);
     if(action.dataset.action==='rename-attachment'){const name=prompt('Attachment name',item.name);if(name!==null){await api('attachments/'+attachmentId,'PATCH',{name});await refreshThreads();}return;}
@@ -908,7 +945,7 @@ document.addEventListener('click',guard(async event=>{
   }
   if(action.dataset.action==='jump')await jump(id);
   if(action.dataset.action==='resolve'){
-    const path=active,scope=threadScope(),advance=zenMode&&!t.resolved&&activeThread===id;
+    const path=active,scope=threadScope(),advance=zenMode&&!threadSpotlight.active&&!t.resolved&&activeThread===id;
     const open=currentThreads.filter(thread=>!thread.resolved).sort((a,b)=>(a.path>b.path)-(a.path<b.path)||a.start-b.start||a.id-b.id);
     const at=open.findIndex(thread=>thread.id===id),next=advance&&open.length>1?open[(at+1)%open.length]:null;
     action.disabled=true;
@@ -930,7 +967,7 @@ document.addEventListener('click',guard(async event=>{
     notify(whole?'Thread deleted':'Comment deleted');
   }
   if(action.dataset.action==='reattach'){
-    if(t.path!==active){await openFile(t.path);showThread(id,undefined,false);notify('Select the new passage in this file, then attach the thread.');return;}
+    if(t.path!==active){await openFile(t.path);showThread(id);notify('Select the new passage in this file, then attach the thread.');return;}
     if(renderedPreview)await captureHTMLSelection();
     if(t.anchor_kind==='rendered'){if(!renderedSelection)throw new Error('Select the new passage in the rendered report first.');await saveActive();await api('threads/'+id,'PATCH',{render_anchor:renderedSelection.anchor,version:entry().version});await refreshThreads();await jump(id);return;}
     if(renderedPreview){const source=htmlSelection();if(!source)throw new Error('Select a passage with matching HTML source, or attach it in source mode.');await saveActive();await api('threads/'+id,'PATCH',{...source,version:entry().version});await refreshThreads();await jump(id);return;}
@@ -947,7 +984,7 @@ document.addEventListener('submit',event=>{
       composers.clear(form);
       // Keep text entered while a reply was being sent.
       const current=document.getElementById('reply-'+id);if(current?.value===body)current.value='';
-      await refreshThreads();if(activeThread===id)showThread(id,undefined,threadFloat.id===id);notify('Reply added');
+      await refreshThreads();filterThreads();notify('Reply added');
     }catch(error){composers.status(form,error.message,true);throw error;}
     finally{composers.setSending(form,false);}
 
@@ -959,7 +996,7 @@ $('#comment-cancel').onclick=()=>{closeComment();view?.focus();};
 $('#comment-body').addEventListener('keydown',event=>{if((event.ctrlKey||event.metaKey)&&event.key==='Enter'){event.preventDefault();$('#comment-form').requestSubmit();}});
 $('#selection-tools').onmousedown=event=>event.preventDefault();
 $('#selection-comment').onclick=guard(startComment);
-$('#selection-thread').onclick=()=>showThread(Number($('#selection-thread').dataset.thread));
+$('#selection-thread').onclick=()=>showPassage([Number($('#selection-thread').dataset.thread)]);
 $('#json-format').onclick=guard(()=>{if(!view||ext(active)!=='json')return;const content=formatJSON(view.state.sliceDoc(),view.state.lineBreak);view.dispatch({changes:{from:0,to:view.state.doc.length,insert:content},annotations:isolateHistory.of('full'),userEvent:'input.format'});view.focus();});
 $('#json-collapse').onclick=()=>collapseJSON(view);$('#json-expand').onclick=()=>{if(view)unfoldAll(view);};
 $('#download-file').onclick=guard(()=>{
@@ -970,11 +1007,12 @@ $('#download-file').onclick=guard(()=>{
   setTimeout(()=>URL.revokeObjectURL(url),1000);
 });
 $('#save').onclick=guard(saveActive);$('#annotate').onclick=guard(startComment);
-$('#collapse-threads').onclick=()=>{threadFloat.restore();if(zenMode)zenCollapsed=true;else for(const t of currentThreads)collapsedThreads.add(t.id);rememberCollapsed();filterThreads();};
+$('#all-discussions').onclick=()=>{passageActivation++;threadSpotlight.restore();};
+$('#collapse-threads').onclick=()=>{if(zenMode)zenCollapsed=true;else for(const t of currentThreads)collapsedThreads.add(t.id);rememberCollapsed();filterThreads();};
 $('#expand-threads').onclick=()=>{for(const t of currentThreads)collapsedThreads.delete(t.id);rememberCollapsed();filterThreads();};
 $('#previous').onclick=guard(()=>navigate(-1));$('#next').onclick=guard(()=>navigate(1));$('#show-resolved').onchange=filterThreads;
 $('#thread-scope').checked=localStorage.getItem('looking-glass-thread-scope:'+root)==='all';
-$('#thread-scope').onchange=guard(async()=>{localStorage.setItem('looking-glass-thread-scope:'+root,threadScope());await refreshThreads(true);});
+$('#thread-scope').onchange=guard(async()=>{threadSpotlight.restore();localStorage.setItem('looking-glass-thread-scope:'+root,threadScope());await refreshThreads(true);});
 async function setMode(value){const e=entry();syncState();e.mode=value;view?.destroy();view=null;mountDocument(e);await refreshThreads();remember();}
 $('#mode').onchange=guard(()=>setMode($('#mode').value));
 $('#html-toggle').onclick=guard(()=>setMode(entry().mode==='rendered'?'source':'rendered'));
@@ -1023,11 +1061,11 @@ $('#explorer-toggle').onclick=()=>setExplorerHidden(!explorerHidden,true);
 setExplorerHidden(explorerHidden);
 let discussionsHidden=localStorage.getItem('looking-glass-discussions-hidden')==='true';
 function setDiscussionsHidden(hidden,focus=false){
-  if(hidden)threadFloat.restore();
+  if(hidden)threadSpotlight.restore();
   discussionsHidden=hidden;document.body.classList.toggle('discussions-hidden',hidden);
   const button=$('#discussions-toggle'),label=(hidden?'Show':'Hide')+' discussions';
   button.setAttribute('aria-expanded',String(!hidden));button.setAttribute('aria-label',label);button.title=label;
-  for(const child of $('#discussion-sidebar').children)if(child!==button&&!child.classList.contains('floating-discussion'))child.hidden=hidden;
+  for(const child of $('#discussion-sidebar').children)if(child!==button&&child.id!=='passage-spotlight')child.hidden=hidden;
   localStorage.setItem('looking-glass-discussions-hidden',String(hidden));
   sizeSidebar();sizeDiscussions();view?.requestMeasure();
   if(focus)button.focus({preventScroll:true});

@@ -121,7 +121,7 @@ def test_deleted_file_discussion_opens_original_context(workspace_page):
     page.goto(url);open_file(page,'note.txt')
     page.locator('.original-context').click();expect(page.locator('#document-name')).to_have_text('Original · note.txt')
     expect(page.locator('#threads>.thread.active')).to_have_attribute('data-thread',str(t['id']))
-    expect(page.locator('.floating-discussion')).not_to_be_visible()
+    expect(page.locator('#passage-spotlight')).not_to_be_visible()
     expect(page.locator('.original-banner')).to_contain_text(t['commit_hash'][:8])
     expect(page.locator('.cm-content')).to_contain_text('Original passage.')
     assert page.locator('.cm-content').get_attribute('contenteditable')=='false'
@@ -133,7 +133,7 @@ def test_deleted_file_discussion_opens_original_context(workspace_page):
     expect(page.locator('#document-name')).to_have_text('Original · note.txt')
     page.locator('.message-origin').click();expect(page.locator('.cm-content')).to_contain_text('Original passage.')
     expect(page.locator('#threads>.thread.active')).to_have_attribute('data-thread',str(t['id']))
-    expect(page.locator('.floating-discussion')).not_to_be_visible()
+    expect(page.locator('#passage-spotlight')).not_to_be_visible()
     page.locator('#reply-'+str(t['id'])).fill('Still discussable');page.locator('.reply-form button[type=submit]').click()
     expect(page.locator('.message p')).to_have_text(['Keep this discussion','Still discussable'])
     page.wait_for_timeout(2400)  # The next active-tab poll must stay quiet.

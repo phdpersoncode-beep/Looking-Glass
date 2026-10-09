@@ -159,7 +159,7 @@ export function mountMappedMarkdown(host,source,offset=0,decorate=()=>{}) {
           let end=at+1;
           while(end<map.length&&spans.filter(s=>s.from<map[end].to&&s.to>map[end].from).map(s=>s.id).join(',')===ids.join(','))end++;
           const text=leaf._text.slice(at,end);
-          if(ids.length){const mark=document.createElement('span');mark.className='passage-highlight'+(ids.includes(active)?' focused-highlight':'');mark.dataset.anchor=String(ids.includes(active)?active:ids[0]);mark.textContent=text;fragment.append(mark);}
+          if(ids.length){const mark=document.createElement('span');mark.className='passage-highlight'+(ids.includes(active)?' focused-highlight':'');mark.dataset.anchor=String(ids.includes(active)?active:ids[0]);mark.dataset.anchors=ids.join(',');mark.textContent=text;fragment.append(mark);}
           else fragment.append(document.createTextNode(text));at=end;
         }
         target.replaceChildren(fragment);

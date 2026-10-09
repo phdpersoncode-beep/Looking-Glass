@@ -42,11 +42,16 @@ without changing selection contents or anchor coordinates. CodeMirror uses a
 measurement layer; native rendered selections use CSS Custom Highlights.
 Live tables update annotation marks in place while their source and offset stay
 unchanged, preserving native cell selections through background discussion updates.
-`frontend/thread-float.mjs` temporarily moves the selected card into the sidebar
-viewport, leaving a sized placeholder in the list. Collapse, Escape, defocus,
-and navigation away restore that same card. Refreshes preserve reply drafts,
-focus/cursor positions, and card scroll. Only explicit passage navigation moves
-the reading pane; opening a discussion does not scroll it.
+`frontend/thread-spotlight.mjs` filters the existing sidebar list in place to the
+clicked passage's discussions. Cards never move or acquire copies. A compact
+header provides the passage thread count and an All discussions return control.
+The original list scroll is retained across passage changes and restored on
+return or Escape; incidental focus changes do not dismiss the view. Markdown
+marks and the HTML bridge carry overlapping thread IDs. Refreshes include new
+threads on the passage and preserve reply drafts, focus/cursor positions, and
+sidebar scroll. Only explicit passage navigation moves the reading pane;
+opening, collapsing, or resolving a focused discussion does not scroll it,
+including in zen mode. Ordinary zen-mode resolve navigation is unchanged.
 
 Anchors use Unicode character offsets plus quotes and context. Sequence matching
 maps unchanged passages and ordinary edits inside a passage. Removed passages,

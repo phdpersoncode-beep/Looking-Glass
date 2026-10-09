@@ -1,4 +1,4 @@
-"""Text-only selections, shared Markdown, and temporary discussion cards."""
+"""Text-only selections, shared Markdown, and passage sidebar spotlight."""
 import os
 import pytest
 from test_requested_features import workspace_page,open_file
@@ -101,9 +101,9 @@ graph TD
     assert content.locator('table td').first.evaluate('el=>parseFloat(getComputedStyle(el).paddingTop)')==3
     for theme in ['dark','light']:
         if page.locator('html').get_attribute('data-theme')!=theme:page.locator('#theme').click()
-        page.locator('.passage-highlight').first.click();expect(page.locator('.floating-discussion')).to_be_visible()
-        page.locator('.floating-discussion .reply-form textarea').fill('**Reply** with `code`')
-        page.locator('.floating-discussion .reply-form button[type=submit]').click()
+        page.locator('.passage-highlight').first.click();expect(page.locator('#passage-spotlight')).to_be_visible()
+        page.locator('.thread.active .reply-form textarea').fill('**Reply** with `code`')
+        page.locator('.thread.active .reply-form button[type=submit]').click()
         expect(page.locator('.comment-markdown strong').filter(has_text='Reply')).to_have_count(1 if theme=='dark' else 2)
     page.reload();expect(page.locator('.comment-markdown h2')).to_have_text('Findings')
     assert ws.get_thread(thread['id'])['messages'][0]['body']==body.strip()
@@ -111,7 +111,7 @@ graph TD
 
 @pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
 @pytest.mark.parametrize('mode',['live','preview','source'])
-def test_float_thread_keeps_reading_and_list_positions(workspace_page,mode):
+def test_spotlight_keeps_reading_and_restores_list_positions(workspace_page,mode):
     from playwright.sync_api import expect
     root,page,url,ws=workspace_page
     text='\n\n'.join(f'Passage {i:02}: A unique reviewed sentence.' for i in range(40))+'\n'
@@ -120,40 +120,46 @@ def test_float_thread_keeps_reading_and_list_positions(workspace_page,mode):
         quote=f'Passage {i:02}';start=text.index(quote)
         threads.append(ws.create_thread('note.md',start,start+len(quote),'Long discussion.\n\n'+'Detail. '*120,'Reviewer',version))
     page.goto(url);open_file(page,'note.md');page.locator('#mode').select_option(mode)
-    page.locator('#show-resolved').check()
     pane=page.locator('#surface' if mode=='preview' else '.cm-scroller')
     pane.evaluate('el=>el.scrollTop=400')
     page.wait_for_function('selector=>document.querySelector(selector).scrollTop>300',arg='#surface' if mode=='preview' else '.cm-scroller')
     target=page.locator('#surface .passage-highlight').filter(has_text='Passage 12').first
     target.scroll_into_view_if_needed();before=pane.evaluate('el=>el.scrollTop')
     sidebar=page.locator('.discussion-content');sidebar.evaluate('el=>el.scrollTop=180');side_before=sidebar.evaluate('el=>el.scrollTop')
-    target.click();overlay=page.locator('.floating-discussion');expect(overlay).to_be_visible()
-    expect(overlay.locator('.thread')).to_have_attribute('data-thread',str(threads[12]['id']))
+    # Check identity, not just order: neither view moves nor clones any card.
+    page.locator('#threads>.thread').evaluate_all('els=>window.originalCards=els')
+    target.click();heading=page.locator('#passage-spotlight');expect(heading).to_be_visible()
+    expect(heading.locator('[role=status]')).to_have_text('This passage · 1 thread')
+    card=page.locator('.thread:visible');expect(card).to_have_attribute('data-thread',str(threads[12]['id']))
     assert abs(pane.evaluate('el=>el.scrollTop')-before)<2
-    assert abs(sidebar.evaluate('el=>el.scrollTop')-side_before)<2
-    assert page.locator('.thread-placeholder').count()==1
-    assert overlay.bounding_box()['y']>=page.locator('.discussion-sidebar>.panel-heading').bounding_box()['y']
-    assert overlay.bounding_box()['y']+overlay.bounding_box()['height']<960
-    field=overlay.locator('textarea');field.fill('Unsent **draft**');field.evaluate('el=>el.setSelectionRange(3,8)')
+    assert sidebar.evaluate('el=>el.scrollTop')==0
+    assert page.locator('.floating-discussion,.thread-placeholder').count()==0
+    assert page.locator('#threads>.thread').evaluate_all('els=>els.every((el,i)=>el===window.originalCards[i])')
+    field=card.locator('textarea');field.fill('Unsent **draft**');field.evaluate('el=>el.setSelectionRange(3,8)')
     ws.reply(threads[12]['id'],'External *update*.','Agent')
-    # A real action refreshes the thread while the unsent reply keeps focus.
-    overlay.locator('[data-action=resolve]').evaluate('el=>el.click()')
-    expect(overlay.get_by_text('External update.')).to_be_visible(timeout=8000)
-    expect(overlay.locator('textarea')).to_have_value('Unsent **draft**');expect(overlay.locator('textarea')).to_be_focused()
-    assert overlay.locator('textarea').evaluate('el=>[el.selectionStart,el.selectionEnd]')==[3,8]
-    overlay.locator('[data-action=resolve]').evaluate('el=>el.click()')
-    expect(overlay.locator('.thread')).to_have_attribute('data-resolved','false')
+    # Resolve forces a refresh even while background polling defers draft edits.
+    card.locator('[data-action=resolve]').evaluate('el=>el.click()')
+    expect(card.get_by_text('External update.')).to_be_visible(timeout=8000)
+    expect(card.locator('textarea')).to_have_value('Unsent **draft**');expect(card.locator('textarea')).to_be_focused()
+    assert card.locator('textarea').evaluate('el=>[el.selectionStart,el.selectionEnd]')==[3,8]
+    # Resolving remains inspectable in focused view even with Show resolved off.
+    expect(card).to_have_attribute('data-resolved','true');expect(heading).to_be_visible()
+    card.locator('[data-action=resolve]').evaluate('el=>el.click()')
+    expect(card).to_have_attribute('data-resolved','false')
     assert abs(pane.evaluate('el=>el.scrollTop')-before)<2
-    overlay.locator('[data-action=collapse-thread]').click();expect(overlay).not_to_be_visible()
-    expect(page.locator(f'#threads>.thread[data-thread="{threads[12]["id"]}"]')).to_have_class('thread active collapsed')
-    assert page.locator('.thread-placeholder').count()==0
-    ids=page.locator('#threads>.thread').evaluate_all('els=>els.map(el=>Number(el.dataset.thread))')
-    assert ids==[t['id'] for t in threads]
-    page.locator(f'#threads>.thread[data-thread="{threads[12]["id"]}"] [data-action=expand-thread]').click()
-    expect(overlay).not_to_be_visible()
+    page.locator('#all-discussions').click();expect(heading).not_to_be_visible()
+    assert abs(sidebar.evaluate('el=>el.scrollTop')-side_before)<2
+    assert page.locator('#threads>.thread').evaluate_all('els=>els.map(el=>Number(el.dataset.thread))')==[t['id'] for t in threads]
+    target.click();expect(heading).to_be_visible()
+    card.locator('[data-action=collapse-thread]').click();expect(heading).to_be_visible()
+    card.locator('[data-action=expand-thread]').click();expect(heading).to_be_visible()
+    expect(card.locator('textarea')).to_have_value('Unsent **draft**')
+    # Reading, scrolling and incidental focus changes do not dismiss spotlight.
+    page.locator('#document-name').click();expect(heading).to_be_visible()
     assert abs(pane.evaluate('el=>el.scrollTop')-before)<2
+    page.keyboard.press('Escape');expect(heading).not_to_be_visible()
+    assert abs(sidebar.evaluate('el=>el.scrollTop')-side_before)<2
     # Escape can arrive before the pointer-release fallback's animation frame.
-    # A handled click must never leave a second activation waiting to reopen it.
     target.evaluate('''async el=>{
       const r=el.getBoundingClientRect(),point={bubbles:true,button:0,clientX:r.left+2,clientY:r.top+2};
       el.dispatchEvent(new PointerEvent('pointerdown',point));
@@ -163,21 +169,15 @@ def test_float_thread_keeps_reading_and_list_positions(workspace_page,mode):
       document.body.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
       await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
     }''')
-    expect(overlay).not_to_be_visible()
-    assert page.locator('.thread-placeholder').count()==0
-    target.click();expect(overlay).to_be_visible();expect(overlay.locator('textarea')).to_have_value('Unsent **draft**')
-    page.keyboard.press('Escape');expect(overlay).not_to_be_visible();assert abs(pane.evaluate('el=>el.scrollTop')-before)<2
-    target.click();expect(overlay).to_be_visible();page.locator('#document-name').click();expect(overlay).not_to_be_visible()
+    expect(heading).not_to_be_visible()
     assert abs(pane.evaluate('el=>el.scrollTop')-before)<2
-    target.click();expect(overlay).to_be_visible()
+    target.click();expect(heading).to_be_visible()
     # Explicit navigation is allowed to move the document.
-    overlay.locator('[data-action=jump]').first.click()
-    expect(overlay).not_to_be_visible()
+    card.locator('[data-action=jump]').first.click();expect(heading).not_to_be_visible()
     expect(page.locator('.thread.active')).to_have_attribute('data-thread',str(threads[12]['id']))
-    page.locator('#collapse-threads').click();expect(overlay).not_to_be_visible()
-    page.locator('#discussions-toggle').click();target.click()
+    page.locator('#collapse-threads').click();page.locator('#discussions-toggle').click();target.click()
     expect(page.locator('#discussions-toggle')).to_have_attribute('aria-label','Hide discussions')
-    expect(overlay).to_be_visible()
+    expect(heading).to_be_visible()
     assert (root/'note.md').read_text()==text
 
 
@@ -205,7 +205,7 @@ def test_live_table_selection_survives_external_discussion_refresh(workspace_pag
 
 
 @pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
-def test_html_thread_float_preserves_report_scroll_and_defocus(workspace_page):
+def test_html_spotlight_preserves_report_scroll_and_focus(workspace_page):
     from playwright.sync_api import expect
     root,page,url,ws=workspace_page
     source=''.join(f'<p id="p{i}">Report passage {i:02}.</p><div style="height:90px"></div>' for i in range(25))+'<button>Report control</button>'
@@ -213,18 +213,112 @@ def test_html_thread_float_preserves_report_scroll_and_defocus(workspace_page):
     for i in range(25):
         quote=f'Report passage {i:02}.';start=source.index(quote)
         threads.append(ws.create_thread('report.html',start,start+len(quote),'**HTML** review.\n\n'+'Details. '*70,'Reviewer',version))
+    # A legacy rendered-only thread and a source thread on the same passage.
+    ws.create_rendered_thread('report.html',{'quote':'Report passage 18.','prefix':'','suffix':''},'Legacy discussion.','Reviewer',version)
     page.goto(url);open_file(page,'report.html');frame=page.frame_locator('#html-preview')
     passage=frame.locator('#p18');passage.scroll_into_view_if_needed()
     before=passage.evaluate('()=>window.scrollY')
+    sidebar=page.locator('.discussion-content');sidebar.evaluate('el=>el.scrollTop=250');saved=sidebar.evaluate('el=>el.scrollTop')
     point=endpoint(passage,3);bounds=page.locator('#html-preview').bounding_box()
     page.mouse.click(bounds['x']+point['x'],bounds['y']+point['y'])
-    overlay=page.locator('.floating-discussion');expect(overlay).to_be_visible()
-    expect(overlay.locator('.thread')).to_have_attribute('data-thread',str(threads[18]['id']))
-    expect(overlay.locator('.comment-markdown strong')).to_have_text('HTML')
+    heading=page.locator('#passage-spotlight');expect(heading).to_be_visible()
+    expect(heading.locator('[role=status]')).to_have_text('This passage · 2 threads')
+    expect(page.locator('.thread:visible')).to_have_count(2)
+    expect(page.locator('.thread.active')).to_have_attribute('data-thread',str(threads[18]['id']))
+    expect(page.locator('.thread.active .comment-markdown strong')).to_have_text('HTML')
     assert abs(passage.evaluate('()=>window.scrollY')-before)<2
-    overlay.locator('[data-action=collapse-thread]').click();expect(overlay).not_to_be_visible()
+    frame.locator('#p18+div').click();expect(heading).to_be_visible()
     assert abs(passage.evaluate('()=>window.scrollY')-before)<2
-    page.mouse.click(bounds['x']+point['x'],bounds['y']+point['y']);expect(overlay).to_be_visible()
-    frame.locator('#p18+div').click();expect(overlay).not_to_be_visible()
+    # Escape works while keyboard focus remains inside the isolated report.
+    frame.locator('body').press('Escape');expect(heading).not_to_be_visible()
+    assert abs(sidebar.evaluate('el=>el.scrollTop')-saved)<2
     assert abs(passage.evaluate('()=>window.scrollY')-before)<2
     assert (root/'report.html').read_text()==source
+
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+@pytest.mark.parametrize('mode',['live','preview','source','table'])
+def test_spotlight_groups_overlaps_and_refreshes_in_place(workspace_page,mode):
+    import re
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    text='Alpha **Beta** Gamma.\n\nOther passage.\n' if mode!='table' else '| Label | Value |\n| --- | --- |\n| Alpha **Beta** Gamma | 1 |\n| Other passage | 2 |\n'
+    (root/'note.md').write_text(text);version=ws.read('note.md')['version'];at=text.index('Beta');alpha=text.index('Alpha');gamma=text.index('Gamma')
+    first=ws.create_thread('note.md',at,at+4,'First **Beta** thread.','Reviewer',version)
+    second=ws.create_thread('note.md',alpha,gamma+5,'Broader passage thread.','Reviewer',version)
+    other=ws.create_thread('note.md',gamma,gamma+5,'Separate Gamma thread.','Reviewer',version)
+    elsewhere=text.index('Other');ws.create_thread('note.md',elsewhere,elsewhere+5,'Elsewhere.','Reviewer',version)
+    page.goto(url);open_file(page,'note.md')
+    if mode!='table':page.locator('#mode').select_option(mode)
+    page.locator('#collapse-threads').click()
+    target=page.locator('#surface .passage-highlight').filter(has_text=re.compile('^Beta$')).first
+    target.click();header=page.locator('#passage-spotlight [role=status]')
+    expect(header).to_have_text('This passage · 2 threads')
+    expect(page.locator('.thread:visible')).to_have_count(2)
+    assert page.locator(f'.thread[data-thread="{other["id"]}"]').is_hidden()
+    active=page.locator('.thread.active');active.locator('textarea').fill('Retained draft')
+    # An agent adds another discussion on the same passage and a reply elsewhere.
+    third=ws.create_thread('note.md',at,at+4,'New passage thread.','Agent',version)
+    ws.reply(other['id'],'Unrelated update.','Agent')
+    active.locator('[data-action=resolve]').evaluate('el=>el.click()')
+    expect(header).to_have_text('This passage · 3 threads',timeout=8000)
+    expect(active.locator('textarea')).to_have_value('Retained draft')
+    expect(active.locator('textarea')).to_be_focused()
+    assert page.locator(f'.thread[data-thread="{other["id"]}"]').is_hidden()
+    active.locator('[data-action=resolve]').evaluate('el=>el.click()')
+    expect(active).to_have_attribute('data-resolved','false')
+    # Expanding a sibling changes the active reply field, never the focused group.
+    sibling=page.locator(f'.thread[data-thread="{second["id"]}"]');sibling.locator('[data-action=expand-thread]').click()
+    expect(header).to_have_text('This passage · 3 threads');sibling.locator('textarea').fill('Sibling draft')
+    page.locator('#all-discussions').click();expect(page.locator('#passage-spotlight')).not_to_be_visible()
+    expect(page.locator(f'#reply-{first["id"]}')).to_have_value('Retained draft')
+    expect(page.locator(f'#reply-{second["id"]}')).to_have_value('Sibling draft')
+    target.click();expect(header).to_have_text('This passage · 3 threads')
+    # Switching passage keeps the original All discussions position, not the
+    # scroll offset from the previous spotlight.
+    page.locator('#surface .passage-highlight').filter(has_text=re.compile('^Other$')).first.click()
+    expect(header).to_have_text('This passage · 1 thread')
+    expect(page.locator('.thread:visible')).to_contain_text('Elsewhere.')
+    assert (root/'note.md').read_text()==text
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_spotlight_removal_and_tab_change_restore_list(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    text='\n\n'.join(f'Passage {i:02}.' for i in range(15))
+    (root/'note.md').write_text(text);(root/'other.md').write_text('Different file.')
+    version=ws.read('note.md')['version'];threads=[]
+    for i in range(15):
+        at=text.index(f'Passage {i:02}')
+        threads.append(ws.create_thread('note.md',at,at+10,'Details. '*40,'Reviewer',version))
+    page.goto(url);open_file(page,'note.md')
+    sidebar=page.locator('.discussion-content');sidebar.evaluate('el=>el.scrollTop=210');saved=sidebar.evaluate('el=>el.scrollTop')
+    target=page.locator('#surface .passage-highlight').filter(has_text='Passage 03').first
+    target.click();expect(page.locator('#passage-spotlight')).to_be_visible()
+    ws.delete_thread(threads[3]['id'])
+    expect(page.locator('#passage-spotlight')).not_to_be_visible(timeout=8000)
+    assert abs(sidebar.evaluate('el=>el.scrollTop')-saved)<2
+    page.locator('#surface .passage-highlight').filter(has_text='Passage 04').first.click()
+    expect(page.locator('#passage-spotlight')).to_be_visible()
+    open_file(page,'other.md');expect(page.locator('#passage-spotlight')).not_to_be_visible()
+    open_file(page,'note.md');expect(page.locator('#passage-spotlight')).not_to_be_visible()
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_resolving_spotlight_in_zen_does_not_navigate(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    text='First passage.\n\n'+'Filler text.\n\n'*80+'Final passage.\n'
+    (root/'note.md').write_text(text);version=ws.read('note.md')['version']
+    first=ws.create_thread('note.md',0,5,'First discussion.','Reviewer',version)
+    at=text.index('Final');ws.create_thread('note.md',at,at+5,'Final discussion.','Reviewer',version)
+    page.goto(url);open_file(page,'note.md');page.locator('#zen-toggle').click()
+    pane=page.locator('.cm-scroller');before=pane.evaluate('el=>el.scrollTop')
+    page.locator('#surface .passage-highlight').filter(has_text='First').first.click()
+    page.locator('.thread.active [data-action=resolve]').click()
+    expect(page.locator('.thread.active')).to_have_attribute('data-resolved','true')
+    expect(page.locator('#passage-spotlight')).to_be_visible()
+    expect(page.locator('.thread.active')).to_have_attribute('data-thread',str(first['id']))
+    assert abs(pane.evaluate('el=>el.scrollTop')-before)<2
