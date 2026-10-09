@@ -169,6 +169,16 @@ def create_app(root):
         response.set_etag(tag)
         return response
 
+    @app.get('/api/thread-search-index')
+    def thread_search_index():
+        items=ws.thread_search_index()
+        tag=hashlib.sha256(json.dumps(items,ensure_ascii=False).encode()).hexdigest()
+        if request.if_none_match.contains(tag):
+            return Response(status=304,headers={'ETag':'"'+tag+'"'})
+        response=jsonify(items)
+        response.set_etag(tag)
+        return response
+
     @app.get('/api/workspace')
     def workspace():
         return jsonify(root=str(ws.root), files=ws.files())
