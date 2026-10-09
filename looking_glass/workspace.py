@@ -84,6 +84,8 @@ class Workspace:
         self.attachments = Attachments(self)
         from .origins import Origins
         self.origins = Origins(self)
+        from .reviews import Reviews
+        self.reviews = Reviews(self)
 
     @contextmanager
     def connection(self):
@@ -172,7 +174,7 @@ class Workspace:
         if row and row['content'] == content:
             return
         if row:
-            threads = db.execute("SELECT * FROM threads WHERE path=? AND anchor_status='attached' AND anchor_kind='source' ORDER BY id", (path,)).fetchall()
+            threads = db.execute("SELECT * FROM threads WHERE path=? AND review_id IS NULL AND anchor_status='attached' AND anchor_kind='source' ORDER BY id", (path,)).fetchall()
             mapper = AnchorMapper(row['content'], content) if threads else None
             for t in threads:
                 # Never reinterpret stale/corrupt offsets as a different quote.
@@ -230,7 +232,7 @@ class Workspace:
             self.reconcile(db, path, content)
             return dict(path=path, content=content, version=digest(content.encode('utf-8')))
 
-    def threads(self, path=None, reconcile=True):
+    def threads(self, path=None, reconcile=True, review=None):
         with self.lock, self.connection() as db:
             paths = ([path] if path else [r[0] for r in db.execute('SELECT DISTINCT path FROM threads')]) if reconcile else []
             for name in paths if reconcile else []:
@@ -244,7 +246,12 @@ class Workspace:
                         db.execute("UPDATE threads SET anchor_status='needs_reattachment' WHERE path=?", (name,))
                     else:
                         raise
-            rows = db.execute('SELECT * FROM threads' + (' WHERE path=?' if path else '') + ' ORDER BY start,id', (path,) if path else ()).fetchall()
+            conditions = ['(review_id IS NULL OR review_id=?)']
+            parameters = [review]
+            if path:
+                conditions.append('path=?'); parameters.append(path)
+            rows = db.execute('SELECT * FROM threads WHERE ' + ' AND '.join(conditions) + ' ORDER BY start,id', parameters).fetchall()
+            anchors = {r['thread_id']:dict(r) for r in db.execute('SELECT * FROM review_anchors WHERE review_id=?',(review,))} if review else {}
             messages, attachments = {}, {}
             origins = self.origins.public(db,path)
             suffix = ' WHERE thread_id IN (SELECT id FROM threads WHERE path=?)' if path else ''
@@ -255,6 +262,9 @@ class Workspace:
             result = []
             for row in rows:
                 t = dict(row)
+                if t['id'] in anchors:
+                    t.update({k:anchors[t['id']][k] for k in ('start','end','quote','anchor_status')})
+                    t['review_context'] = review
                 t['origin'] = origins.get(t['origin_id'])
                 t['commit_hash'] = (t['origin'] or {}).get('commit_hash')
                 t['git_target'] = (dict(kind=t['anchor_kind'],ref=t['target_ref'],commit_hash=t['commit_hash'],
@@ -267,9 +277,9 @@ class Workspace:
                 result.append(t)
             return result
 
-    def thread_index(self):
+    def thread_index(self, review=None):
         with self.connection() as db:
-            return [dict(row) for row in db.execute('SELECT id,path,start,resolved,anchor_status,anchor_kind,target_ref FROM threads ORDER BY path,start,id')]
+            return [dict(row) for row in db.execute('SELECT id,path,start,resolved,anchor_status,anchor_kind,target_ref,review_id FROM threads WHERE review_id IS NULL OR review_id=? ORDER BY path,start,id',(review,))]
 
     @staticmethod
     def message(author, body, allow_empty=False):
@@ -280,7 +290,7 @@ class Workspace:
         return author.strip(), body.strip()
 
     def query_threads(self, path=None, status='all', q=None, author=None,
-                      anchor_status=None, limit=50, offset=0, summary='true'):
+                      anchor_status=None, limit=50, offset=0, summary='true', review=None):
         """Shared literal, case-insensitive search with stable ID pagination."""
         if status not in ('all', 'open', 'resolved'):
             raise Problem('Status must be all, open, or resolved.')
@@ -291,7 +301,7 @@ class Workspace:
         limit = self.query_integer(limit, 'Limit', 1, 1000)
         offset = self.query_integer(offset, 'Offset', 0)
         items = []
-        for t in sorted(self.threads(path), key=lambda t: t['id']):
+        for t in sorted(self.threads(path,review=review), key=lambda t: t['id']):
             if status != 'all' and t['resolved'] != (status == 'resolved'):
                 continue
             if anchor_status and t['anchor_status'] != anchor_status:
@@ -325,10 +335,10 @@ class Workspace:
             raise Problem(f'{name} must be {bounds}.')
         return number
 
-    def thread_context(self, identifier, context_lines=10):
+    def thread_context(self, identifier, context_lines=10, review=None):
         context_lines = self.query_integer(context_lines, 'Context lines', 0, 100)
         with self.lock:
-            t = self.get_thread(identifier)
+            t = self.get_thread(identifier,review=review)
             if t['git_target']:
                 t['context'] = dict(t['git_target'],content=self.origins.read(identifier)['content'])
             elif t['anchor_kind'] == 'rendered':
@@ -336,7 +346,11 @@ class Workspace:
             elif t['anchor_status'] != 'attached':
                 t['context'] = dict(kind='unavailable', reason='Anchor needs reattachment; source positions are unreliable.')
             else:
-                content, version = self.text(t['path'])
+                if t.get('review_context') or t.get('review_id'):
+                    draft = self.reviews.read(t.get('review_context') or t['review_id'])
+                    content,version = draft['content'],draft['version']
+                else:
+                    content, version = self.text(t['path'])
                 # An external writer can change the file after anchor reconciliation.
                 if content[t['start']:t['end']] != t['quote']:
                     t['context'] = dict(kind='unavailable', reason='File changed while reading; read the thread again.')
@@ -383,12 +397,12 @@ class Workspace:
             db.execute('INSERT INTO messages(thread_id,author,body,origin_id) VALUES(?,?,?,?)', (identifier,author,body,origin))
         return self.get_thread(identifier)
 
-    def get_thread(self, identifier):
+    def get_thread(self, identifier, review=None):
         with self.connection() as db:
-            t = db.execute('SELECT path FROM threads WHERE id=?', (identifier,)).fetchone()
+            t = db.execute('SELECT path,review_id FROM threads WHERE id=?', (identifier,)).fetchone()
         if not t:
             raise Problem('Thread not found.', 404)
-        return next(t for t in self.threads(t['path']) if t['id'] == identifier)
+        return next(t for t in self.threads(t['path'],review=review or t['review_id']) if t['id'] == identifier)
 
     @staticmethod
     def rendered_anchor(anchor):
@@ -417,10 +431,10 @@ class Workspace:
             db.execute('INSERT INTO messages(thread_id,author,body,origin_id) VALUES(?,?,?,?)', (identifier,author,body,origin))
         return self.get_thread(identifier)
 
-    def reply(self, identifier, body, author, allow_empty=False):
+    def reply(self, identifier, body, author, allow_empty=False, review=None):
         author, body = self.message(author, body, allow_empty)
         with self.lock:
-            t = self.get_thread(identifier)
+            t = self.get_thread(identifier,review=review)
             if t['git_target']:
                 original = self.origins.read(identifier)
                 content = original['content']
@@ -444,7 +458,10 @@ class Workspace:
                 return self.get_thread(identifier)
             provenance='captured'
             try:
-                content, _ = self.text(t['path'])
+                if t.get('review_id') or t.get('review_context'):
+                    content = self.reviews.read(t.get('review_context') or t['review_id'])['content']
+                else:
+                    content, _ = self.text(t['path'])
                 start,end,quote,render_anchor = t['start'],t['end'],t['quote'],t['render_anchor']
                 if t['anchor_kind']=='source' and content[start:end]!=quote:
                     raise Problem('Missing passage.',404)

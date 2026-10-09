@@ -151,7 +151,7 @@ def create_app(root):
 
     @app.get('/api/thread-index')
     def thread_index():
-        return jsonify(ws.thread_index())
+        return jsonify(ws.thread_index(request.args.get('review',type=int)))
 
     @app.get('/api/discussions')
     def discussions():
@@ -159,9 +159,10 @@ def create_app(root):
         # the active file reconciles anchors before passage navigation.
         path=request.args.get('path') or None
         all_files=request.args.get('scope')=='all'
-        items=ws.threads(None if all_files else path,reconcile=False) if all_files or path else []
+        review=request.args.get('review',type=int)
+        items=ws.threads(None if all_files else path,reconcile=False,review=review) if all_files or path else []
         items.sort(key=lambda t:(t['path'],t['start'],t['id']))
-        index=ws.thread_index()
+        index=ws.thread_index(review)
         tag=hashlib.sha256(json.dumps([items,index],ensure_ascii=False).encode()).hexdigest()
         if request.if_none_match.contains(tag):
             return Response(status=304,headers={'ETag':'"'+tag+'"'})
@@ -208,6 +209,38 @@ def create_app(root):
     def save_file():
         data = body()
         return jsonify(ws.save(data.get('path'),data.get('content'),data.get('version')))
+
+    @app.get('/api/reviews')
+    def list_reviews():
+        return jsonify(reviews=ws.reviews.list())
+
+    @app.post('/api/reviews')
+    def start_review():
+        data=body()
+        return jsonify(ws.reviews.start(data.get('path'),data.get('version')))
+
+    @app.get('/api/reviews/<int:identifier>')
+    def read_review(identifier):
+        # Check only small metadata on unchanged polls, not file content/diffs.
+        with ws.connection() as db:
+            row=db.execute('SELECT id,revision,status FROM review_drafts WHERE id=?',(identifier,)).fetchone()
+        if not row: raise Problem('Review draft not found.',404)
+        if row['status']=='pending' and request.args.get('version')==ws.reviews.version(row):
+            return Response(status=304)
+        return jsonify(ws.reviews.read(identifier))
+
+    @app.patch('/api/reviews/<int:identifier>')
+    def edit_review(identifier):
+        data=body()
+        return jsonify(ws.reviews.update(identifier,data.get('version'),data.get('operations'),data.get('author'),data.get('role')))
+
+    @app.get('/api/reviews/<int:identifier>/edits')
+    def review_edits(identifier):
+        return jsonify(ws.reviews.history(identifier,request.args.get('after',0),request.args.get('limit',100)))
+
+    @app.post('/api/reviews/<int:identifier>/approve')
+    def approve_review(identifier):
+        return jsonify(ws.reviews.approve(identifier,body().get('version')))
 
     @app.get('/api/binary')
     def binary():
@@ -263,8 +296,8 @@ def create_app(root):
                    ('status', 'q', 'author', 'anchor_status', 'limit', 'offset', 'summary')
                    if key in request.args}
         if options:
-            return jsonify(ws.query_threads(path=request.args.get('path'), **options))
-        return jsonify(ws.threads(request.args.get('path')))
+            return jsonify(ws.query_threads(path=request.args.get('path'),review=request.args.get('review',type=int), **options))
+        return jsonify(ws.threads(request.args.get('path'),review=request.args.get('review',type=int)))
 
     @app.post('/api/threads')
     def new_thread():
@@ -276,6 +309,10 @@ def create_app(root):
         ws.path(data.get('path'))
         if Path(data['path']).suffix.lower() in ('.stl','.jsonl','.png','.jpg','.jpeg','.svg'):
             raise Problem('This viewer does not support annotations.')
+        if 'review_id' in data:
+            draft=ws.reviews.read(data['review_id'])
+            if draft['path']!=data['path']: raise Problem('Review belongs to another file.')
+            return jsonify(save_review(lambda empty:ws.reviews.create_thread(data['review_id'],data.get('version'),data.get('start'),data.get('end'),data.get('body'),data.get('author'),allow_empty=empty),files,new_thread=True)),201
         if 'render_anchor' in data:
             return jsonify(save_review(lambda empty:ws.create_rendered_thread(data.get('path'),data['render_anchor'],data.get('body'),data.get('author'),data.get('version'),allow_empty=empty),files,new_thread=True)),201
         return jsonify(save_review(lambda empty:ws.create_thread(data.get('path'),data.get('start'),data.get('end'),data.get('body'),data.get('author'),data.get('version'),allow_empty=empty),files,new_thread=True)),201
@@ -283,8 +320,8 @@ def create_app(root):
     @app.get('/api/threads/<int:identifier>')
     def thread(identifier):
         if 'context_lines' in request.args:
-            return jsonify(ws.thread_context(identifier, request.args['context_lines']))
-        return jsonify(ws.get_thread(identifier))
+            return jsonify(ws.thread_context(identifier, request.args['context_lines'],review=request.args.get('review',type=int)))
+        return jsonify(ws.get_thread(identifier,review=request.args.get('review',type=int)))
 
     @app.get('/api/threads/<int:identifier>/original')
     def original_thread(identifier):
