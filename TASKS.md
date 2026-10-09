@@ -1,3 +1,14 @@
+# Spotlight navigation and reading-position fixes
+
+Continue on `feature/markdown-discussion-reading-polish` (PR #8).
+
+- [x] Make collapsed sidebar comment icons navigate to the passage and focus its discussion in spotlight.
+- [x] Preserve the clicked text's screen position near the viewport bottom, through live syntax and sidebar reflow; keep drag, wheel, and keyboard navigation usable.
+- [x] Show a compact Esc hint beside All discussions and verify Escape from both panes.
+- [ ] Cover the reproduced jumps in Chromium/Firefox, rebuild assets, run regression/package checks, and push the fixes.
+
+---
+
 # Passage sidebar spotlight
 
 Continue on `feature/markdown-discussion-reading-polish` (PR #8).

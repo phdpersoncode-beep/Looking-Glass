@@ -160,6 +160,10 @@ def test_spotlight_keeps_reading_and_restores_list_positions(workspace_page,mode
     card.locator('[data-action=collapse-thread]').click();expect(heading).to_be_visible()
     card.locator('[data-action=expand-thread]').click();expect(heading).to_be_visible()
     expect(card.locator('textarea')).to_have_value('Unsent **draft**')
+    # The sidebar icon deliberately navigates to the passage, unlike inspecting
+    # a highlight. Wait for that navigation before checking incidental focus.
+    page.evaluate('()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>requestAnimationFrame(resolve))))')
+    before=pane.evaluate('el=>el.scrollTop')
     # Reading, scrolling and incidental focus changes do not dismiss spotlight.
     page.locator('#document-name').click();expect(heading).to_be_visible()
     assert abs(pane.evaluate('el=>el.scrollTop')-before)<2

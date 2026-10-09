@@ -44,14 +44,26 @@ Live tables update annotation marks in place while their source and offset stay
 unchanged, preserving native cell selections through background discussion updates.
 `frontend/thread-spotlight.mjs` filters the existing sidebar list in place to the
 clicked passage's discussions. Cards never move or acquire copies. A compact
-header provides the passage thread count and an All discussions return control.
+header provides the passage thread count and an All discussions return control
+with an Esc key hint and accessible shortcut metadata.
 The original list scroll is retained across passage changes and restored on
 return or Escape; incidental focus changes do not dismiss the view. Markdown
 marks and the HTML bridge carry overlapping thread IDs. Refreshes include new
 threads on the passage and preserve reply drafts, focus/cursor positions, and
 sidebar scroll. Only explicit passage navigation moves the reading pane;
 opening, collapsing, or resolving a focused discussion does not scroll it,
-including in zen mode. Ordinary zen-mode resolve navigation is unchanged.
+including in zen mode. A collapsed sidebar icon explicitly navigates and opens
+spotlight without first revealing its card in the full list, so Escape restores
+the saved list position. Ordinary zen-mode resolve navigation is unchanged.
+
+During a highlight inspection click, live Markdown retains its current syntax
+visibility and CodeMirror defers caret scrolling. A short measurement sequence
+preserves the clicked source character's screen position through sidebar reflow;
+mapped Markdown uses its source offset because annotation updates replace marks.
+Live table widgets use their editor scroller and native selection, independently
+of any prior source selection. The HTML bridge retains a report-local text range
+through iframe resizing. New pointer gestures, dragging, wheel input, and keys
+cancel the protection, keeping selection, scrolling, and editing available.
 
 Anchors use Unicode character offsets plus quotes and context. Sequence matching
 maps unchanged passages and ordinary edits inside a passage. Removed passages,

@@ -138,6 +138,22 @@ export function mountMappedMarkdown(host,source,offset=0,decorate=()=>{}) {
   }
   return {
     host,
+    readingAnchor({x,y}) {
+      const caret=document.caretPositionFromPoint?.(x,y),range=!caret&&document.caretRangeFromPoint?.(x,y);
+      const node=caret?.offsetNode||range?.startContainer,offset=caret?.offset??range?.startOffset;
+      if(!node||!host.contains(node))return null;
+      const from=boundary(node,offset,false);if(from===null)return null;
+      // Annotation refreshes replace marks/text nodes. Keep the source offset,
+      // rather than a DOM Range that could be detached by that refresh.
+      return ()=>{
+        const walker=document.createTreeWalker(host,NodeFilter.SHOW_TEXT);let node;
+        while((node=walker.nextNode())){
+          const map=nodes.get(node),at=map?.findIndex(p=>p.from<=from&&p.to>from);
+          if(at>=0){const range=document.createRange();range.setStart(node,at);range.setEnd(node,at+1);return range.getBoundingClientRect();}
+        }
+        return null;
+      };
+    },
     selection(selection=window.getSelection()) {
       if(!selection?.rangeCount||selection.isCollapsed)return null;
       const range=selection.getRangeAt(0);

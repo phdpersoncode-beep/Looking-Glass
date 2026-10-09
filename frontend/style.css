@@ -141,4 +141,5 @@ dialog:modal{margin:auto}.directory-list{height:260px;overflow:auto;margin-top:8
 .discussion-content{overflow-anchor:none;overscroll-behavior:contain}
 #passage-spotlight{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-shrink:0;padding:0 12px 12px;font-size:10px;color:var(--muted)}
 #passage-spotlight>span{min-width:0}#all-discussions{border:0;padding:3px 0;color:var(--purple);font-size:10px}
+#all-discussions kbd{font-size:8px;margin-left:3px;padding:1px 3px;letter-spacing:0}
 .passage-focused .discussion-content>:is(.author-label,.thread-scope,.resolved-toggle){display:none}
