@@ -194,7 +194,10 @@ def test_agent_review_cli_uses_running_api_and_stale_revision_rejection(review,t
     import sys
     import threading
     from werkzeug.serving import make_server
-    ws,draft=review;app=create_app(ws.root);server=make_server('127.0.0.1',0,app,threaded=True)
+    ws,draft=review
+    original=ws.read('sample.py')
+    disk_thread=ws.create_thread('sample.py',0,5,'Existing discussion','Altay',original['version'])
+    app=create_app(ws.root);server=make_server('127.0.0.1',0,app,threaded=True)
     worker=threading.Thread(target=server.serve_forever,daemon=True);worker.start()
     def cli(*arguments):
         result=subprocess.run([sys.executable,'-m','looking_glass.cli','agent','--root',str(ws.root),'--url',f'http://127.0.0.1:{server.server_port}',*arguments],capture_output=True,text=True)
@@ -213,7 +216,19 @@ def test_agent_review_cli_uses_running_api_and_stale_revision_rejection(review,t
         thread=json.loads(created.stdout)
         context=json.loads(cli('read',str(thread['id']),'--review',str(draft['id'])).stdout)
         assert context['context']['content'].startswith('Agent 🧠')
-        assert json.loads(cli('list','--review',str(draft['id'])).stdout)['total']==1
+        assert json.loads(cli('list','--review',str(draft['id'])).stdout)['total']==2
+        # An ordinary thread can have a different passage position in the draft.
+        reply=cli('reply',str(disk_thread['id']),'--review',str(draft['id']),'--body','Draft reply')
+        assert reply.returncode==0,reply.stderr
+        message=json.loads(reply.stdout)['messages'][-1]
+        saved=ws.origins.read(disk_thread['id'],message['id'])
+        assert saved['content'].startswith('Agent 🧠')
+        assert saved['origin']['start']==len('Agent 🧠\r\n')
+        assert saved['content'][saved['origin']['start']:saved['origin']['end']]=='first'
+        ordinary=cli('reply',str(disk_thread['id']),'--body','Disk reply')
+        assert ordinary.returncode==0,ordinary.stderr
+        saved=ws.origins.read(disk_thread['id'],json.loads(ordinary.stdout)['messages'][-1]['id'])
+        assert saved['content']==draft['base'] and saved['origin']['start']==0
         assert (ws.root/'sample.py').read_bytes()==draft['base'].encode()
     finally:
         server.shutdown();worker.join(timeout=5);server.server_close()

@@ -124,6 +124,7 @@ def build_parser():
                     'looking-glass agent reply 4 --author Agent --body "Here is my explanation."')
     reply.add_argument('id', type=int, help='Thread ID from list, search, or create.')
     reply.add_argument('--author', default='Agent', help='Comment author label (default: Agent).')
+    reply.add_argument('--review', type=int, help='Capture reply context from this review draft instead of the disk file.')
     for op in (create, reply):
         bodies = op.add_mutually_exclusive_group(required=True)
         bodies.add_argument('--body', help='Literal text. Use single shell quotes for Markdown: double quotes execute backticks and $(...).')
@@ -236,7 +237,8 @@ def main(argv=None):
             else:
                 message_body = args.body
             if args.operation == 'reply':
-                result = call(f'threads/{args.id}/replies', 'POST', dict(body=message_body, author=args.author))
+                result = call(f'threads/{args.id}/replies', 'POST', dict(body=message_body, author=args.author,
+                              **({'review_id':args.review} if args.review is not None else {})))
                 print(json.dumps(result, indent=2, ensure_ascii=False))
                 return
             file = call(f'reviews/{args.review}') if args.review else call('file?' + urlencode({'path':args.path}))

@@ -27,7 +27,7 @@ a JSON array of sequential edits: [{{"start":0,"end":0,"insert":"new text"}}].
 Offsets count Unicode code points in accepted draft text; removed ghosts do not count.
 Supply the exact version you read. A stale edit is rejected; reread and reconsider it.
 History includes inserted/removed text, author, role, and UTC edit times, including human edits.
-Use list/search/read --review REVIEW_ID and create --review REVIEW_ID for draft discussions.
+Use list/search/read/create/reply --review REVIEW_ID for draft discussions and reply context.
 Only the human approves a reviewed version in the browser; approval writes the accepted text.
 
 For Markdown, prefer --body-file FILE or --body-stdin. With --body, use single shell quotes: double quotes execute backticks and $(...).

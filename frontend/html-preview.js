@@ -18,7 +18,9 @@ function retainReadingPosition(event){
   requestAnimationFrame(restore);
 }
 let sourceBindings=new WeakMap(),sourceText='';
+let reviewDeletions=[];
 function bindSource(mapping){
+  clearReviewDeletions();reviewSignature='';
   sourceBindings=new WeakMap();sourceText=mapping.source;
   const elements=new Map(),childCounts=new WeakMap();
   for(const element of document.querySelectorAll('['+mapping.attribute+']')){
@@ -107,20 +109,54 @@ function locate(map,anchor){
   return from===null?null:rangeFor(map,from,from+anchor.quote.length);
 }
 const style=document.createElement('style');style.textContent='::selection{background:#b84dff45;color:inherit}::highlight(looking-glass-passages){background:#a84dff30;text-decoration:underline #9935ee}::highlight(looking-glass-active){background:#a84dff60}::highlight(looking-glass-review-human){color:#18733b}::highlight(looking-glass-review-agent){color:#235fca}.looking-glass-review-deletion{color:#bf303c!important;text-decoration:line-through!important;white-space:pre-wrap;font-family:monospace;}';document.head.append(style);
+function clearReviewDeletions(){
+  for(const {ghost,node,tail,binding,left,right} of reviewDeletions.reverse()){
+    ghost.remove();
+    // Undo only our own unchanged splits; report scripts may have edited nodes.
+    if(tail&&node.isConnected&&node.nextSibling===tail&&node.data===left&&tail.data===right){
+      node.appendData(tail.data);tail.remove();sourceBindings.set(node,binding);sourceBindings.delete(tail);
+    }
+  }
+  reviewDeletions=[];
+}
+function splitBinding(node,binding,mapping,from,to){
+  const map={starts:mapping.starts.slice(from,to),ends:mapping.ends.slice(from,to)};
+  const start=map.starts[0]??mapping.ends[from-1]??binding.from;
+  sourceBindings.set(node,{...binding,node,text:node.data,from:start,to:map.ends.at(-1)??start,map});
+}
+function paintReviewDeletions(){
+  const signature=JSON.stringify(reviewChanges);
+  if(signature===reviewSignature)return;
+  reviewSignature=signature;clearReviewDeletions();
+  const map=textMap();
+  // Work backwards so each original node remains usable for earlier offsets.
+  // This also preserves the order of consecutive removals at the same offset.
+  for(const change of reviewChanges.filter(s=>s.kind==='delete').reverse()){
+    const target=map.nodes.find(item=>sourceMap(item.node)&&sourceBindings.get(item.node).to>=change.from);
+    const ghost=document.createElement('span');ghost.className='looking-glass-review-deletion';ghost.setAttribute('data-looking-glass-overlay','');ghost.textContent=change.text;ghost.title='Removed by '+change.author+' ('+change.role+') · '+change.at;
+    let node=target?.node,tail=null,binding=node&&sourceBindings.get(node),left,right;
+    if(node){
+      const mapping=sourceMap(node),next=mapping.starts.findIndex(at=>at>=change.from);
+      const at=next<0?node.length:next;
+      if(at>0&&at<node.length){
+        tail=node.splitText(at);left=node.data;right=tail.data;
+        splitBinding(node,binding,mapping,0,at);splitBinding(tail,binding,mapping,at,mapping.starts.length);
+      }
+      node.parentNode.insertBefore(ghost,at===0?node:node.nextSibling);
+    }else{
+      // A deletion beyond the last mapped passage belongs after that passage.
+      const last=map.nodes.filter(item=>sourceMap(item.node)).at(-1)?.node;
+      if(last)last.parentNode.insertBefore(ghost,last.nextSibling);else document.body.append(ghost);
+    }
+    reviewDeletions.push({ghost,node,tail,binding,left,right});
+  }
+}
 function paint(){
+  paintReviewDeletions();
   const map=textMap(),statuses=[];ranges=new Map();
   for(const thread of threads){const matches=thread.source?sourceRanges(map,thread.source.from,thread.source.to):[locate(map,thread.render_anchor)].filter(Boolean);if(matches.length)ranges.set(thread.id,matches);if(!thread.source)statuses.push({id:thread.id,attached:!!matches.length});}
   if(window.CSS?.highlights){CSS.highlights.set('looking-glass-passages',new Highlight(...threads.filter(t=>!t.resolved).flatMap(t=>ranges.get(t.id)||[])));CSS.highlights.set('looking-glass-active',new Highlight(...(ranges.get(active)||[])));}
   if(window.CSS?.highlights){for(const role of ['human','agent'])CSS.highlights.set('looking-glass-review-'+role,new Highlight(...reviewChanges.filter(s=>s.kind==='insert'&&s.role===role).flatMap(s=>sourceRanges(map,s.from,s.to))));}
-  const signature=JSON.stringify(reviewChanges);
-  if(signature!==reviewSignature){
-    reviewSignature=signature;document.querySelectorAll('.looking-glass-review-deletion').forEach(el=>el.remove());
-    for(const change of reviewChanges.filter(s=>s.kind==='delete')){
-      const target=map.nodes.find(item=>sourceBindings.get(item.node)?.to>=change.from)||map.nodes.at(-1);
-      const ghost=document.createElement('span');ghost.className='looking-glass-review-deletion';ghost.setAttribute('data-looking-glass-overlay','');ghost.textContent=change.text;ghost.title='Removed by '+change.author+' ('+change.role+') · '+change.at;
-      if(target)target.node.parentNode.insertBefore(ghost,target.node);else document.body.append(ghost);
-    }
-  }
   send('anchors',{statuses});
 }
 window.addEventListener('message',event=>{
