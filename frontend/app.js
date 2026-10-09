@@ -2,7 +2,9 @@ import {prepareHTMLPreview,sourceOffsets} from './html-source.mjs';
 import {createComposers} from './composer.mjs';
 import {mountHistory} from './history.mjs';
 import {formatJSON} from './json-format.mjs';
-import {mountMappedMarkdown} from './markdown-render.mjs';
+import {mountMappedMarkdown,renderMarkdown} from './markdown-render.mjs';
+import {textSelection,updateNativeTextSelection} from './text-selection.mjs';
+import {createThreadSpotlight} from './thread-spotlight.mjs';
 import {mountMarkdownContents} from './markdown-contents.mjs';
 import {basicSetup} from 'codemirror';
 import {EditorState, StateEffect, StateField, Compartment, Text, RangeSet} from '@codemirror/state';
@@ -18,8 +20,6 @@ import {json} from '@codemirror/lang-json';
 import {StreamLanguage, syntaxTree, syntaxHighlighting, HighlightStyle, ensureSyntaxTree, foldable, foldEffect, unfoldAll} from '@codemirror/language';
 import {shell} from '@codemirror/legacy-modes/mode/shell';
 import {tags,highlightTree,classHighlighter} from '@lezer/highlight';
-import {marked} from 'marked';
-import DOMPurify from 'dompurify';
 import * as THREE from 'three';
 import {STLLoader} from 'three/addons/loaders/STLLoader.js';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
@@ -28,6 +28,7 @@ import {SVGRenderer} from 'three/addons/renderers/SVGRenderer.js';
 const $ = selector => document.querySelector(selector);
 const token = $('meta[name=looking-glass-token]').content;
 const root = $('.root-label').textContent;
+const threadSpotlight=createThreadSpotlight($('.discussion-sidebar'),filterThreads);
 const composers=createComposers({token,api,onError:message=>notify(message,true)});
 const tabs = new Map();
 const HISTORY='looking-glass://history',ORIGINAL='looking-glass://thread/';
@@ -52,6 +53,8 @@ let quickPaths=[],quickMatches=[],quickIndex=0;
 let active = null, view = null, cleanup = () => {}, currentThreads = [], activeThread = null, pending = null;
 let polling = false, saving = false, switching = false, refreshNumber = 0, queuedFile = null;
 let selectingText = false, selectionFrame = 0, postingComment = false;
+let pressedPassage=null,passageActivation=0;
+let passagePosition=null;
 let jsonlSearch = null;
 let renderedPreview=null,renderedSelection=null,renderedJump=null;
 let contentsController=null;
@@ -155,6 +158,12 @@ const blockEditing=StateField.define({create:()=>null,update(value,tr){
 class MarkdownTable extends WidgetType {
   constructor(source,from,spans){super();this.source=source;this.from=from;this.spans=spans;this.focused=activeThread;}
   eq(other){return this.source===other.source&&this.from===other.from&&this.focused===other.focused&&JSON.stringify(this.spans)===JSON.stringify(other.spans);}
+  updateDOM(el,_view,previous){
+    if(this.source!==previous.source||this.from!==previous.from)return false;
+    // Annotation updates must keep the DOM holding a native cell selection.
+    // The mapped renderer defers highlight changes while that selection is live.
+    el._markdown.highlight(this.spans,this.focused);return true;
+  }
   toDOM(v){
     const el=document.createElement('div');el.className='md-table';
     const edit=document.createElement('button');edit.className='markdown-source-edit';edit.textContent='Edit source';edit.setAttribute('aria-label','Edit table source');
@@ -236,7 +245,7 @@ const liveMarkdown = ViewPlugin.fromClass(class {
     if(u.docChanged)this.activeRange={from:u.changes.mapPos(this.activeRange.from),to:u.changes.mapPos(this.activeRange.to)};
     // Revealing syntax during a drag moves the text under the pointer. Only
     // expose a new active line once a collapsed caret has settled.
-    const expose=!selectingText&&u.state.selection.main.empty&&(u.selectionSet||u.transactions.some(t=>t.effects.some(e=>e.is(selectionSettled))));
+    const expose=!selectingText&&!passagePosition&&u.state.selection.main.empty&&(u.selectionSet||u.transactions.some(t=>t.effects.some(e=>e.is(selectionSettled))));
     if(expose){const line=u.state.doc.lineAt(u.state.selection.main.head);this.activeRange={from:line.from,to:line.to};}
     if(u.docChanged||expose||u.viewportChanged)this.decorations=liveDecorations(u.view,this.activeRange);
   }
@@ -314,7 +323,7 @@ function showTabMenu(e,x,y){
 }
 async function closeTab(path){
   const e=tabs.get(path);if(e.dirty&&!confirm('Discard unsaved edits in '+path+'?'))return;
-  if(path===active){closeComment();syncState();view?.destroy();view=null;cleanup();cleanup=()=>{};active=null;}
+  if(path===active){threadSpotlight.restore();closeComment();syncState();view?.destroy();view=null;cleanup();cleanup=()=>{};active=null;}
   tabs.delete(path);remember();renderTabs();
   if(!active&&tabs.size)await openFile([...tabs.keys()].at(-1));
   else if(!active){lastThreadHTML='';lastThreadKey='';$('#surface').innerHTML='<div class="welcome"><h1>Open a file to begin.</h1></div>';$('#threads').replaceChildren();currentThreads=[];$('#thread-count').textContent='0';updateToolbar();await refreshThreads();}
@@ -351,11 +360,11 @@ function language(path){switch(ext(path)){case'md':case'markdown':return markdow
 function makeState(e){
   const docPath=e.sourcePath||e.path,prose=['md','markdown','txt'].includes(ext(docPath));
   return EditorState.create({doc:e.content,extensions:[EditorState.lineSeparator.of(e.diskContent.includes('\r\n')?'\r\n':'\n'),basicSetup,language(docPath),...(e.kind==='original'?[EditorState.readOnly.of(true),EditorView.editable.of(false)]:[]),syntaxHighlighting(colors),spanField,gitField,gitSlot.of([]),
-    themeSlot.of(theme()),liveSlot.of(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables]:[]),
+    themeSlot.of(theme()),liveSlot.of(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables,textSelection]:[]),
     ...(prose?[EditorView.lineWrapping,EditorView.theme({'.cm-scroller':{fontFamily:'var(--prose)',fontSize:'var(--prose-font-size)'},'.cm-content':{maxWidth:'850px',margin:'0 auto',width:'100%'},'.cm-lineNumbers, .cm-foldGutter':{display:'none'}})]:[]),
+    EditorView.scrollHandler.of(editor=>passagePosition?.editor===editor),
     keymap.of([{key:'Mod-s',run:()=>{guard(saveActive)();return true;}},{key:'Mod-Enter',run:()=>{guard(startComment)();return true;}},{key:'Mod-f',run:openSearchPanel},{key:'Mod-h',run:openSearchPanel},indentWithTab]),
-    EditorView.updateListener.of(u=>{if(u.docChanged){e.content=u.state.sliceDoc();e.dirty=e.content!==e.diskContent;e.state=u.state;contentsController?.update();updateToolbar();renderTabs();}if(u.selectionSet)updateToolbar();if(u.selectionSet||u.docChanged||u.viewportChanged||u.geometryChanged)scheduleSelectionTools();}),
-    EditorView.domEventHandlers({click:event=>{const mark=event.target.closest?.('[data-anchor]');if(mark&&view?.state.selection.main.empty&&event.detail===1){showThread(Number(mark.dataset.anchor));return true;}return false;}})
+    EditorView.updateListener.of(u=>{if(u.docChanged){e.content=u.state.sliceDoc();e.dirty=e.content!==e.diskContent;e.state=u.state;contentsController?.update();updateToolbar();renderTabs();}if(u.selectionSet)updateToolbar();if(u.selectionSet||u.docChanged||u.viewportChanged||u.geometryChanged)scheduleSelectionTools();})
   ]});
 }
 
@@ -363,6 +372,7 @@ async function openFile(path){
   if(switching){queuedFile=path;return;}switching=true;
   try{
     if(active===path)return;
+    threadSpotlight.restore();
     closeComment();contentsController?.reset();
     syncState();
     let e=tabs.get(path);
@@ -417,7 +427,7 @@ function mountDocument(e){
     const rendered=mountMappedMarkdown(preview,e.content,0,highlightMarkdown);markdownViews.add(rendered);markdownDiagrams(preview);cleanup=()=>markdownViews.delete(rendered);
   }else{
     const parent=document.createElement('div');parent.id='editor';if(['md','markdown','txt'].includes(ext(e.path)))parent.className='prose-editor'+(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?' live-markdown':'');$('#surface').append(parent);view=new EditorView({state:e.state||makeState(e),parent});
-    view.dispatch({effects:[themeSlot.reconfigure(theme()),liveSlot.reconfigure(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables]:[])]});
+    view.dispatch({effects:[themeSlot.reconfigure(theme()),liveSlot.reconfigure(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables,textSelection]:[])]});
     guard(refreshBaseline)();
   }
   updateToolbar();
@@ -460,11 +470,15 @@ function renderDiscussions(data,key){
   previewThreads();const e=entry();
   if(view&&e&&!e.dirty)view.dispatch({effects:spansEffect.of(spansFor(currentThreads,e.content))});
   if(data.html!==lastThreadHTML||key!==lastThreadKey){
+    if(key!==lastThreadKey)threadSpotlight.restore();
+    const scroll=$('.discussion-content').scrollTop,focusedView=threadSpotlight.active;
     const drafts=new Map($$('.reply-form').map(f=>[f.closest('.thread').dataset.thread,f.querySelector('textarea').value]));
     const focused=document.activeElement,focusId=focused?.id,start=focused?.selectionStart,end=focused?.selectionEnd;
     $('#threads').innerHTML=data.html;lastThreadHTML=data.html;lastThreadKey=key;
+    for(const body of $$('.comment-markdown')){const source=body.textContent;renderMarkdown(body,source,highlightMarkdown);markdownDiagrams(body);}
     for(const form of $$('.reply-form')){const draft=drafts.get(form.closest('.thread').dataset.thread);if(draft)form.querySelector('textarea').value=draft;}
-    if(focusId&&$('#threads').contains(document.getElementById(focusId))){const field=document.getElementById(focusId);field.focus({preventScroll:true});field.setSelectionRange(start,end);}
+    syncSpotlight();filterThreads();if(!focusedView||threadSpotlight.active)$('.discussion-content').scrollTop=scroll;
+    if(focusId){const field=document.getElementById(focusId);if(field?.closest('.thread')){field.focus({preventScroll:true});field.setSelectionRange?.(start,end);}}
   }
   for(const form of $$('.reply-form'))composers.render(form);
   filterThreads();refreshMarkdownHighlights();if(entry()?.kind==='history')cleanup.updateCounts?.(data.index);
@@ -491,20 +505,99 @@ async function getNavigationIndex(){
   if(Date.now()-indexTime>2000){navigationIndex=await api('thread-index');indexTime=Date.now();}
   return navigationIndex;
 }
-function filterThreads(){if(zenMode&&!currentThreads.some(t=>t.id===activeThread&&(!t.resolved||$('#show-resolved').checked))){activeThread=currentThreads.find(t=>!t.resolved||$('#show-resolved').checked)?.id||null;zenCollapsed=false;}$$('.thread').forEach(t=>{t.hidden=t.dataset.resolved==='true'&&!$('#show-resolved').checked;t.classList.toggle('active',Number(t.dataset.thread)===activeThread);t.classList.toggle('collapsed',zenMode?(Number(t.dataset.thread)!==activeThread||zenCollapsed):collapsedThreads.has(Number(t.dataset.thread)));t.querySelector('[data-action=collapse-thread]')?.setAttribute('aria-expanded',String(!t.classList.contains('collapsed')));const reply=t.querySelector('.reply-form');if(reply)reply.hidden=Number(t.dataset.thread)!==activeThread;});}
-function showThread(id){
-  activeThread=id;zenCollapsed=false;if(!zenMode){collapsedThreads.delete(id);rememberCollapsed();}filterThreads();
+function filterThreads(){
+  if(zenMode&&!threadSpotlight.active&&!currentThreads.some(t=>t.id===activeThread&&(!t.resolved||$('#show-resolved').checked))){activeThread=currentThreads.find(t=>!t.resolved||$('#show-resolved').checked)?.id||null;zenCollapsed=false;}
+  $$('.thread').forEach(t=>{
+    const id=Number(t.dataset.thread);
+    t.hidden=threadSpotlight.active?!threadSpotlight.includes(id):t.dataset.resolved==='true'&&!$('#show-resolved').checked;
+    t.classList.toggle('active',id===activeThread);
+    t.classList.toggle('collapsed',zenMode?(id!==activeThread||zenCollapsed):collapsedThreads.has(id));
+    t.querySelector('[data-action=collapse-thread]')?.setAttribute('aria-expanded',String(!t.classList.contains('collapsed')));
+    const reply=t.querySelector('.reply-form');if(reply)reply.hidden=id!==activeThread;
+  });
+}
+let spotlightPassage=null;
+function capturePassagePosition(mark,coords){
+  const rendered=[...markdownViews].find(rendered=>rendered.host.contains(mark));
+  const editor=rendered&&!rendered.host.closest('.cm-editor')?null:view;
+  const from=editor?.posAtCoords(coords),rectAt=rendered?.readingAnchor(coords)||(from!=null?()=>editor.coordsAtPos(from):null);
+  const rect=rectAt?.(),scroller=editor?.scrollDOM||$('#surface');
+  return rect?{path:active,editor,scroller,rectAt,top:rect.top,left:scroller.scrollLeft}:null;
+}
+function retainPassagePosition(){
+  const position=passagePosition;if(!position)return;
+  let remaining=3;
+  const valid=()=>{
+    if(passagePosition!==position)return false;
+    if(active!==position.path||!position.scroller.isConnected||position.editor&&view!==position.editor){passagePosition=null;return false;}
+    return true;
+  };
+  const write=rect=>{
+    if(!valid())return;
+    if(rect)position.scroller.scrollTop+=rect.top-position.top;
+    position.scroller.scrollLeft=position.left;
+    if(--remaining)requestAnimationFrame(measure);else passagePosition=null;
+  };
+  const measure=()=>{
+    if(!valid())return;
+    if(position.editor)position.editor.requestMeasure({key:position,read:position.rectAt,write});
+    else write(position.rectAt());
+  };
+  // Follow the clicked source character through focus changes and sidebar
+  // reflow. Release promptly; a drag, wheel, key, or new pointer cancels it.
+  requestAnimationFrame(measure);
+}
+function passageIds(node){
+  const ids=new Set();
+  for(let mark=node?.closest?.('[data-anchor]');mark&&$('#surface').contains(mark);mark=mark.parentElement.closest('[data-anchor]')){
+    for(const id of (mark.dataset.anchors||mark.dataset.anchor).split(','))ids.add(Number(id));
+  }
+  return [...ids];
+}
+function showPassage(ids){
+  const threads=ids.map(id=>currentThreads.find(t=>t.id===id&&t.path===active)).filter(Boolean);
+  if(!threads.length)return;
+  spotlightPassage={path:active,seeds:threads};
+  const selected=threads.find(t=>t.id===activeThread)||threads.reduce((a,b)=>b.anchor_kind==='source'&&b.end-b.start<(a.anchor_kind==='source'?a.end-a.start:Infinity)?b:a);
+  showThread(selected.id,true,threads.map(t=>t.id));
+  syncSpotlight();
+  retainPassagePosition();
+}
+function syncSpotlight(){
+  if(!threadSpotlight.active||!spotlightPassage)return;
+  const seeds=spotlightPassage.seeds.map(seed=>currentThreads.find(t=>t.id===seed.id)||seed);
+  const source=seeds.filter(t=>t.anchor_kind==='source'&&t.anchor_status==='attached');
+  const from=Math.max(...source.map(t=>t.start)),to=Math.min(...source.map(t=>t.end));
+  const ids=currentThreads.filter(t=>t.path===spotlightPassage.path&&(
+    seeds.some(seed=>seed.id===t.id)||
+    t.anchor_kind==='source'&&t.anchor_status==='attached'&&from<to&&t.start<to&&t.end>from||
+    t.anchor_kind==='rendered'&&seeds.some(seed=>seed.anchor_kind==='rendered'&&JSON.stringify(seed.render_anchor)===JSON.stringify(t.render_anchor))
+  )).map(t=>t.id);
+  threadSpotlight.sync(ids);
+}
+function showThread(id,focused=false,ids=[id]){
+  passageActivation++;
+  if(discussionsHidden)setDiscussionsHidden(false);
+  activeThread=id;zenCollapsed=false;if(!zenMode){collapsedThreads.delete(id);rememberCollapsed();}
+  if(focused)threadSpotlight.show(ids);else{threadSpotlight.restore();filterThreads();}
   previewThreads();refreshMarkdownHighlights();
   if(view)view.dispatch({effects:spansEffect.of(view.state.field(spanField))});
-  $('.thread[data-thread="'+id+'"]')?.scrollIntoView({block:'nearest'});
+  const card=$('.thread[data-thread="'+id+'"]');
+  if(!focused)threadSpotlight.reveal(card);
 }
-async function jump(id,target=null){
+function spotlightSidebarThread(id,thread){
+  if(threadSpotlight.includes(id)){showThread(id,true,threadSpotlight.ids);return;}
+  spotlightPassage={path:thread.path,seeds:[thread]};
+  showThread(id,true,[id]);syncSpotlight();
+}
+async function jump(id,target=null,spotlight=false){
   let t=target||currentThreads.find(t=>t.id===id);if(!t)return;
-  if(t.anchor_kind==='commit'||t.anchor_kind==='branch'){if(!t.git_target)t=await api('threads/'+id);await openFile(HISTORY);cleanup.selectTarget?.(t.git_target);await refreshThreads();showThread(id);return;}
-  if(t.anchor_status==='needs_reattachment'||tabs.get(t.path)?.conflict?.deleted){await openOriginal(id);showThread(id);notify('Showing original reviewed content.');return;}
-  if(t.path!==active){showThread(id);try{await openFile(t.path);}catch(error){if(error.status===404){await openOriginal(id);showThread(id);return;}notify(error.message,true);return;}}
+  const show=()=>spotlight?spotlightSidebarThread(id,t):showThread(id);
+  if(t.anchor_kind==='commit'||t.anchor_kind==='branch'){if(!t.git_target)t=await api('threads/'+id);await openFile(HISTORY);cleanup.selectTarget?.(t.git_target);await refreshThreads();show();return;}
+  if(t.anchor_status==='needs_reattachment'||tabs.get(t.path)?.conflict?.deleted){await openOriginal(id);show();notify('Showing original reviewed content.');return;}
+  if(t.path!==active){if(!spotlight)showThread(id);try{await openFile(t.path);}catch(error){if(error.status===404){await openOriginal(id);show();return;}notify(error.message,true);return;}}
   t=currentThreads.find(item=>item.id===id)||t;
-  showThread(id);
+  show();
   if(t.anchor_kind==='rendered'||entry().mode==='rendered'&&t.anchor_kind==='source'){
     if(entry().mode!=='rendered'){syncState();view?.destroy();view=null;entry().mode='rendered';mountDocument(entry());remember();}
     renderedJump=id;
@@ -517,7 +610,10 @@ async function jump(id,target=null){
   if(entry().dirty&&!span){notify('Save your draft before navigating to this passage. Its local anchor is unavailable.');return;}
   const from=span?.from??toUnits(entry().content,t.start),to=span?.to??toUnits(entry().content,t.end);
   if(to<=view.state.doc.length){view.dispatch({selection:{anchor:from,head:to},effects:EditorView.scrollIntoView(from,{y:'center'})});view.focus();}
-  $('.thread[data-thread="'+id+'"]')?.scrollIntoView({block:'nearest'});
+}
+async function focusSidebarThread(id){
+  // A sidebar icon is deliberate navigation; a passage click only inspects.
+  await jump(id,null,true);
 }
 let navigationQueue=Promise.resolve();
 function navigate(direction){
@@ -786,7 +882,8 @@ window.addEventListener('message',guard(async event=>{
   if(message.type==='comment')await startComment();
   if(message.type==='quick-open')await showQuickOpen();
   if(message.type==='zen')toggleZen();
-  if(message.type==='thread'&&currentThreads.some(t=>t.id===message.id&&t.path===active))showThread(message.id);
+  if(message.type==='exit-spotlight'){passageActivation++;threadSpotlight.restore();}
+  if(message.type==='thread'&&currentThreads.some(t=>t.id===message.id&&t.path===active))showPassage(Array.isArray(message.ids)?message.ids:[message.id]);
   if(message.type==='anchors'&&Array.isArray(message.statuses)){
     let changed=false;
     for(const status of message.statuses){const thread=currentThreads.find(t=>t.id===status.id&&t.anchor_kind==='rendered');if(!thread||typeof status.attached!=='boolean')continue;
@@ -810,7 +907,7 @@ document.addEventListener('click',event=>{
 });
 document.addEventListener('htmx:responseError',event=>notify('Sidebar request failed: '+event.detail.xhr.status,true));
 function beginSelection(event){
-  if(event.button===0&&event.target.closest?.('#editor,.markdown-preview')){selectingText=true;scheduleSelectionTools();}
+  if(event.button===0&&event.target.closest?.('#editor,#surface .markdown-preview')){selectingText=true;scheduleSelectionTools();}
 }
 function settleSelection(){
   if(!selectingText)return;selectingText=false;
@@ -829,10 +926,12 @@ for(const type of ['pointermove','mousemove'])window.addEventListener(type,event
 },true);
 window.addEventListener('blur',settleSelection);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)settleSelection();});
-document.addEventListener('selectionchange',()=>{updateToolbar();scheduleSelectionTools();});
+document.addEventListener('selectionchange',()=>{updateNativeTextSelection();updateToolbar();scheduleSelectionTools();});
 document.addEventListener('scroll',scheduleSelectionTools,true);
 window.addEventListener('resize',()=>{scheduleSelectionTools();if($('#comment-dialog').open){const location=selectionLocation();if(location)placeNearSelection($('#comment-dialog'),location);}});
 document.addEventListener('keydown',event=>{
+  passagePosition=null;
+  if(event.key==='Escape'){passageActivation++;pressedPassage=null;}
   if((event.ctrlKey||event.metaKey)&&event.altKey&&!event.shiftKey&&event.key.toLowerCase()==='z'){event.preventDefault();event.stopPropagation();toggleZen();return;}
   // Focusable table regions keep native cell selection/copying, while editor
   // commands still target the document rather than the browser page.
@@ -850,15 +949,38 @@ document.addEventListener('keydown',event=>{
   if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='p'){event.preventDefault();event.stopPropagation();guard(showQuickOpen)();}
   if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='f'&&jsonlSearch&&!document.querySelector('dialog:modal')){event.preventDefault();jsonlSearch();}
   if(event.key==='Escape'&&$('#comment-dialog').open){event.preventDefault();closeComment();view?.focus();}
+  else if(event.key==='Escape'&&threadSpotlight.active){event.preventDefault();threadSpotlight.restore();}
 },true);
+document.addEventListener('pointerdown',event=>{
+  passageActivation++;
+  const mark=event.button===0&&event.target.closest?.('#surface [data-anchor]');
+  passagePosition=mark?capturePassagePosition(mark,{x:event.clientX,y:event.clientY}):null;
+  pressedPassage=mark?{ids:passageIds(mark),path:active,native:!!mark.closest('.md-table,.markdown-preview'),x:event.clientX,y:event.clientY}:null;
+},true);
+document.addEventListener('pointermove',event=>{if(pressedPassage&&Math.hypot(event.clientX-pressedPassage.x,event.clientY-pressedPassage.y)>4){pressedPassage=null;passagePosition=null;}},true);
+document.addEventListener('pointerup',event=>{
+  const passage=pressedPassage;pressedPassage=null;if(!passage||event.button!==0)return;
+  const generation=passageActivation,position=passagePosition;
+  // Moving the caret may replace the pressed node, suppressing its click event.
+  // Wait until CodeMirror settles; an actual text selection always takes priority.
+  requestAnimationFrame(()=>{
+    if(generation!==passageActivation||active!==passage.path)return;
+    if(!window.getSelection()?.toString()&&(passage.native||!view||view.state.selection.main.empty))showPassage(passage.ids);
+    else if(passagePosition===position)passagePosition=null;
+  });
+},true);
+document.addEventListener('pointercancel',()=>{passageActivation++;pressedPassage=null;passagePosition=null;},true);
+document.addEventListener('wheel',()=>{passagePosition=null;}, {capture:true,passive:true});
+document.addEventListener('touchmove',()=>{passagePosition=null;}, {capture:true,passive:true});
 document.addEventListener('click',guard(async event=>{
-  const anchor=event.target.closest('[data-anchor]');if(anchor&&!window.getSelection()?.toString()){showThread(Number(anchor.dataset.anchor));return;}
+  const anchor=event.target.closest('#surface [data-anchor]'),passage=anchor?Number(anchor.dataset.anchor):null;
+  if(passage&&event.detail===1&&!window.getSelection()?.toString()&&(anchor.closest('.md-table,.markdown-preview')||!view||view.state.selection.main.empty)){showPassage(passageIds(anchor));return;}
   const file=event.target.closest('.file-entry');if(file)await openFile(file.dataset.path);
   const close=event.target.closest('[data-close]');if(close)close.closest('dialog').close();
   const action=event.target.closest('[data-action]');if(!action)return;
   const id=Number(action.closest('.thread').dataset.thread),t=currentThreads.find(t=>t.id===id);
   if(action.dataset.action==='collapse-thread'){if(zenMode)zenCollapsed=true;else collapsedThreads.add(id);rememberCollapsed();filterThreads();return;}
-  if(action.dataset.action==='expand-thread'){showThread(id);return;}
+  if(action.dataset.action==='expand-thread'){await focusSidebarThread(id);return;}
   if(action.dataset.action==='original'||action.dataset.action==='message-original'){await openOriginal(id,action.dataset.message);showThread(id);return;}
   if(action.dataset.action.endsWith('-attachment')){
     const attachmentId=Number(action.closest('[data-attachment]').dataset.attachment),item=t.attachments.find(a=>a.id===attachmentId);
@@ -874,7 +996,7 @@ document.addEventListener('click',guard(async event=>{
   }
   if(action.dataset.action==='jump')await jump(id);
   if(action.dataset.action==='resolve'){
-    const path=active,scope=threadScope(),advance=zenMode&&!t.resolved&&activeThread===id;
+    const path=active,scope=threadScope(),advance=zenMode&&!threadSpotlight.active&&!t.resolved&&activeThread===id;
     const open=currentThreads.filter(thread=>!thread.resolved).sort((a,b)=>(a.path>b.path)-(a.path<b.path)||a.start-b.start||a.id-b.id);
     const at=open.findIndex(thread=>thread.id===id),next=advance&&open.length>1?open[(at+1)%open.length]:null;
     action.disabled=true;
@@ -913,7 +1035,7 @@ document.addEventListener('submit',event=>{
       composers.clear(form);
       // Keep text entered while a reply was being sent.
       const current=document.getElementById('reply-'+id);if(current?.value===body)current.value='';
-      await refreshThreads();showThread(id);notify('Reply added');
+      await refreshThreads();filterThreads();notify('Reply added');
     }catch(error){composers.status(form,error.message,true);throw error;}
     finally{composers.setSending(form,false);}
 
@@ -925,7 +1047,7 @@ $('#comment-cancel').onclick=()=>{closeComment();view?.focus();};
 $('#comment-body').addEventListener('keydown',event=>{if((event.ctrlKey||event.metaKey)&&event.key==='Enter'){event.preventDefault();$('#comment-form').requestSubmit();}});
 $('#selection-tools').onmousedown=event=>event.preventDefault();
 $('#selection-comment').onclick=guard(startComment);
-$('#selection-thread').onclick=()=>showThread(Number($('#selection-thread').dataset.thread));
+$('#selection-thread').onclick=()=>showPassage([Number($('#selection-thread').dataset.thread)]);
 $('#json-format').onclick=guard(()=>{if(!view||ext(active)!=='json')return;const content=formatJSON(view.state.sliceDoc(),view.state.lineBreak);view.dispatch({changes:{from:0,to:view.state.doc.length,insert:content},annotations:isolateHistory.of('full'),userEvent:'input.format'});view.focus();});
 $('#json-collapse').onclick=()=>collapseJSON(view);$('#json-expand').onclick=()=>{if(view)unfoldAll(view);};
 $('#download-file').onclick=guard(()=>{
@@ -936,15 +1058,17 @@ $('#download-file').onclick=guard(()=>{
   setTimeout(()=>URL.revokeObjectURL(url),1000);
 });
 $('#save').onclick=guard(saveActive);$('#annotate').onclick=guard(startComment);
-$('#collapse-threads').onclick=()=>{if(zenMode)zenCollapsed=true;else for(const t of currentThreads)collapsedThreads.add(t.id);rememberCollapsed();filterThreads();};
-$('#expand-threads').onclick=()=>{for(const t of currentThreads)collapsedThreads.delete(t.id);rememberCollapsed();filterThreads();};
+$('#all-discussions').onclick=()=>{passageActivation++;threadSpotlight.restore();};
+function visibleThreadIds(){return threadSpotlight.active?threadSpotlight.ids:currentThreads.map(t=>t.id);}
+$('#collapse-threads').onclick=()=>{if(zenMode)zenCollapsed=true;else for(const id of visibleThreadIds())collapsedThreads.add(id);rememberCollapsed();filterThreads();};
+$('#expand-threads').onclick=()=>{for(const id of visibleThreadIds())collapsedThreads.delete(id);rememberCollapsed();filterThreads();};
 $('#previous').onclick=guard(()=>navigate(-1));$('#next').onclick=guard(()=>navigate(1));$('#show-resolved').onchange=filterThreads;
 $('#thread-scope').checked=localStorage.getItem('looking-glass-thread-scope:'+root)==='all';
-$('#thread-scope').onchange=guard(async()=>{localStorage.setItem('looking-glass-thread-scope:'+root,threadScope());await refreshThreads(true);});
+$('#thread-scope').onchange=guard(async()=>{threadSpotlight.restore();localStorage.setItem('looking-glass-thread-scope:'+root,threadScope());await refreshThreads(true);});
 async function setMode(value){const e=entry();syncState();e.mode=value;view?.destroy();view=null;mountDocument(e);await refreshThreads();remember();}
 $('#mode').onchange=guard(()=>setMode($('#mode').value));
 $('#html-toggle').onclick=guard(()=>setMode(entry().mode==='rendered'?'source':'rendered'));
-$('#theme').onclick=()=>{const value=document.documentElement.dataset.theme==='light'?'dark':'light';document.documentElement.dataset.theme=value;localStorage.setItem('looking-glass-theme',value);$('#theme').textContent=value==='dark'?'Light mode':'Dark mode';if(view)view.dispatch({effects:themeSlot.reconfigure(theme())});if(entry()?.mode==='preview'){$$('.mermaid-diagram').forEach(host=>{const source=host.dataset.diagramSource;if(source)renderMermaid(host,source);});}};
+$('#theme').onclick=()=>{const value=document.documentElement.dataset.theme==='light'?'dark':'light';document.documentElement.dataset.theme=value;localStorage.setItem('looking-glass-theme',value);$('#theme').textContent=value==='dark'?'Light mode':'Dark mode';if(view)view.dispatch({effects:themeSlot.reconfigure(theme())});$$('.mermaid-diagram').forEach(host=>{const source=host.dataset.diagramSource;if(source)renderMermaid(host,source);});};
 $('#font-smaller').onclick=()=>{fontStep=Math.max(-4,fontStep-1);localStorage.setItem('looking-glass-font-step',fontStep);applyFontSize();};
 $('#font-larger').onclick=()=>{fontStep=Math.min(12,fontStep+1);localStorage.setItem('looking-glass-font-step',fontStep);applyFontSize();};
 applyFontSize();
@@ -989,10 +1113,11 @@ $('#explorer-toggle').onclick=()=>setExplorerHidden(!explorerHidden,true);
 setExplorerHidden(explorerHidden);
 let discussionsHidden=localStorage.getItem('looking-glass-discussions-hidden')==='true';
 function setDiscussionsHidden(hidden,focus=false){
+  if(hidden)threadSpotlight.restore();
   discussionsHidden=hidden;document.body.classList.toggle('discussions-hidden',hidden);
   const button=$('#discussions-toggle'),label=(hidden?'Show':'Hide')+' discussions';
   button.setAttribute('aria-expanded',String(!hidden));button.setAttribute('aria-label',label);button.title=label;
-  for(const child of $('#discussion-sidebar').children)if(child!==button)child.hidden=hidden;
+  for(const child of $('#discussion-sidebar').children)if(child!==button&&child.id!=='passage-spotlight')child.hidden=hidden;
   localStorage.setItem('looking-glass-discussions-hidden',String(hidden));
   sizeSidebar();sizeDiscussions();view?.requestMeasure();
   if(focus)button.focus({preventScroll:true});

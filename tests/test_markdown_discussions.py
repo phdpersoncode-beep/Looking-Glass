@@ -7,6 +7,9 @@ pytestmark=[pytest.mark.browser,pytest.mark.skipif(not os.environ.get('LOOKING_G
 
 def select_text(page, selector):
     page.locator(selector).evaluate('''el=>{
+      // Real cell drags focus the native table region. A synthetic Range alone
+      // leaves CodeMirror focused, allowing its observer to restore the caret.
+      el.closest('.markdown-table-scroll')?.focus({preventScroll:true});
       const walker=document.createTreeWalker(el,NodeFilter.SHOW_TEXT);const nodes=[];let node;
       while(node=walker.nextNode())nodes.push(node);
       const range=document.createRange();range.setStart(nodes[0],0);range.setEnd(nodes.at(-1),nodes.at(-1).length);
@@ -33,20 +36,20 @@ def test_rendered_table_selection_matches_prose_in_both_themes(workspace_page,mo
         expect(cell.locator('.passage-highlight')).to_have_text('width')
         if mode=='live':
             page.locator('.cm-line').first.click();page.keyboard.press('Home');page.keyboard.press('Shift+End')
-            expect(page.locator('.cm-selectionBackground').first).to_be_visible()
+            expect(page.locator('.cm-text-selection').first).to_be_visible()
         # The focused native table region must override CodeMirror's blue fallback.
         region.focus();select_text(page,host+' tbody strong')
         assert page.evaluate('window.getSelection().toString()')=='width'
-        native=cell.evaluate('el=>getComputedStyle(el,"::selection").backgroundColor')
+        native=cell.evaluate('el=>getComputedStyle(el,"::highlight(looking-glass-text-selection)").backgroundColor')
         expected=page.evaluate('''()=>{
           const probe=document.createElement('span');probe.style.backgroundColor='var(--selection)';
           document.body.append(probe);const color=getComputedStyle(probe).backgroundColor;probe.remove();return color;
         }''')
         assert native==expected
         if mode=='live':
-            assert page.locator('.cm-selectionBackground').first.evaluate('el=>getComputedStyle(el).backgroundColor')==expected
+            assert page.locator('.cm-text-selection').first.evaluate('el=>getComputedStyle(el).backgroundColor')==expected
         else:
-            assert prose.evaluate('el=>getComputedStyle(el,"::selection").backgroundColor')==expected
+            assert prose.evaluate('el=>getComputedStyle(el,"::highlight(looking-glass-text-selection)").backgroundColor')==expected
         page.evaluate('window.getSelection().removeAllRanges()')
         # Persisted passage marks also use the same style inside and outside tables.
         assert cell.locator('.passage-highlight').evaluate('el=>getComputedStyle(el).backgroundColor')==prose.evaluate('el=>getComputedStyle(el).backgroundColor')
@@ -95,6 +98,7 @@ def test_preview_discussions_repeated_text_entities_unicode_and_navigation(works
     select_text(page,'.markdown-preview tbody td:last-child');page.keyboard.press('Control+Enter')
     expect(page.locator('#comment-dialog')).to_be_visible();page.locator('#comment-body').fill('Second repeated cell');page.locator('#comment-submit').click()
     expect(page.locator('.thread')).to_have_count(2)
+    expect(page.locator('#passage-spotlight')).not_to_be_visible()
     second=ws.threads()[1];assert second['start']==text.rindex('repeat')
     page.locator('.thread blockquote').first.click();expect(page.locator('#mode')).to_have_value('preview')
     page.reload();expect(page.locator('.markdown-preview .passage-highlight')).to_have_count(2)

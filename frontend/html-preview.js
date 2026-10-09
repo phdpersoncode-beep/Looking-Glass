@@ -2,6 +2,21 @@ import {htmlTextMap} from './html-text-map.mjs';
 // Runs inside the opaque-origin report. Never receives application credentials.
 const send = (type, data={}) => parent.postMessage({lookingGlass:config.channel,type,...data},config.parentOrigin);
 let threads=[], active=null, ranges=new Map(), selected=null;
+let readingPosition=null;
+function retainReadingPosition(event){
+  const caret=document.caretPositionFromPoint?.(event.clientX,event.clientY),point=!caret&&document.caretRangeFromPoint?.(event.clientX,event.clientY);
+  const node=caret?.offsetNode||point?.startContainer,offset=caret?.offset??point?.startOffset;
+  if(node?.nodeType!==Node.TEXT_NODE||!node.length)return;
+  const range=document.createRange(),at=Math.min(offset,node.length-1);range.setStart(node,at);range.setEnd(node,at+1);
+  const position=readingPosition={range,top:range.getBoundingClientRect().top,x:window.scrollX};let remaining=3;
+  const restore=()=>{
+    if(readingPosition!==position)return;
+    if(!node.isConnected){readingPosition=null;return;}
+    window.scrollTo(position.x,window.scrollY+range.getBoundingClientRect().top-position.top);
+    if(--remaining)requestAnimationFrame(restore);else readingPosition=null;
+  };
+  requestAnimationFrame(restore);
+}
 let sourceBindings=new WeakMap(),sourceText='';
 function bindSource(mapping){
   sourceBindings=new WeakMap();sourceText=mapping.source;
@@ -106,6 +121,7 @@ window.addEventListener('message',event=>{
   if(message.type==='initialize'){bindSource(message.mapping);paint();capture();}
   if(message.type==='threads'){threads=message.threads;active=message.active;paint();}
   if(message.type==='jump'){
+    readingPosition=null;
     active=message.id;paint();const range=ranges.get(active)?.[0];if(!range){send('unmapped',{id:active});return;}
     const element=range.startContainer.parentElement;element?.scrollIntoView({block:'center',behavior:'smooth'});
   }
@@ -113,13 +129,20 @@ window.addEventListener('message',event=>{
 document.addEventListener('selectionchange',()=>capture());
 document.addEventListener('pointerup',()=>setTimeout(capture,0));
 document.addEventListener('keydown',event=>{
+  readingPosition=null;
+  if(event.key==='Escape')send('exit-spotlight');
   if((event.ctrlKey||event.metaKey)&&event.altKey&&!event.shiftKey&&event.key.toLowerCase()==='z'){event.preventDefault();event.stopPropagation();send('zen');return;}
   if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='p'){event.preventDefault();event.stopPropagation();send('quick-open');}
 },true);
 document.addEventListener('keydown',event=>{if((event.ctrlKey||event.metaKey)&&event.key==='Enter'&&!['INPUT','TEXTAREA','SELECT'].includes(event.target.tagName)){capture();if(selected){event.preventDefault();send('comment');}}});
+document.addEventListener('pointerdown',()=>{readingPosition=null;},true);
+document.addEventListener('wheel',()=>{readingPosition=null;},{capture:true,passive:true});
+document.addEventListener('touchmove',()=>{readingPosition=null;},{capture:true,passive:true});
 document.addEventListener('click',event=>{
   if(!getSelection()?.isCollapsed||event.target.closest('a,button,input,textarea,select'))return;
-  for(const [id,matches] of ranges){if(threads.find(t=>t.id===id)?.resolved)continue;for(const range of matches)for(const rect of range.getClientRects())if(event.clientX>=rect.left&&event.clientX<=rect.right&&event.clientY>=rect.top&&event.clientY<=rect.bottom){send('thread',{id});return;}}
+  const ids=[];
+  for(const [id,matches] of ranges){if(threads.find(t=>t.id===id)?.resolved)continue;if(matches.some(range=>[...range.getClientRects()].some(rect=>event.clientX>=rect.left&&event.clientX<=rect.right&&event.clientY>=rect.top&&event.clientY<=rect.bottom)))ids.push(id);}
+  if(ids.length){retainReadingPosition(event);send('thread',{id:ids[0],ids});}
 });
 let mutationTimer=0;
 new MutationObserver(()=>{clearTimeout(mutationTimer);mutationTimer=setTimeout(()=>{paint();capture();},150);}).observe(document.body,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['class','style','hidden']});

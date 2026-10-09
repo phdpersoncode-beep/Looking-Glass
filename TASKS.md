@@ -1,3 +1,56 @@
+# Spotlight navigation and reading-position fixes
+
+Continue on `feature/markdown-discussion-reading-polish` (PR #8).
+
+- [x] Make collapsed sidebar comment icons navigate to the passage and focus its discussion in spotlight.
+- [x] Preserve the clicked text's screen position near the viewport bottom, through live syntax and sidebar reflow; keep drag, wheel, and keyboard navigation usable.
+- [x] Show a compact Esc hint beside All discussions and verify Escape from both panes.
+- [x] Cover the reproduced jumps in Chromium/Firefox, rebuild assets, run regression/package checks, and push the fixes.
+
+Implementation pushed at `8e5f448`: all 161 browser checks pass locally in
+Chromium/Firefox, alongside 80 backend and 11 frontend tests. Reproducible assets,
+package builds, packaged asset contents, and light/dark visual checks pass.
+The GitHub fast job also passes; see `docs/VERIFICATION.md` for coverage and
+the workflow link.
+
+---
+
+# Passage sidebar spotlight
+
+Continue on `feature/markdown-discussion-reading-polish` (PR #8).
+
+- [x] Remove floating cards; highlight clicks filter the sidebar to the passage's discussions without moving the reading pane.
+- [x] Add a quiet “This passage · N threads” header and “All discussions”; preserve the original list order, scroll position, drafts, and refresh behavior.
+- [x] Cover overlapping passages, Markdown tables, HTML reports, dismissal, explicit navigation, and background updates in both browsers.
+- [x] Rebuild assets, run regression/package checks, and update the pull request with verification.
+
+Verification at `adf344a`: 131 browser tests pass locally and in the
+[locked-dependency workflow](https://github.com/phdpersoncode-beep/Looking-Glass/actions/runs/37911110074).
+All 80 backend and 11 frontend tests pass; reproducible frontend assets and
+Python wheel/source builds pass. Light/dark layouts were visually inspected.
+See `docs/VERIFICATION.md` and [PR #8](https://github.com/phdpersoncode-beep/Looking-Glass/pull/8).
+
+---
+
+# Markdown selections and discussion reading (initial implementation)
+
+Branch: `feature/markdown-discussion-reading-polish`, based on main after merging HTML source annotations (PR #7).
+
+The initial floating-card behavior below is superseded by the passage spotlight above.
+
+- [x] Paint live and reading-preview selections over text only, including wrapped and multiline passages.
+- [x] Render discussion messages with the shared Markdown/table/code/diagram renderer at a compact size; preserve raw stored bodies and safe HTML handling.
+- [x] Show selected discussions temporarily beside the reading pane without scrolling it; restore their list positions on collapse or defocus and preserve reply drafts through refreshes.
+- [x] Cover these behaviors in Chromium and Firefox and run the existing regression suite, asset reproducibility, and package checks.
+
+Verification: 11 frontend tests, 80 backend tests, and all 119 browser checks pass
+locally and on GitHub.
+Frontend assets rebuild reproducibly; Python wheel/source builds pass. Final locked
+dependency verification and coverage are recorded in `docs/VERIFICATION.md` and
+[PR #8](https://github.com/phdpersoncode-beep/Looking-Glass/pull/8).
+
+---
+
 # Sidebar and Markdown review improvements
 
 Use this checklist for the current feature branch. Commit and push each completed item with its regression tests and rebuilt frontend assets.

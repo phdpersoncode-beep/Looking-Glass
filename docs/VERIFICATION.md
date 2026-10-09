@@ -296,3 +296,109 @@ GitHub's separate browser job uses the repository's pinned Playwright dependenci
 Source-backed threads never depend on quote-only DOM matching. Runtime-generated
 or otherwise unprovable mappings remain explicitly rendered-only; existing
 rendered-only threads are preserved without speculative migration.
+
+## Markdown selections and discussion reading (2026-10-08)
+
+Implementation: `4208669`, on `feature/markdown-discussion-reading-polish`, based
+on main after merging [PR #7](https://github.com/phdpersoncode-beep/Looking-Glass/pull/7).
+
+- Frontend: **11 passed**. Backend: **80 passed** locally and in GitHub's locked
+  dependency job. Frontend assets rebuild reproducibly; Python wheel and source
+  distribution builds pass.
+- Full browser suite: **119 passed** locally in **431.06 seconds**, and
+  **119 passed** in **425.00 seconds** in the
+  [locked-dependency run](https://github.com/phdpersoncode-beep/Looking-Glass/actions/runs/37848191803).
+- Twenty new Chromium/Firefox cases cover forward/backward native multiline
+  selections in live and reading-preview Markdown, wrapped prose, Unicode/CRLF,
+  exact saved source anchors, and clean side margins. Both themes retain the
+  existing purple selection color, including rendered tables.
+- Discussion bodies and replies share Markdown styling, compact tables, syntax
+  coloring, and Mermaid diagrams. Checks cover headings, lists, quotes, links,
+  smaller fonts, theme changes, reloads, unchanged stored Markdown, and sanitized
+  HTML that cannot execute scripts or impersonate discussion controls.
+- Thirty long Markdown threads exercise floating-card placement and independent
+  scrolling in live, preview, and source views. Opening keeps document/sidebar
+  scroll within two pixels. Dismissal restores the original card order and keeps
+  the reading position stable; external updates preserve reply drafts, focus,
+  and cursor selection.
+  Twenty-five HTML threads verify report-scroll preservation and defocus behavior;
+  existing iframe isolation and source-annotation regressions remain in the suite.
+- Final focused Markdown/discussion browser checks: **40 passed**. Immediate Escape dismissal cancels
+  delayed passage activation. Posting, sidebar expansion, original context, and
+  explicit passage navigation keep controls in the normal list. Replies preserve
+  whether the card is floating or in the list; passage clicks temporarily float it.
+- A live-table regression failed before the repair: a new background discussion
+  replaced the selected table and cleared its native selection. Annotation-only
+  updates now reuse the DOM and defer mark changes during selection. Both browser
+  cases pass and verify posting the preserved exact quote after the update. The
+  encoded-character test helper now focuses the native table region like a real
+  cell drag, instead of leaving CodeMirror's source caret focused.
+- Text-only selections and compact discussion tables/code were visually inspected
+  in light and dark themes.
+
+Local focused browser checks used Playwright 1.56, Chromium 141, and Firefox 142.
+The complete final browser gate uses the repository's pinned Playwright/browser
+versions in GitHub Actions. Local Firefox process-sandbox relaxation was only for
+container compatibility; the report iframe's opaque-origin isolation stayed enabled.
+
+## Passage sidebar spotlight (2026-10-09)
+
+Implementation: `adf344a`, on `feature/markdown-discussion-reading-polish`.
+This replaces the previous floating-card interaction; text-only selections,
+compact Markdown messages, and live-table selection preservation remain intact.
+
+Full browser suite: **131 passed** locally in **630.29 seconds**, and
+**131 passed** in **489.18 seconds** in the
+[locked-dependency run](https://github.com/phdpersoncode-beep/Looking-Glass/actions/runs/37911110074).
+
+- Frontend: **11 passed**; backend: **80 passed**. Frontend assets rebuild
+  reproducibly; Python wheel/source distribution builds pass. GitHub's locked
+  dependency fast job also passes.
+- The discussion-reading browser module now contains **32 cases**. Its 12
+  additional cases cover overlapping passages in live/preview/source Markdown
+  and live tables, new passage threads during refreshes, unrelated discussions,
+  deletion, file changes, and resolution without zen-mode navigation.
+- Thirty long threads exercise reading-scroll stability, original card identity
+  and order, restored list scroll after switching passages, collapse/expand,
+  Escape (including the delayed pointer-release race), explicit navigation,
+  and reopening the hidden sidebar. Refreshes preserve reply drafts, focus,
+  and cursor selection. Bulk controls affect only spotlighted discussions.
+- Twenty-five HTML threads plus an overlapping rendered-only discussion exercise
+  report-scroll stability, passage grouping, persistent focus through report
+  interactions, and Escape inside the isolated iframe. Existing report isolation
+  and exact source-anchor tests remain in the complete suite.
+- Light/dark sidebar layouts were visually inspected. The small passage header
+  stays above the sidebar scroller; cards remain in their original DOM/list order,
+  without placeholders, overlays, or motion.
+
+## Spotlight navigation and reading-position fixes (2026-10-09)
+
+Implementation: `8e5f448`, on `feature/markdown-discussion-reading-polish` (PR #8).
+
+- Full local browser suite: **161 passed** in **677.25 seconds**, using Chromium
+  and Firefox. Backend: **80 passed** in **12.92 seconds**; frontend: **11 passed**.
+- The new navigation module contains **30 browser cases**. Actual pointer clicks
+  cover highlights eight pixels from the reading pane's bottom, live/source/preview
+  Markdown, long hidden link URLs, live tables, and isolated HTML reports. Narrow
+  viewports exercise reopening the sidebar and the resulting document reflow.
+- Before the fix, revealing live link syntax moved the reading position by about
+  153 pixels and moved the clicked glyph by about 306 pixels. Reopening a sidebar
+  could push the clicked glyph below the viewport. Regressions now require the
+  clicked glyph to remain within two pixels of its prior screen position; when
+  the sidebar is already open, the scroll offset also remains within two pixels.
+  If opening the sidebar changes wrapping, the scroll offset compensates for that
+  reflow to keep the clicked text in place.
+- Sidebar icon tests require deliberate passage navigation with surrounding
+  context and sidebar spotlight, including cross-file navigation. Escape restores
+  the full list position and preserves the reply draft. Live table highlight
+  clicks also work after a prior source-range selection. Wheel scrolling,
+  highlight dragging, keyboard editing, and unchanged disk contents are checked.
+- A small Esc key hint is visible next to All discussions, with accessible shortcut
+  metadata. Escape works from the editor, reply field, and isolated report iframe.
+  Existing overlap, refresh, zen-mode, anchor, and selection checks remain green.
+- Frontend assets rebuild reproducibly; wheel/source distribution builds pass.
+  Packaged template and JavaScript/CSS bytes match the checkout. Light/dark sidebar
+  layouts were visually inspected, including the return control and key hint.
+- The [locked-dependency workflow](https://github.com/phdpersoncode-beep/Looking-Glass/actions/runs/37918336516)
+  passes its fast job, including backend/frontend tests, rebuilt asset equality,
+  and packaging. Its browser job is still running when these notes are written.

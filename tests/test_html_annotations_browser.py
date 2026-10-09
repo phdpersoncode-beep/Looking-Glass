@@ -72,6 +72,7 @@ def test_html_source_selection_navigation_and_persistence(workspace_page):
     thread=page.locator(f'.thread[data-thread="{second["id"]}"]');thread.locator('.jump').click()
     thread.locator('.reply-form textarea').fill('Same source thread')
     thread.locator('.reply-form button[type=submit]').click();expect(page.get_by_text('Same source thread',exact=True)).to_be_visible()
+    expect(page.locator('#passage-spotlight')).not_to_be_visible()
     thread.get_by_role('button',name='Resolve thread',exact=True).click()
     page.locator('#show-resolved').check();thread.get_by_role('button',name='Reopen thread',exact=True).click()
     expect(thread.get_by_role('button',name='Resolve thread',exact=True)).to_be_visible()
@@ -172,6 +173,7 @@ def test_html_native_drag_scroll_and_highlight_click(workspace_page):
     t=ws.threads()[0];assert t['anchor_kind']=='source' and source[t['start']:t['end']]==t['quote']
     assert frame.locator('#drag').evaluate("el=>getComputedStyle(el,'::selection').backgroundColor")=='rgba(184, 77, 255, 0.27)'
     select(page,'#later');comment(page,'Lower passage')
+    expect(page.locator('#passage-spotlight')).not_to_be_visible()
     page.locator(f'.thread[data-thread="{t["id"]}"] .jump').click();expect(frame.locator('#drag')).to_be_in_viewport()
     frame.locator('#drag').evaluate('()=>getSelection().removeAllRanges()')
     frame.locator('#drag').click(position={'x':15,'y':10})
