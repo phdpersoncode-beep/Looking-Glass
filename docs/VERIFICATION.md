@@ -1,3 +1,43 @@
+# Non-destructive review mode · 2026-10-09
+
+Implementation: [PR #10](https://github.com/phdpersoncode-beep/Looking-Glass/pull/10),
+on `feature/non-destructive-review-mode`.
+
+- Initial implementation `a5467ba`: all **99 backend**, **14 JavaScript**, and
+  **175 browser** tests passed in the
+  [locked-dependency GitHub run](https://github.com/phdpersoncode-beep/Looking-Glass/actions/runs/37965250790).
+  Browser tests used Chromium and Firefox and completed in 638.00 seconds.
+  Clean asset reproducibility and Python wheel/source builds also passed.
+- Review coverage includes persistence/restart, untouched original bytes, human
+  and agent provenance, timestamps/history, Unicode/CRLF operations, invalid
+  batch rollback, stale edits, exact approval and file permissions, external disk
+  conflicts, separate discussion positions, removed-passage context, and real
+  local command-line editing and commenting.
+- Browser workflows exercise mode switching/reload, human replacements, agent
+  updates, draft comments, comment editing, undo, live/preview Markdown tables,
+  runtime HTML comments, conflict comparison, and approval protections. Existing
+  selection, sidebar, Git, report isolation, and navigation regressions remain
+  part of the full suite. Light/dark, narrow-pane, Markdown/table and highlighted
+  Python layouts were inspected during implementation.
+- Follow-up fixes position HTML deletion text at mapped character boundaries and
+  preserve source selections after text-node splits. Five new scenarios run in
+  each browser, including beginning/middle/end deletions, entities, and multiple
+  removals with Unicode. The expanded real command-line regression verifies
+  `reply --review` captures the draft's immutable content and shifted passage,
+  while ordinary replies retain disk context.
+- After these fixes, **99 backend** and **14 JavaScript** tests pass locally;
+  all **12 review scenarios pass in Firefox**. Local Firefox uses
+  `MOZ_DISABLE_CONTENT_SANDBOX=1` for container compatibility; HTML report
+  isolation remains enabled. The expanded full browser suite contains 185 cases.
+  [Latest locked Chromium/Firefox checks](https://github.com/phdpersoncode-beep/Looking-Glass/pull/10/checks)
+  report the follow-up gate separately from the historical initial run above.
+- The 1 MiB and near-8 MiB benchmarks verify original byte preservation and
+  173-byte save acknowledgements. See [PERFORMANCE.md](PERFORMANCE.md) for measured
+  save/poll costs and workload limits. Review mode adds storage and save work;
+  these figures do not establish zero overhead or browser-rendering latency.
+
+---
+
 # Bounded source anchoring and agent repair · 2026-10-06
 
 - Local fast suite: **59 passed** in 6.78 seconds; **4 JavaScript tests passed**.

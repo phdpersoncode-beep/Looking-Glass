@@ -44,6 +44,54 @@ with its body limited to 240 characters. Use `--full` for complete messages.
 `read` includes current passage context with 10 surrounding lines by default.
 Commands print JSON; `instructions` prints text. Errors use stderr and a nonzero exit code.
 
+## Non-destructive review drafts
+
+In review mode, edit the saved draft through the local interface; direct filesystem
+writes change the original file. Discover the review ID and current version first:
+
+```bash
+looking-glass agent review list
+looking-glass agent review read 1
+looking-glass agent review history 1 --after 0 --limit 100
+looking-glass agent review edit 1 --version 'review:1:0' --author Codex --operations-file edits.json
+looking-glass agent list --review 1
+looking-glass agent read 2 --review 1
+looking-glass agent create notes.md --review 1 --quote 'Proposed passage' --body-file comment.md
+looking-glass agent reply 2 --review 1 --author Codex --body-file reply.md
+```
+
+Use the exact version returned by `review read`, rather than the example version.
+`edits.json` is an array of sequential operations, for example
+`[{"start":0,"end":3,"insert":"New"}]`. Offsets count Unicode code points in
+accepted draft content, excluding removed display text. A stale revision returns
+409 without applying edits; reread and reconcile deliberately. History includes
+removed/inserted text, author, human/agent role, and UTC timestamps.
+
+Each operation uses positions after the previous operation; `end` is exclusive.
+Count CRLF as two code points, rather than normalizing line endings. A batch
+allows 1–1000 operations. `--operations-file -` reads standard input. History
+returns `next_after` for pagination; pass it as `--after` for the next page.
+
+`--review` also controls the context saved with a reply on an existing ordinary
+thread. Omit it for ordinary disk context. New draft discussions remain separate
+until approval; ordinary threads have independent draft anchors. Humans approve
+the active file in the browser. Approval writes only accepted text, promotes its
+discussion anchors, and refuses to overwrite an original that changed on disk.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/reviews` | List pending drafts |
+| POST | `/reviews` | Start/resume with `{path,version}` from the disk file |
+| GET | `/reviews/1` | Read base, accepted content, segments, revision and version |
+| GET | `/reviews/1?version=review:1:0` | Return 304 when unchanged |
+| PATCH | `/reviews/1` | Apply `{version,author,role,operations}` |
+| GET | `/reviews/1/edits?after=0&limit=100` | Paginated chronological operations |
+| POST | `/reviews/1/approve` | Apply `{version}` after the human's approval |
+
+Thread list/read use the `review` query parameter; create/reply/anchor updates use
+`review_id` in their JSON body. All routes require the existing local token. Human
+autosaves may request `minimal:true` for a small acknowledgement.
+
 ## Repairing source anchors
 
 Read the discussion and its original review context before deciding which current
