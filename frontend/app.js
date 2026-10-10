@@ -942,31 +942,26 @@ function mountJSONL(e){
   }
   entryButtons.append(previousEntry,nextEntry);navigation.append(detailTitle,entryButtons);right.append(navigation);
   const parent=document.createElement('div');parent.className='json-detail-editor';right.append(parent);
-  const detail=new EditorView({state:EditorState.create({extensions:[basicSetup,json(),syntaxHighlighting(colors),theme(),EditorView.editable.of(false),EditorState.readOnly.of(true),EditorView.lineWrapping]}),parent});
+  let comparisonScroll=null;
+  const detail=new EditorView({state:EditorState.create({extensions:[basicSetup,json(),syntaxHighlighting(colors),theme(),EditorView.editable.of(false),EditorState.readOnly.of(true),EditorView.lineWrapping,
+    EditorView.scrollHandler.of(editor=>{
+      if(!comparisonScroll)return false;
+      // Restore inside CodeMirror's measure cycle, before it captures the new
+      // scroll anchor. Deferring to another frame exposes the mapped old anchor.
+      editor.scrollDOM.scrollTop=comparisonScroll.top;editor.scrollDOM.scrollLeft=comparisonScroll.left;
+      comparisonScroll=null;return true;
+    })]}),parent});
   right.insertBefore(jsonControls(detail),parent);
   const lines=e.content.split(/\r?\n/);if(lines.at(-1)==='')lines.pop();
-  let selected=-1,restoreFrame=0,comparisonScroll=null;previousEntry.disabled=nextEntry.disabled=true;
+  let selected=-1;previousEntry.disabled=nextEntry.disabled=true;
   function select(index,reveal=false){
     if(index<0||index>=lines.length||index===selected)return;
     const restore=selected!==-1,top=comparisonScroll?.top??detail.scrollDOM.scrollTop,horizontal=comparisonScroll?.left??detail.scrollDOM.scrollLeft,raw=lines[index];let text;
     try{text=JSON.stringify(JSON.parse(raw),null,2);detailTitle.textContent='ROW '+(index+1)+' / '+lines.length+' · FORMATTED JSON';}
     catch(error){text=raw;detailTitle.textContent='ROW '+(index+1)+' / '+lines.length+' · MALFORMED: '+error.message;}
-    selected=index;detail.dispatch({changes:{from:0,to:detail.state.doc.length,insert:text}});
-    // CodeMirror adjusts its scroll anchor after measure callbacks. Restore on
-    // the next frame after that layout completes; the browser clamps shorter
-    // entries naturally. Rapid entry changes replace the pending restoration.
-    cancelAnimationFrame(restoreFrame);
-    if(restore){
-      comparisonScroll={top,left:horizontal};
-      detail.requestMeasure({key:select,read:()=>null,write:()=>{
-        restoreFrame=requestAnimationFrame(()=>{if(selected===index&&container.isConnected){
-          detail.scrollDOM.scrollTop=top;detail.scrollDOM.scrollLeft=horizontal;
-          // A later CodeMirror measure must use the restored new-document
-          // anchor, rather than the position mapped through the replacement.
-          detail.dispatch({effects:detail.scrollSnapshot()});comparisonScroll=null;
-        }});
-      }});
-    }
+    selected=index;
+    if(restore)comparisonScroll={top,left:horizontal};
+    detail.dispatch({changes:{from:0,to:detail.state.doc.length,insert:text},effects:restore?EditorView.scrollIntoView(0):[]});
     previousEntry.disabled=index===0;nextEntry.disabled=index===lines.length-1;
     left.querySelectorAll('.jsonl-row').forEach((row,i)=>{row.classList.toggle('selected',i===index);row.setAttribute('aria-current',String(i===index));});
     if(reveal)left.querySelector('[data-row="'+index+'"]').scrollIntoView({block:'start'});
@@ -983,7 +978,7 @@ function mountJSONL(e){
    input.oninput=find;input.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();go(event.shiftKey?-1:1);}if(event.key==='Escape'){event.preventDefault();search.hidden=true;left.focus();}};
    previous.onclick=()=>go(-1);next.onclick=()=>go(1);close.onclick=()=>{search.hidden=true;left.focus();};search.append(input,count,previous,next,close);left.tabIndex=0;left.insertBefore(search,rawTitle.nextSibling);
    jsonlSearch=()=>{search.hidden=false;input.focus();input.select();};
-   container.append(left,right);$('#surface').append(container);if(lines.length)select(0);cleanup=()=>{jsonlSearch=null;cancelAnimationFrame(restoreFrame);detail.destroy();};
+   container.append(left,right);$('#surface').append(container);if(lines.length)select(0);cleanup=()=>{jsonlSearch=null;detail.destroy();};
 }
 async function mountImage(e){
   const host=document.createElement('div');host.className='image-view';

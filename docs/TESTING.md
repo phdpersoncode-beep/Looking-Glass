@@ -56,8 +56,11 @@ geometry/fonts before recording their baseline. HTML alignment uses instant
 scrolling to stop an earlier sidebar animation. The preservation assertions and
 deadlines remain unchanged; separate cases also exercise reports that request
 smooth scrolling during a highlight click and verify normal wheel navigation.
-JSONL comparison checks also sample multiple frames after row selection, so a
-transient restoration followed by a late editor-anchor jump cannot pass.
+JSONL comparison checks sample frames starting at the row click and again after
+restoration, so neither a transient reset nor a late editor-anchor jump can pass.
+Row changes restore inside CodeMirror's layout cycle before it captures the new
+scroll anchor; shorter entries clamp naturally and ordinary wheel scrolling stays
+available.
 
 Production assets must rebuild without differences after the intended asset
 changes are committed. CI also builds wheel/source distributions. See
