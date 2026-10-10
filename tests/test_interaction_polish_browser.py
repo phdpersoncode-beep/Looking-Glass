@@ -239,3 +239,25 @@ def test_thread_card_scrolls_to_passage_without_stealing_sidebar_focus(workspace
     expect(mark).to_be_in_viewport()
     assert page.locator(scroller).evaluate('el=>el.scrollTop') > 100
     assert (root / 'note.md').read_text() == text
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_thread_card_navigation_opens_other_file_and_scrolls_rendered_html(workspace_page):
+    from playwright.sync_api import expect
+    root, page, url, ws = workspace_page
+    (root / 'note.txt').write_text('Ordinary note.')
+    text = ''.join(f'<p id="p{i}">Report passage {i:03}</p>' for i in range(100))
+    (root / 'report.html').write_text(text)
+    quote = 'Report passage 090'; start = text.index(quote)
+    thread = ws.create_thread('report.html', start, start + len(quote), 'Inspect report', 'Reviewer', ws.read('report.html')['version'])
+    page.goto(url); open_file(page, 'note.txt'); page.locator('#work-mode').click()
+    expect(page.locator('#work-mode')).to_have_attribute('aria-checked', 'true')
+    page.locator('#thread-scope').check()
+    card = page.locator(f'.thread[data-thread="{thread["id"]}"]')
+    card.click(position={'x':4,'y':4})
+    expect(page.locator('#document-name')).to_have_text('report.html')
+    expect(page.locator('#work-mode')).to_be_hidden()
+    expect(card).to_have_class('thread active')
+    expect(page.frame_locator('#html-preview').locator('#p90')).to_be_in_viewport()
+    assert len(ws.reviews.list()) == 1 and ws.reviews.list()[0]['path'] == 'note.txt'
+    assert (root / 'report.html').read_text() == text
