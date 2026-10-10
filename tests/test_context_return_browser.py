@@ -89,7 +89,7 @@ def test_context_restores_reader_and_drafts(workspace_page, work, mode, exit):
       if(document.fonts.status!=='loaded'||window.heldGeometry.frames<3)return false;
       window.heldScroll=scroller.scrollTop;
       return true;
-    }''', mode)
+    }''', arg=mode)
     page.locator('.original-context').click()
     expect(page.locator('#document-name')).to_have_text('Original · report.md')
     expect(page.locator('.original-reading h1')).to_have_text('Report')
