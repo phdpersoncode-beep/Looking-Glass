@@ -73,10 +73,16 @@ def test_context_restores_reader_and_drafts(workspace_page, work, mode, exit):
     page.locator('.thread .jump').click()
     reply = page.locator(f'#reply-{thread["id"]}')
     reply.fill('Unsent reply')
-    page.evaluate('''mode=>{
+    page.evaluate('''async mode=>{
+      // Finish the preceding CodeMirror jump before setting this visit's baseline.
+      const measured=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+      await measured();
       window.heldReader=document.querySelector(mode==='preview'?'.markdown-preview':'.cm-editor');
       const scroller=mode==='preview'?document.querySelector('#surface'):document.querySelector('.cm-scroller');
-      scroller.scrollTop=650;window.heldScroll=scroller.scrollTop;
+      scroller.scrollTop=650;
+      await measured();
+      if(Math.abs(scroller.scrollTop-650)>=2)throw new Error('Reader baseline did not settle at 650');
+      window.heldScroll=scroller.scrollTop;
     }''', mode)
     page.locator('.original-context').click()
     expect(page.locator('#document-name')).to_have_text('Original · report.md')
