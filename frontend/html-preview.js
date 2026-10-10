@@ -21,10 +21,15 @@ function retainReadingPosition(event){
   const restore=()=>{
     if(readingPosition!==position)return;
     if(!range.startContainer.isConnected){readingPosition=null;return;}
-    window.scrollTo(position.x,window.scrollY+range.getBoundingClientRect().top-position.top);
+    window.scrollTo({left:position.x,top:window.scrollY+range.getBoundingClientRect().top-position.top,behavior:'instant'});
     if(--remaining)requestAnimationFrame(restore);else readingPosition=null;
   };
   requestAnimationFrame(restore);
+}
+function passageIdsAt(event){
+  const ids=[];
+  for(const [id,matches] of ranges){if(threads.find(t=>t.id===id)?.resolved)continue;if(matches.some(range=>[...range.getClientRects()].some(rect=>event.clientX>=rect.left&&event.clientX<=rect.right&&event.clientY>=rect.top&&event.clientY<=rect.bottom)))ids.push(id);}
+  return ids;
 }
 let sourceBindings=new WeakMap(),sourceText='';
 let reviewDeletions=[];
@@ -210,7 +215,7 @@ document.addEventListener('keydown',event=>{if((event.ctrlKey||event.metaKey)&&e
 document.addEventListener('pointerdown',event=>{
   readingPosition=null;readingGesture=null;
   if(event.button===0&&!event.target.closest('a,button,input,textarea,select')){
-    readingGesture={position:captureReadingPosition(event),x:event.clientX,y:event.clientY};
+    readingGesture={position:captureReadingPosition(event),ids:passageIdsAt(event),x:event.clientX,y:event.clientY};
   }
 },true);
 document.addEventListener('pointermove',event=>{
@@ -221,8 +226,7 @@ document.addEventListener('wheel',()=>{readingPosition=null;readingGesture=null;
 document.addEventListener('touchmove',()=>{readingPosition=null;readingGesture=null;},{capture:true,passive:true});
 document.addEventListener('click',event=>{
   if(!getSelection()?.isCollapsed||event.target.closest('a,button,input,textarea,select')){readingGesture=null;return;}
-  const ids=[];
-  for(const [id,matches] of ranges){if(threads.find(t=>t.id===id)?.resolved)continue;if(matches.some(range=>[...range.getClientRects()].some(rect=>event.clientX>=rect.left&&event.clientX<=rect.right&&event.clientY>=rect.top&&event.clientY<=rect.bottom)))ids.push(id);}
+  const ids=readingGesture?.ids?.length?readingGesture.ids:passageIdsAt(event);
   if(ids.length){retainReadingPosition(event);send('thread',{id:ids[0],ids});}
   else readingGesture=null;
 });

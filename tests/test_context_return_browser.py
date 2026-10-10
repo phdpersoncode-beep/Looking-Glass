@@ -73,10 +73,22 @@ def test_context_restores_reader_and_drafts(workspace_page, work, mode, exit):
     page.locator('.thread .jump').click()
     reply = page.locator(f'#reply-{thread["id"]}')
     reply.fill('Unsent reply')
+    # Finish the preceding jump, then let virtual editor geometry settle before
+    # recording the reading position this context visit must preserve.
+    page.wait_for_function('''mode=>Math.abs((mode==='preview'?document.querySelector('#surface'):document.querySelector('.cm-scroller')).scrollTop)<2''', arg=mode)
     page.evaluate('''mode=>{
       window.heldReader=document.querySelector(mode==='preview'?'.markdown-preview':'.cm-editor');
       const scroller=mode==='preview'?document.querySelector('#surface'):document.querySelector('.cm-scroller');
-      scroller.scrollTop=650;window.heldScroll=scroller.scrollTop;
+      scroller.scrollTop=650;window.heldGeometry=null;
+    }''', mode)
+    page.wait_for_function('''mode=>{
+      const scroller=mode==='preview'?document.querySelector('#surface'):document.querySelector('.cm-scroller');
+      const state=[scroller.scrollTop,scroller.scrollHeight,scroller.clientHeight].join(':');
+      const previous=window.heldGeometry;
+      window.heldGeometry={state,frames:previous?.state===state?previous.frames+1:0};
+      if(document.fonts.status!=='loaded'||window.heldGeometry.frames<3)return false;
+      window.heldScroll=scroller.scrollTop;
+      return true;
     }''', mode)
     page.locator('.original-context').click()
     expect(page.locator('#document-name')).to_have_text('Original · report.md')

@@ -486,17 +486,18 @@ Follow-up: [PR #12](https://github.com/phdpersoncode-beep/Looking-Glass/pull/12)
 branch `test/whole-app-regressions`, targeting main after PR #11.
 The results below record completed local and locked-dependency GitHub verification.
 
-- The full existing collection is retained. **7 backend** and **12 browser**
+- The full existing collection is retained. **7 backend** and **16 browser**
   cases were added: Unicode/CRLF discussion origins and attachments across
   review approval/restart; stale writes preserving draft/discussion state;
   approval/checkpoints preserving other files and staged work; independent
   tab drafts/undo; edited-comment search, context, resolution/reopening and
-  reload; browser context isolation; and pre-focus HTML reading position.
+  reload; browser context isolation; pre-focus HTML reading position; and
+  smooth-scroll interruption with visible/hidden discussion sidebars.
   `TESTING.md` maps the entire application's existing and added coverage.
 - Final locked-dependency backend run: **108 passed** in **22.61 seconds**,
   while browser jobs ran concurrently. An earlier run passed in 16.20 seconds.
   **20 JavaScript tests** pass in **0.34 seconds**. No dependencies changed.
-- Full final local browser run: **387 passed**, no failures or skipped cases.
+- Initial full local browser run: **387 passed**, no failures or skipped cases.
   Four independent pytest shards ran concurrently in **382.35 seconds**
   (6 minutes 22 seconds). Shard counts/times: 97/382.00 s, 97/292.53 s,
   97/332.19 s and 96/309.98 s. Each shard includes Chromium and Firefox.
@@ -530,6 +531,19 @@ The results below record completed local and locked-dependency GitHub verificati
   builds; the longest browser test shard took **4 minutes 40 seconds**.
   The shard completeness check, reproducible asset check and package builds
   also passed. There were no browser failures or skipped cases.
+- A repeat at the documentation-only head exposed one Firefox HTML movement
+  and five Chromium source-context baseline failures. Pinned-browser traces
+  showed an earlier smooth sidebar jump still moving around pointerdown;
+  CodeMirror could likewise finish its prior jump after the test assigned 650
+  to `scrollTop`, before the context visit captured the actual position.
+  HTML restoration now uses explicit instant scrolling and retains the passage
+  identity from pointerdown. Test setup stops prior HTML animation and waits
+  for the preceding editor jump and stable geometry/fonts before recording its
+  baseline. Existing two-pixel assertions and timeouts are preserved.
+  A corrected context setup passed **20 consecutive pinned Chromium cases**;
+  the full local HTML/spotlight and added integration group passed **46 cases**
+  in **86.89 seconds**. Four more HTML cases bring the full collection to **391**.
+  Final-head hosted checks remain a merge requirement and are recorded on PR #12.
 - Asset rebuilds are reproducible; wheel/source distribution builds pass.
   All **18** packaged static assets/templates match the checkout byte for byte.
   `git diff --check` passes. The follow-up workflow runs all four browser shards

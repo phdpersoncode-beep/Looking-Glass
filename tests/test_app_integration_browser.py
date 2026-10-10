@@ -127,7 +127,8 @@ def test_reused_browser_keeps_storage_and_extra_pages_isolated(workspace_page, b
 
 @pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
 @pytest.mark.parametrize('hidden', [False, True])
-def test_html_highlight_keeps_position_before_mouse_focus(workspace_page, hidden):
+@pytest.mark.parametrize('motion', ['instant', 'smooth'])
+def test_html_highlight_keeps_position_before_mouse_focus(workspace_page, hidden, motion):
     from playwright.sync_api import expect
     from test_discussion_reading_browser import endpoint
     from test_spotlight_navigation_browser import settle
@@ -143,11 +144,14 @@ def test_html_highlight_keeps_position_before_mouse_focus(workspace_page, hidden
     target = page.frame_locator('#html-preview').locator('strong')
     target.scroll_into_view_if_needed()
     settle(page)
-    target.evaluate('''el=>{
+    target.evaluate('''(el,motion)=>{
       const r=el.getBoundingClientRect();window.scrollBy(0,r.top-120);
-      // Reproduce a browser's native focus nudge between pointerdown and click.
-      el.addEventListener('mousedown',()=>window.scrollBy(0,4),{once:true});
-    }''')
+      // Native focus can nudge the passage; reports can also request smooth scrolling.
+      el.addEventListener('mousedown',()=>{
+        if(motion==='smooth')document.documentElement.style.scrollBehavior='smooth';
+        window.scrollBy({top:motion==='smooth'?200:4,behavior:motion});
+      },{once:true});
+    }''',motion)
     point = endpoint(target, 2)
     bounds = page.locator('#html-preview').bounding_box()
     page.mouse.click(bounds['x'] + point['x'], bounds['y'] + point['y'])

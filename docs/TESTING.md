@@ -50,6 +50,12 @@ separate launch arguments. Real polling/selection checks and their deadlines are
 unchanged. Test servers use a shorter idle polling interval so shutdown doesn't
 wait up to half a second per case; application polling is unchanged.
 
+Reading-position checks finish preceding navigation and wait for stable editor
+geometry/fonts before recording their baseline. HTML alignment uses instant
+scrolling to stop an earlier sidebar animation. The preservation assertions and
+deadlines remain unchanged; separate cases also exercise reports that request
+smooth scrolling during a highlight click and verify normal wheel navigation.
+
 Production assets must rebuild without differences after the intended asset
 changes are committed. CI also builds wheel/source distributions. See
 `VERIFICATION.md` for measured results and environment details; timing is
