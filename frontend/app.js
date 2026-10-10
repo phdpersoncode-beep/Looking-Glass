@@ -928,7 +928,12 @@ function mountJSONL(e){
     if(restore){
       comparisonScroll={top,left:horizontal};
       detail.requestMeasure({key:select,read:()=>null,write:()=>{
-        restoreFrame=requestAnimationFrame(()=>{if(selected===index&&container.isConnected){detail.scrollDOM.scrollTop=top;detail.scrollDOM.scrollLeft=horizontal;comparisonScroll=null;}});
+        restoreFrame=requestAnimationFrame(()=>{if(selected===index&&container.isConnected){
+          detail.scrollDOM.scrollTop=top;detail.scrollDOM.scrollLeft=horizontal;
+          // A later CodeMirror measure must use the restored new-document
+          // anchor, rather than the position mapped through the replacement.
+          detail.dispatch({effects:detail.scrollSnapshot()});comparisonScroll=null;
+        }});
       }});
     }
     previousEntry.disabled=index===0;nextEntry.disabled=index===lines.length-1;

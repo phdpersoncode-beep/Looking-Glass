@@ -73,7 +73,8 @@ def test_low_native_highlight_holds_position(workspace_page,mode,hidden):
         point=endpoint(target,2);before=point['y'];page.mouse.click(**point)
     else:
         frame=page.frame_locator('#html-preview');target=frame.locator('#p30 strong');target.scroll_into_view_if_needed()
-        target.evaluate('''el=>{const r=el.getBoundingClientRect();window.scrollBy(0,(r.top+r.bottom)/2-(window.innerHeight-8))}''');settle(page)
+        # Stop the sidebar jump animation before recording this click's baseline.
+        target.evaluate('''el=>{const r=el.getBoundingClientRect();window.scrollBy({top:(r.top+r.bottom)/2-(window.innerHeight-8),behavior:'instant'})}''');settle(page)
         point=endpoint(target,2);before=point['y'];bounds=page.locator('#html-preview').bounding_box()
         page.mouse.click(bounds['x']+point['x'],bounds['y']+point['y'])
     expect(page.locator('#passage-spotlight')).to_be_visible();settle(page)

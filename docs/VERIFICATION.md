@@ -478,3 +478,84 @@ Branch: `feature/context-return-and-resolved-passages`, integrated with main
   (`b771d606fdb36b8c673a6ff834728db3ec0baf0d`) byte for byte. GitHub reports
   the PR mergeable. Hosted CI status is available on the PR; the local browser
   fallback above remains distinct from the locked-dependency workflow.
+
+## Whole-app regression coverage and suite speed · 2026-10-10
+
+PR #11 is merged into main at `b8decb0404b58e0b120aa33a5e802807eeaf7118`.
+Follow-up: [PR #12](https://github.com/phdpersoncode-beep/Looking-Glass/pull/12),
+branch `test/whole-app-regressions`, targeting main after PR #11.
+The results below record completed local and locked-dependency GitHub verification.
+
+- The full existing collection is retained. **7 backend** and **18 browser**
+  cases were added: Unicode/CRLF discussion origins and attachments across
+  review approval/restart; stale writes preserving draft/discussion state;
+  approval/checkpoints preserving other files and staged work; independent
+  tab drafts/undo; edited-comment search, context, resolution/reopening and
+  reload; browser context isolation; pre-focus HTML reading position; and
+  smooth-scroll interruption with visible/hidden discussion sidebars; and
+  stable JSONL comparison positions through subsequent editor measurements.
+  `TESTING.md` maps the entire application's existing and added coverage.
+- Final locked-dependency backend run: **108 passed** in **22.61 seconds**,
+  while browser jobs ran concurrently. An earlier run passed in 16.20 seconds.
+  **20 JavaScript tests** pass in **0.34 seconds**. No dependencies changed.
+- Initial full local browser run: **387 passed**, no failures or skipped cases.
+  Four independent pytest shards ran concurrently in **382.35 seconds**
+  (6 minutes 22 seconds). Shard counts/times: 97/382.00 s, 97/292.53 s,
+  97/332.19 s and 96/309.98 s. Each shard includes Chromium and Firefox.
+  The collection guard confirms every case appears exactly once.
+- Process reuse retains fresh contexts, workspaces, servers and registries.
+  Per-test context cleanup also covers failed assertions. The legacy full
+  end-to-end journeys use the shared driver and retain their clipboard and
+  software-rendering launch settings. Shorter server idle polling reduces
+  teardown wait; production polling, assertions and timeouts are unchanged.
+- Same-machine sequential comparison of the **same nine existing cases**:
+  **39.70 seconds before**, **22.89 seconds after** (about **42% faster**).
+  Includes live Markdown/tables/contents, review lifecycle, fuzzy search and
+  numbered lists across both browsers. One run per version, same Python and
+  browser installations; this is diagnostic, not a whole-suite speed claim.
+- The original PR #11 locked CI run passed the fast job and **374/375 browser
+  cases** in 1271.98 seconds. Firefox reported a four-pixel movement in the
+  existing low HTML highlight check. The follow-up captures the reading point
+  at pointerdown, before native mouse focus can scroll, and clears the hold for
+  dragging, wheel and keyboard navigation. All **four** new focus-nudge cases
+  fail on PR #11's old assets and pass with the fix. The original 30 spotlight
+  cases pass locally, and all remain in the final full collection.
+- Local browser verification uses the available **Playwright 1.55.0 / Chromium
+  140 / Firefox 141** fallback. Firefox's container process sandbox setting does
+  not disable the application's report iframe isolation checks.
+- The [locked-dependency GitHub workflow](https://github.com/phdpersoncode-beep/Looking-Glass/actions/runs/38037330382)
+  passed on `68413e3d46d2a3b98fac76ee236e12057aa41722`: **108 backend**
+  tests in **14.13 seconds**, **20 JavaScript** tests, and all **387 browser**
+  cases with Playwright **1.63.0** and its pinned Chromium/Firefox downloads.
+  Shard counts/times: 97/280.14 s, 97/197.96 s, 97/212.23 s and 96/223.83 s.
+  The full workflow finished in **5 minutes 28 seconds**, including setup and
+  builds; the longest browser test shard took **4 minutes 40 seconds**.
+  The shard completeness check, reproducible asset check and package builds
+  also passed. There were no browser failures or skipped cases.
+- A repeat at the documentation-only head exposed one Firefox HTML movement
+  and five Chromium source-context baseline failures. Pinned-browser traces
+  showed an earlier smooth sidebar jump still moving around pointerdown;
+  CodeMirror could likewise finish its prior jump after the test assigned 650
+  to `scrollTop`, before the context visit captured the actual position.
+  HTML restoration now uses explicit instant scrolling and retains the passage
+  identity from pointerdown. Test setup stops prior HTML animation and waits
+  for the preceding editor jump and stable geometry/fonts before recording its
+  baseline. Existing two-pixel assertions and timeouts are preserved.
+  A corrected context setup passed **20 consecutive pinned Chromium cases**;
+  the full local HTML/spotlight and added integration group passed **46 cases**
+  in **86.89 seconds**. Four more HTML cases bring the full collection to **391**.
+  Final-head hosted checks remain a merge requirement and are recorded on PR #12.
+- The next [pinned run](https://github.com/phdpersoncode-beep/Looking-Glass/actions/runs/38039392482)
+  passed all context/HTML checks and **390/391 browser cases**; the existing
+  Chromium JSONL comparison check caught position 700 briefly restoring and
+  then moving to 10. CodeMirror's later measure was applying an anchor mapped
+  through the replaced row. The restored new document now receives a native
+  scroll snapshot, preventing that later anchor correction. The existing check
+  plus two new stability/wheel checks pass in both browsers (**4 passed** in
+  **12.02 seconds**). The new checks sample eight consecutive animation frames
+  after each of three row changes; the full browser collection is now **393**.
+- Asset rebuilds are reproducible; wheel/source distribution builds pass.
+  All **18** packaged static assets/templates match the checkout byte for byte.
+  `git diff --check` passes. The follow-up workflow runs all four browser shards
+  without canceling remaining shards after a failure or automatically retrying
+  failed assertions, and checks shard completeness in the fast job.

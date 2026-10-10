@@ -4,6 +4,7 @@ LOOKING_GLASS_BROWSER=/path/to/chromium pytest tests/test_browser.py -v
 Or LOOKING_GLASS_BROWSER=installed after `playwright install chromium`.
 """
 import json
+from contextlib import closing
 import base64
 import os
 import shutil
@@ -20,8 +21,8 @@ from looking_glass.workspace import Workspace
 pytestmark = [pytest.mark.browser, pytest.mark.skipif(not os.environ.get('LOOKING_GLASS_BROWSER'), reason='Set LOOKING_GLASS_BROWSER to run the browser workflow')]
 
 
-def test_review_workflow_features(tmp_path):
-    from playwright.sync_api import sync_playwright, expect
+def test_review_workflow_features(tmp_path, browser_pool):
+    from playwright.sync_api import expect
     root=tmp_path/'workspace';root.mkdir()
     (root/'src'/'nested').mkdir(parents=True)
     (root/'src'/'nested'/'example.py').write_text('first = 1\nsecond = 2\nthird = 3\n')
@@ -31,12 +32,11 @@ def test_review_workflow_features(tmp_path):
     subprocess.run(['git','-C',str(root),'add','.'],check=True)
     subprocess.run(['git','-C',str(root),'-c','user.name=Test','-c','user.email=test@example.invalid','commit','-m','baseline'],check=True,capture_output=True)
     server=make_server('127.0.0.1',0,create_app(root),threaded=True)
-    thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+    thread=threading.Thread(target=server.serve_forever,kwargs={"poll_interval":0.02},daemon=True);thread.start()
     try:
-        with sync_playwright() as pw:
-            executable=os.environ['LOOKING_GLASS_BROWSER']
-            browser=pw.chromium.launch(executable_path=None if executable=='installed' else executable,headless=True,args=['--no-sandbox'])
-            page=browser.new_page(viewport={'width':1440,'height':960},permissions=['clipboard-read','clipboard-write'])
+        browser=browser_pool('chromium')
+        with closing(browser.new_context(viewport={'width':1440,'height':960},permissions=['clipboard-read','clipboard-write'])) as context:
+            page=context.new_page()
             errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
             page.goto(f'http://127.0.0.1:{server.server_port}')
             folder=page.locator('.file-folder[data-directory="src"]')
@@ -114,14 +114,13 @@ def test_review_workflow_features(tmp_path):
             expect(page.locator('#document-name')).to_have_text('src/nested/example.py')
             assert page.locator('.cm-scroller').evaluate('el=>parseFloat(getComputedStyle(el).fontSize)')==old_size+1
             assert not errors,errors
-            browser.close()
     finally:
         server.shutdown();thread.join();server.server_close()
 
 
-def test_rendered_html_discussions(tmp_path):
+def test_rendered_html_discussions(tmp_path, browser_pool):
     # Script-generated passages keep the legacy rendered-only lifecycle.
-    from playwright.sync_api import sync_playwright, expect
+    from playwright.sync_api import expect
     report=tmp_path/'report.html'
     report.write_text('''<!doctype html><html><body><h1>Report</h1>
 <p id="passage"></p><script>document.querySelector('#passage').innerHTML='Hello <strong>world</strong> &amp; friends.';</script>
@@ -129,12 +128,11 @@ def test_rendered_html_discussions(tmp_path):
 <div style="height:1800px"></div><p id="later">A later passage.</p>
 </body></html>''')
     app=create_app(tmp_path);server=make_server('127.0.0.1',0,app,threaded=True)
-    worker=threading.Thread(target=server.serve_forever,daemon=True);worker.start()
+    worker=threading.Thread(target=server.serve_forever,kwargs={"poll_interval":0.02},daemon=True);worker.start()
     try:
-        with sync_playwright() as pw:
-            executable=os.environ['LOOKING_GLASS_BROWSER']
-            browser=pw.chromium.launch(executable_path=None if executable=='installed' else executable,headless=True,args=['--no-sandbox'])
-            page=browser.new_page(viewport={'width':1440,'height':960})
+        browser=browser_pool('chromium')
+        with closing(browser.new_context(viewport={'width':1440,'height':960})) as context:
+            page=context.new_page()
             errors=[];page.on('pageerror',lambda error:errors.append(str(error)))
             page.goto(f'http://127.0.0.1:{server.server_port}')
             page.locator('.file-entry[data-path="report.html"]').click()
@@ -200,13 +198,12 @@ def test_rendered_html_discussions(tmp_path):
             frame.locator('#passage').evaluate("el=>{el.textContent='Unrelated.';const first=document.createElement('p'),second=document.createElement('p');first.textContent=second.textContent='Hello world & friends.';document.body.replaceChildren(first,second)}")
             expect(page.locator('.anchor-warning')).to_be_visible()
             assert not errors,errors
-            browser.close()
     finally:
         server.shutdown();worker.join();server.server_close()
 
 
-def test_end_to_end(tmp_path):
-    from playwright.sync_api import sync_playwright, expect
+def test_end_to_end(tmp_path, browser_pool):
+    from playwright.sync_api import expect
     project = Path(__file__).resolve().parents[1]
     root = tmp_path/'demo_dir'
     shutil.copytree(project/'demo_dir',root,ignore=shutil.ignore_patterns('.looking-glass'))
@@ -222,7 +219,7 @@ def test_end_to_end(tmp_path):
 
     def start(port=0):
         server=make_server('127.0.0.1',port,create_app(root),threaded=True)
-        thread=threading.Thread(target=server.serve_forever,daemon=True)
+        thread=threading.Thread(target=server.serve_forever,kwargs={"poll_interval":0.02},daemon=True)
         thread.start()
         return server,thread
 
@@ -234,11 +231,9 @@ def test_end_to_end(tmp_path):
         assert p.returncode==0,p.stderr
         return json.loads(p.stdout)
 
-    with sync_playwright() as pw:
-        executable=os.environ['LOOKING_GLASS_BROWSER']
-        browser=pw.chromium.launch(executable_path=None if executable=='installed' else executable,
-                                   headless=True,args=['--no-sandbox','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader'])
-        page=browser.new_page(viewport={'width':1440,'height':960})
+    browser=browser_pool('chromium',args=['--no-sandbox','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader'])
+    with closing(browser.new_context(viewport={'width':1440,'height':960})) as context:
+        page=context.new_page()
         errors=[]
         page.on('pageerror',lambda e:errors.append(str(e)))
         page.goto(url)
@@ -508,5 +503,4 @@ def test_end_to_end(tmp_path):
         page.locator('#theme').click()
         page.screenshot(path=str(screenshots/'looking-glass-dark.png'))
         assert not errors, errors
-        browser.close()
     server.shutdown();thread.join();server.server_close()
