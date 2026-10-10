@@ -41,6 +41,7 @@ const composers=createComposers({token,api,onError:message=>notify(message,true)
 const tabs = new Map();
 let reviewMode=localStorage.getItem('looking-glass-review-mode:'+root)==='true';
 let changingWorkMode=false;
+let approvalTarget=null;
 const HISTORY='looking-glass://history',ORIGINAL='looking-glass://thread/';
 let contextVisit=null;
 async function readTab(path){
@@ -530,6 +531,7 @@ function mountDocument(e){
   updateToolbar();
 }
 async function refreshBaseline(){const editor=view,path=active;if(!editor||entry()?.kind||entry()?.workMode==='review')return;const baseline=await api('git/baseline?'+new URLSearchParams({path}));if(view===editor&&active===path)editor.dispatch({effects:[baselineEffect.of(baseline.content),gitSlot.reconfigure(baseline.content===null?[]:gitGutter)]});}
+function supportsReview(e){return !!e&&!e.kind&&!['stl','jsonl','json','html','htm'].includes(ext(e.path))&&!isImage(e.path);}
 function updateToolbar(){
   const e=entry(), type=e?ext(e.path):'', viewer=!!e?.kind||['stl','jsonl'].includes(type)||isImage(e?.path||'');
   $('#markdown-contents').hidden=!!e?.kind||!['md','markdown'].includes(type)||e?.mode!=='live';
@@ -547,7 +549,7 @@ function updateToolbar(){
   $('#conflict').hidden=!e?.conflict;
   if(e?.workMode==='review')$('#conflict').hidden=true;
   if(e?.conflict)$('#conflict span').textContent=e.conflict.deleted?'This file was deleted or became unavailable on disk. Copy your draft before closing it.':'Changed on disk. Your unsaved edits are preserved. Compare and merge before saving.';
-  $('#work-mode').hidden=!e||viewer;$('#work-mode').disabled=changingWorkMode||saving;$('#work-mode').setAttribute('aria-checked',String(e?.workMode==='review'));$('#work-mode').querySelectorAll('span').forEach(s=>s.classList.toggle('active',s.dataset.mode===(e?.workMode==='review'?'review':'edit')));
+  $('#work-mode').hidden=!supportsReview(e);$('#work-mode').disabled=changingWorkMode||saving;$('#work-mode').setAttribute('aria-checked',String(e?.workMode==='review'));$('#work-mode').querySelectorAll('span').forEach(s=>s.classList.toggle('active',s.dataset.mode===(e?.workMode==='review'?'review':'edit')));
   $('#approve-review').hidden=e?.workMode!=='review';$('#approve-review').disabled=saving||changingWorkMode||!!e?.reviewError;
   $('#review-status').hidden=e?.workMode!=='review';$('#review-status').textContent=e?.reviewError?'Draft needs attention':e?.pendingOps?.length?'Saving review…':'Review saved';
   $('#review-history').hidden=e?.workMode!=='review';
@@ -597,7 +599,7 @@ async function flushReview(e){
   await e.reviewSaving;if(e.pendingOps.length)return flushReview(e);
 }
 async function ensureWorkMode(e){
-  if(e.kind||['stl','jsonl'].includes(ext(e.path))||isImage(e.path))return;
+  if(!supportsReview(e))return;
   const desired=reviewMode?'review':'edit';if(e.workMode===desired)return;
   if(!e.workMode&&desired==='edit'){e.workMode='edit';return;}
   if(desired==='review'){
@@ -648,11 +650,22 @@ async function pollReview(e){
   }else{e.content=draft.content;e.state=null;if(e.path===active){cleanup();cleanup=()=>{};mountDocument(e);}}
   e.content=draft.content;e.dirty=false;if(e.path===active)await refreshThreads();
 }
-async function approveReview(){
+async function requestReviewApproval(){
   const e=entry();if(e?.workMode!=='review')return;
-  await flushReview(e);saving=true;updateToolbar();
+  await flushReview(e);
+  if(entry()!==e||e.workMode!=='review')return;
+  approvalTarget={entry:e,id:e.review.id,version:e.review.version};
+  $('#review-approve-path').textContent=e.path;
+  $('#review-approve-dialog').showModal();
+}
+async function approveReview(event){
+  event.preventDefault();
+  const target=approvalTarget,e=entry();
+  $('#review-approve-dialog').close();
+  if(!target||e!==target.entry||e.workMode!=='review'||e.review.id!==target.id||e.review.version!==target.version||e.pendingOps.length||e.reviewError)throw new Error('The review changed while confirmation was open. Inspect the latest draft and approve again.');
+  saving=true;updateToolbar();
   try{
-    await api('reviews/'+e.review.id+'/approve','POST',{version:e.review.version});
+    await api('reviews/'+target.id+'/approve','POST',{version:target.version});
     // Approval concludes the active file; other drafts stay stored for resuming.
     e.pendingOps=[];await setWorkMode('edit');notify('Reviewed version approved and saved');
   }catch(error){notify(error.message,true);throw error;}
@@ -817,11 +830,9 @@ function showThread(id,focused=false,ids=[id],reveal=true){
   const card=$('.thread[data-thread="'+id+'"]');
   if(!focused&&reveal)threadSpotlight.reveal(card);
 }
-function focusThreadCard(id){
-  if(activeThread===id&&!$('.thread[data-thread="'+id+'"]').classList.contains('collapsed'))return;
+async function focusThreadCard(id){
   // Keep text focus in the card so double-clicking and copying remain native.
-  // Navigation to the passage stays on its explicit anchor and icon controls.
-  showThread(id,threadSpotlight.includes(id),threadSpotlight.ids,false);
+  await jump(id,null,threadSpotlight.includes(id),false);
 }
 function spotlightSidebarThread(id,thread){
   if(threadSpotlight.includes(id)){showThread(id,true,threadSpotlight.ids);return;}
@@ -1227,7 +1238,7 @@ document.addEventListener('wheel',()=>{passagePosition=null;}, {capture:true,pas
 document.addEventListener('touchmove',()=>{passagePosition=null;}, {capture:true,passive:true});
 document.addEventListener('keydown',event=>{
   if(event.target.matches('.thread')&&(event.key==='Enter'||event.key===' ')){
-    event.preventDefault();focusThreadCard(Number(event.target.dataset.thread));
+    event.preventDefault();guard(()=>focusThreadCard(Number(event.target.dataset.thread)))();
   }
 });
 document.addEventListener('click',guard(async event=>{
@@ -1239,7 +1250,7 @@ document.addEventListener('click',guard(async event=>{
   const action=event.target.closest('[data-action]');
   const selecting=!!window.getSelection()?.toString()||event.detail>1;
   if(card&&!action){
-    if(!selecting&&!event.defaultPrevented&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.altKey&&!event.target.closest('button,a,input,textarea,select,label,summary,[contenteditable],[role=button]'))focusThreadCard(Number(card.dataset.thread));
+    if(!selecting&&!event.defaultPrevented&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.altKey&&!event.target.closest('button,a,input,textarea,select,label,summary,[contenteditable],[role=button]'))await focusThreadCard(Number(card.dataset.thread));
     return;
   }
   if(!action)return;
@@ -1337,7 +1348,7 @@ $('#review-merge-form').onsubmit=event=>{
   view?.destroy();view=null;cleanup();cleanup=()=>{};mountDocument(e);$('#review-merge-dialog').close();await refreshThreads();updateToolbar();renderTabs();
 })();};
 $('#work-mode').onclick=guard(()=>setWorkMode(entry()?.workMode==='review'?'edit':'review'));
-$('#approve-review').onclick=guard(approveReview);$('#review-history').onclick=guard(showReviewHistory);
+$('#approve-review').onclick=guard(requestReviewApproval);$('#review-approve-form').onsubmit=guard(approveReview);$('#review-approve-dialog').addEventListener('close',()=>{approvalTarget=null;});$('#review-history').onclick=guard(showReviewHistory);
 $('#save').onclick=guard(saveActive);$('#annotate').onclick=guard(startComment);
 $('#all-discussions').onclick=guard(async()=>{passageActivation++;if(contextVisit)await returnFromOriginal();threadSpotlight.restore();});
 function visibleThreadIds(){return $$('.thread').filter(t=>!t.hidden).map(t=>Number(t.dataset.thread));}

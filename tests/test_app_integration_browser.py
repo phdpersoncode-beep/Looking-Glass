@@ -33,7 +33,7 @@ def test_edit_draft_survives_other_file_review_and_active_file_approval(workspac
     expect(page.locator('.thread')).to_have_count(1)
     page.locator('#thread-search').fill('inspect')
     expect(page.locator('#thread-search-status')).to_contain_text('1 match')
-    page.locator('#approve-review').click()
+    page.locator('#approve-review').click();page.locator('#confirm-review-approve').click()
     expect(page.locator('#work-mode')).to_have_attribute('aria-checked','false')
     expect(page.locator('.thread')).to_have_count(1)
     assert (root / 'code.py').read_text() == 'value = 1\nextra = 2\n'

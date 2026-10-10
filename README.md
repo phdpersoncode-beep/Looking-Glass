@@ -53,7 +53,7 @@ are excluded. Symlinks are not opened. No project code is executed.
 
 ## Edit and review modes
 
-The toolbar's **Edit / Review** selector changes how text edits are saved.
+The toolbar's **Edit / Review** toggle changes how text edits are saved.
 Edit mode saves ordinary files. Review mode autosaves a separate, persistent
 proposal: human additions appear green, agent additions blue, and removed original
 text red with a strike-through. Hover change marks for authorship and time, or
@@ -61,8 +61,9 @@ open **Review history** for chronological edits.
 
 Switch to Edit to see the original; switch back to resume the saved proposal.
 Markdown tables, syntax highlighting, comments and navigation work in both modes.
-**Approve reviewed version** writes the accepted text for the active file and
-returns to Edit. It refuses to overwrite an original changed on disk; concurrent
+**Approve reviewed version**, in the reading pane’s lower-right corner, asks
+for confirmation before replacing the active file and returning to Edit.
+JSON and HTML files always use Edit mode and hide the review toggle. It refuses to overwrite an original changed on disk; concurrent
 draft edits preserve unsent work for explicit comparison and merge.
 
 Agents use `looking-glass agent review` instead of writing the source file.

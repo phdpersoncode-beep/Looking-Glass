@@ -154,7 +154,11 @@ html[data-theme="dark"] { --review-human: #78d49a; --review-agent: #84b4ff; --re
 .review-agent, .review-agent * { color: var(--review-agent) !important; }
 .review-deletion, .review-deletion *, .review-event del { color: var(--review-deletion) !important; text-decoration: line-through; }
 .review-deletion { white-space: pre-wrap; cursor: text; user-select: text; }
-.review-approve { color: var(--review-human); border: 1px solid currentColor; }
+.reading-pane { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; }
+.review-approve { color: var(--review-human); border: 1px solid currentColor; background: var(--paper); font-size: 10px; }
+#approve-review { position: absolute; bottom: 12px; right: 18px; z-index: 3; display: flex; align-items: center; gap: 6px; padding: 6px 9px; }
+.reading-pane:has(#approve-review:not([hidden])) #surface { padding-bottom: 44px; }
+#review-approve-path { font: 12px var(--mono); overflow-wrap: anywhere; }
 #review-status { color: var(--muted); font-size: 11px; white-space: nowrap; }
 #review-history { font-size: 11px; padding: 2px 5px; }
 #review-events { max-height: 65vh; overflow: auto; }
