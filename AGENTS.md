@@ -1,59 +1,86 @@
 # Looking Glass
 
-## Purpose and goals
-A local prose/code editor and review tool for working with coding agents on ordinary files. Persistent, passage-anchored discussions are the priority: highlight text, exchange comments, and navigate editing passes. Keep a small architecture and a clean Notion-style experience with Obsidian-style live Markdown.
+## Purpose
 
-## Current capabilities
-- Temporary original-context visits with a return/Esc control, rendered Markdown, syntax-colored code, exact reading-position restoration and preserved editor/report state. Resolved passages retain faint underlines instead of active fills, including locally edited anchors.
-- Non-destructive review drafts: green human additions, blue agent additions, red struck-out removals, edit history, independent discussion anchors, autosave/conflict recovery, and explicit active-file approval. Agents use the review CLI; source files change only on approval.
-- CodeMirror editing: live/raw/preview Markdown with a pinned heading-contents bar in live mode, rendered passage/table annotations, explicit table source editing, local Mermaid diagrams, plain text, Python/Bash highlighting, undo/redo, save, search/replace, tabs, fuzzy file search, and Git change gutters.
-- Persistent source/HTML threads: compact Markdown messages, fuzzy sidebar search with ranked excerpts and scope hints, passage sidebar spotlight that preserves reading and list positions, replies, attachments/renaming, resolve/reopen, deletion, cross-file navigation, collapse controls, commit anchors/original-context tabs, and reattachment. Clipboard screenshots and files use compact comment composers. Loading feedback and file-size warnings. Resizable sidebars; zen mode uses Ctrl+Alt+Z, preserving Ctrl+Z undo.
-- Interactive sandboxed HTML reports with rendered-to-source annotations (runtime-only text keeps rendered anchors), split JSONL viewer with search, entry arrows, and retained detail scroll position, and ASCII/binary STL viewing with orbit/pan/zoom/fit and software fallback.
-- Directory switching, outside-file opening, a resizable/hideable explorer with truncated names and full-path hints, external-change detection, conflict comparison, selected-file Git checkpoints, a paged multi-branch commit graph with commit/branch discussions, and agent project discovery/search/context.
+A local editor and review tool for collaborating with separate AI coding agents on ordinary files: plans, prose, code, and generated reports. The core workflow is review → annotate a passage → agent reads and responds → revise → review again.
 
-## Constraints
-- Python 3.10+, Flask, HTMX, SQLite, CodeMirror 6, Tailwind, and Three.js. Build application assets locally; no CDN dependencies.
-- Disk files are authoritative in edit mode; review drafts stay separate until approval. Preserve ordinary Markdown/plain text. SQLite holds discussions/metadata in `<workspace>/.looking-glass/`; never commit its database or token.
-- Reload clean external changes; preserve dirty drafts and reject stale saves. Ambiguous/deleted live anchors need reattachment; immutable review context stays readable.
-- Saving never commits. Git checkpoints are explicit and preserve unrelated staged/unstaged work.
-- Loopback-only server; isolate report scripts from editor state/tokens. Agents run separately through the local interface; no built-in model calls or project-code execution.
-- Minimalist light/dark themes, neon-purple highlights, monospace code/JSON, and locally bundled Newsreader prose. Preserve Ctrl+A/F/H and selection-aware shortcuts.
+Persistent, passage-anchored discussions are the priority. Feedback, attachments, and original context must survive edits, restarts, and changes of agent session. Keep the application small, documented, and usable end to end.
 
-## Run and build
-From the repository root (uv and Git required; Node 20+ for frontend builds):
+## Product and data contracts
+
+- Edit mode works on ordinary disk files. Review mode keeps a persistent proposal separate until explicit human approval of the active file. Retain authorship/history: green human additions, blue agent additions, red struck-through removals.
+- Agents run separately through the local CLI (command-line interface) and API (application programming interface). Review edits use that interface rather than writing originals. Comments never automatically replace text; built-in model calls/orchestration remain outside current scope.
+- Preserve drafts, undo history, selections, and per-tab state through navigation/mode changes. Reload clean external changes; preserve dirty work, offer comparison, and reject stale saves/approvals.
+- Anchor conservatively. Deleted or ambiguous passages require reattachment; immutable reviewed context stays readable. Never silently attach feedback to unrelated text.
+- SQLite stores discussions, review drafts, and metadata in `<workspace>/.looking-glass/`. Preserve existing data across upgrades; never commit workspace databases, attachments, or tokens.
+- Saving and approval never commit. Git checkpoints are explicit, include only selected files, and preserve unrelated staged, unstaged, and untracked work.
+- Serve on loopback. Sandbox interactive HTML reports away from application state/tokens; sanitize discussion rendering. Never execute project code on the server. Bundle application dependencies locally, without a CDN (content delivery network).
+
+## Design and interaction
+
+- Minimal, elegant, quiet: Notion-style prose editing, Obsidian-style live Markdown, familiar tabs/file explorer, and anchored right-sidebar discussions. Support light/dark themes and a compact Edit/Review toggle.
+- Use bundled Newsreader prose and monospace code/JSON. Keep prose at a readable line width; allow wider tables with smaller readable text, compact cells, and horizontal scrolling.
+- Use consistent purple passage highlights across code, Markdown, tables, and HTML. Highlight text without filling margins. Resolved discussions leave a subtle indication rather than an active fill.
+- Keep reading stable: document-highlight clicks focus sidebar discussions without moving the passage. Explicit sidebar passage links, comment icons, and navigation may move the document. Returning from original context restores reading position and editor/report state.
+- Polling, autosave, and focus changes must not flicker, replace unchanged content, clear selections, reorder cards, lose replies, or steal focus. Routine status feedback stays quiet; errors/conflicts stay clear.
+- Sidebars resize and collapse to thin strips with restore controls in fixed positions. Preserve pane state. Support narrow windows and keyboard access; keep shortcuts discoverable. Ctrl+Z remains undo; Ctrl+Alt+Z is zen mode.
+- Keep annotation/editing consistent across source, live Markdown, preview, tables, and rendered HTML. Search respects file/resolved scopes. Navigation preserves unsent work. Thread-card clicks retain normal copying, links, and embedded controls.
+
+## Development practices
+
+- Read relevant code, docs, and recent PR (pull request) context first. Current user instructions supersede earlier decisions.
+- Prefer focused changes within Python/Flask, HTMX, SQLite, CodeMirror 6, Tailwind, and Three.js. Extract small modules where useful; justify dependencies or architectural changes.
+- Use feature/bugfix branches and PRs unless instructed otherwise. Commit logical steps and push regularly when authorized so long work is recoverable. Preserve unrelated work.
+- Rebuild and commit `looking_glass/static/` when frontend sources change. Use locked dependencies; preserve reproducible assets and complete Python distributions.
+- Update documentation with behavior/interface changes. Report the problem, resulting behavior, actual validation, and limitations, including browser/version differences or unresolved failures. Keep this file concise; detailed specifications, verification, benchmarks, and deferred work belong in `docs/`, without transient task/branch status here.
+
+## Testing and responsiveness
+
+- Protect the whole app and interactions between features. Add regressions for fixed bugs and meaningful coverage for new behavior; test observable outcomes rather than mirroring implementation.
+- Use fast Python/JavaScript tests for data, anchors, review, persistence, security, Git, and CLI contracts. Use real Chromium/Firefox journeys for selection, rendering, focus, scrolling, and editing. Inspect changed layouts in both themes and narrow panes.
+- Exercise relevant transitions/races: external changes, concurrent edits/replies, tab/mode switches, context return, resolve/reopen, and restart persistence. Include repeated passages, Unicode, tables, and representative large documents/dense discussions.
+- Keep fast checks separate from browser runs. Reuse browser processes with fresh contexts/disposable workspaces; shard the complete collection with its completeness guard. Improve speed without dropping coverage, weakening assertions, or masking failures with retries. Wait for observable readiness instead of arbitrary sleeps.
+- Run relevant checks while iterating and appropriate full regression gates before merging. Documentation-only changes need content/path checks; runtime changes also need applicable build, packaging, and browser checks. Unit tests alone do not establish UI correctness.
+- Measure server work, payload size, and browser rendering separately. Bound expensive reads/diffs, reuse shared anchor work, update only changed content, and keep unchanged polls cheap. Benchmark representative workloads without brittle timing assertions. A Rust port requires evidence of a remaining backend bottleneck.
+
+## Commands
+
+From the repository root: Python 3.10+, uv, Node 20+; Git for revision features.
+
 ```bash
-uv sync
-uv run looking-glass serve ./demo_dir  # http://127.0.0.1:8765
+uv sync --locked
 npm ci
-npm run build                        # rebuild committed static assets
-uv build                             # Python wheel/source distribution
+npm run build
+uv run looking-glass serve ./demo_dir  # http://127.0.0.1:8765
+
 npm test
 uv run pytest -m 'not browser' -q
-LOOKING_GLASS_BROWSER=installed uv run pytest -m browser -q  # playwright install chromium firefox first
-uv run python scripts/verify_browser_shards.py 4  # same complete suite split across CI jobs
+uv run playwright install chromium firefox
+LOOKING_GLASS_BROWSER=installed uv run pytest -m browser -q
+uv run python scripts/verify_browser_shards.py 4
+uv build
+git diff --check
 ```
+
+After committing intended asset changes, rebuilding must leave `git diff --exit-code -- looking_glass/static` clean. See `docs/TESTING.md` for coverage and CI (continuous integration) sharding.
 
 For a CLI available from any directory:
+
 ```bash
 uv tool install --editable /absolute/path/to/Looking-Glass
-looking-glass serve /absolute/path/to/project
-```
-
-With the server running, in another terminal:
-```bash
 looking-glass projects list
 looking-glass agent --root /absolute/path/to/project list --status open
 looking-glass agent --root /absolute/path/to/project read 1 --context-lines 10
-looking-glass agent --root /absolute/path/to/project reattach 1 --quote 'Exact replacement passage'
-looking-glass agent --root /absolute/path/to/project reply 1 --author Codex --body 'Reply'
 ```
-Use `uv run looking-glass` from this checkout if not installed globally. See `--help`, `agent instructions`, and `docs/AGENT_API.md` for remaining commands.
 
-## Repo map
-Keep this map and commands current when structure or workflows change.
-- `looking_glass/app.py`: routes/security; `workspace.py`: files, SQLite, threads; `anchors.py`: anchor mapping; `reviews.py`: drafts/provenance/approval; `revisions.py`: Git checkpoints/history; `origins.py`: immutable review context.
-- `looking_glass/cli.py`: server/agent commands; `projects.py`: project registry; `instructions.py`: agent guidance; `attachments.py`: thread-owned uploads.
-- `looking_glass/templates/`: HTML/HTMX; `frontend/app.js`, `frontend/style.css`, and small `.mjs` modules: client sources; `looking_glass/static/`: committed output of `build.mjs`.
-- `tests/`: backend/CLI/browser checks; `.github/workflows/`: automated checks; `scripts/benchmark_*.py`: disposable discussion/anchor/review benchmarks; `demo_dir/`: fixtures; `docs/`: API, architecture, performance, verification.
-- `docs/TESTING.md`: whole-app coverage map, isolated browser process reuse and complete CI sharding; `scripts/verify_browser_shards.py`: guards against omitted/duplicated cases.
-- `pyproject.toml`, `uv.lock`: Python packaging/dependencies; `package.json`, `package-lock.json`: frontend dependencies.
+With the server running, read thread/context before acting. Use `--body-file`/`--body-stdin` for safe multiline messages. See `agent instructions`, `--help`, `docs/AGENT_API.md`, and `docs/REVIEW_MODE.md` for replies, reattachment, and review edits.
+
+## Repository map
+
+Keep this map and commands current when structure/workflows change.
+
+- `looking_glass/app.py`: routes/security; `workspace.py`: files/discussions; `anchors.py`: mapping; `reviews.py`: drafts/provenance/approval; `origins.py`: immutable context; `revisions.py`: Git checkpoints/history.
+- `looking_glass/cli.py`, `projects.py`, `instructions.py`: agent interface/discovery/guidance; `attachments.py`: uploads.
+- `looking_glass/templates/`: HTML/HTMX; `frontend/`: client sources; `looking_glass/static/`: committed `build.mjs` output.
+- `tests/`: backend/CLI/JavaScript/browser checks; `.github/workflows/`: automated gates; `scripts/verify_browser_shards.py`: completeness; `scripts/benchmark_*`: disposable benchmarks.
+- `demo_dir/`: fixtures; `docs/`: architecture, interfaces, testing, performance, verification, limitations; `pyproject.toml`, `uv.lock`, `package.json`, `package-lock.json`: packaging/dependencies.
