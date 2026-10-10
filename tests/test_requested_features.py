@@ -7,23 +7,20 @@ from looking_glass.app import create_app
 pytestmark=[pytest.mark.browser, pytest.mark.skipif(not os.environ.get('LOOKING_GLASS_BROWSER'),reason='Set LOOKING_GLASS_BROWSER for browser checks')]
 
 @pytest.fixture
-def workspace_page(tmp_path, request):
-    from playwright.sync_api import sync_playwright
+def workspace_page(tmp_path, request, browser_pool):
     app=create_app(tmp_path)
     server=make_server('127.0.0.1',0,app,threaded=True)
-    worker=threading.Thread(target=server.serve_forever,daemon=True);worker.start()
+    worker=threading.Thread(target=lambda:server.serve_forever(poll_interval=0.02),daemon=True);worker.start()
+    context=None
     try:
-        with sync_playwright() as pw:
-            executable=os.environ['LOOKING_GLASS_BROWSER']
-            engine=getattr(request,'param','chromium')
-            browser=getattr(pw,engine).launch(executable_path=None if engine!='chromium' or executable=='installed' else executable,headless=not bool(os.environ.get('LOOKING_GLASS_HEADED')),args=['--no-sandbox'] if engine=='chromium' else [])
-            context=browser.new_context(viewport={'width':1440,'height':960})
-            page=context.new_page();errors=[]
-            page.on('pageerror',lambda e:errors.append(str(e)))
-            yield tmp_path,page,f'http://127.0.0.1:{server.server_port}',app.extensions['workspace']
-            assert not errors,errors
-            browser.close()
+        browser=browser_pool(getattr(request,'param','chromium'))
+        context=browser.new_context(viewport={'width':1440,'height':960})
+        page=context.new_page();errors=[]
+        page.on('pageerror',lambda e:errors.append(str(e)))
+        yield tmp_path,page,f'http://127.0.0.1:{server.server_port}',app.extensions['workspace']
+        assert not errors,errors
     finally:
+        if context is not None:context.close()
         server.shutdown();worker.join(timeout=5);server.server_close()
 
 def open_file(page,name):

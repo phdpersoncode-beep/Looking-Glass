@@ -478,3 +478,52 @@ Branch: `feature/context-return-and-resolved-passages`, integrated with main
   (`b771d606fdb36b8c673a6ff834728db3ec0baf0d`) byte for byte. GitHub reports
   the PR mergeable. Hosted CI status is available on the PR; the local browser
   fallback above remains distinct from the locked-dependency workflow.
+
+## Whole-app regression coverage and suite speed · 2026-10-10
+
+PR #11 is merged into main at `b8decb0404b58e0b120aa33a5e802807eeaf7118`.
+Follow-up branch: `test/whole-app-regressions`, targeting main after PR #11.
+The results below record the completed local verification; locked-dependency
+GitHub checks are required before merging this follow-up.
+
+- The full existing collection is retained. **7 backend** and **12 browser**
+  cases were added: Unicode/CRLF discussion origins and attachments across
+  review approval/restart; stale writes preserving draft/discussion state;
+  approval/checkpoints preserving other files and staged work; independent
+  tab drafts/undo; edited-comment search, context, resolution/reopening and
+  reload; browser context isolation; and pre-focus HTML reading position.
+  `TESTING.md` maps the entire application's existing and added coverage.
+- Final locked-dependency backend run: **108 passed** in **22.61 seconds**,
+  while browser jobs ran concurrently. An earlier run passed in 16.20 seconds.
+  **20 JavaScript tests** pass in **0.34 seconds**. No dependencies changed.
+- Full final local browser run: **387 passed**, no failures or skipped cases.
+  Four independent pytest shards ran concurrently in **382.35 seconds**
+  (6 minutes 22 seconds). Shard counts/times: 97/382.00 s, 97/292.53 s,
+  97/332.19 s and 96/309.98 s. Each shard includes Chromium and Firefox.
+  The collection guard confirms every case appears exactly once.
+- Process reuse retains fresh contexts, workspaces, servers and registries.
+  Per-test context cleanup also covers failed assertions. The legacy full
+  end-to-end journeys use the shared driver and retain their clipboard and
+  software-rendering launch settings. Shorter server idle polling reduces
+  teardown wait; production polling, assertions and timeouts are unchanged.
+- Same-machine sequential comparison of the **same nine existing cases**:
+  **39.70 seconds before**, **22.89 seconds after** (about **42% faster**).
+  Includes live Markdown/tables/contents, review lifecycle, fuzzy search and
+  numbered lists across both browsers. One run per version, same Python and
+  browser installations; this is diagnostic, not a whole-suite speed claim.
+- The original PR #11 locked CI run passed the fast job and **374/375 browser
+  cases** in 1271.98 seconds. Firefox reported a four-pixel movement in the
+  existing low HTML highlight check. The follow-up captures the reading point
+  at pointerdown, before native mouse focus can scroll, and clears the hold for
+  dragging, wheel and keyboard navigation. All **four** new focus-nudge cases
+  fail on PR #11's old assets and pass with the fix. The original 30 spotlight
+  cases pass locally, and all remain in the final full collection.
+- Browser verification uses the available **Playwright 1.55.0 / Chromium 140 /
+  Firefox 141** fallback. The locked Playwright 1.63.0 workflow has not run on
+  this follow-up yet. Firefox's container process sandbox setting does
+  not disable the application's report iframe isolation checks.
+- Asset rebuilds are reproducible; wheel/source distribution builds pass.
+  All **18** packaged static assets/templates match the checkout byte for byte.
+  `git diff --check` passes. The follow-up workflow runs all four browser shards
+  without canceling remaining shards after a failure or automatically retrying
+  failed assertions, and checks shard completeness in the fast job.

@@ -30,6 +30,7 @@ uv build                             # Python wheel/source distribution
 npm test
 uv run pytest -m 'not browser' -q
 LOOKING_GLASS_BROWSER=installed uv run pytest -m browser -q  # playwright install chromium firefox first
+uv run python scripts/verify_browser_shards.py 4  # same complete suite split across CI jobs
 ```
 
 For a CLI available from any directory:
@@ -54,4 +55,5 @@ Keep this map and commands current when structure or workflows change.
 - `looking_glass/cli.py`: server/agent commands; `projects.py`: project registry; `instructions.py`: agent guidance; `attachments.py`: thread-owned uploads.
 - `looking_glass/templates/`: HTML/HTMX; `frontend/app.js`, `frontend/style.css`, and small `.mjs` modules: client sources; `looking_glass/static/`: committed output of `build.mjs`.
 - `tests/`: backend/CLI/browser checks; `.github/workflows/`: automated checks; `scripts/benchmark_*.py`: disposable discussion/anchor/review benchmarks; `demo_dir/`: fixtures; `docs/`: API, architecture, performance, verification.
+- `docs/TESTING.md`: whole-app coverage map, isolated browser process reuse and complete CI sharding; `scripts/verify_browser_shards.py`: guards against omitted/duplicated cases.
 - `pyproject.toml`, `uv.lock`: Python packaging/dependencies; `package.json`, `package-lock.json`: frontend dependencies.

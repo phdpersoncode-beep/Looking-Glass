@@ -198,7 +198,7 @@ def test_agent_review_cli_uses_running_api_and_stale_revision_rejection(review,t
     original=ws.read('sample.py')
     disk_thread=ws.create_thread('sample.py',0,5,'Existing discussion','Altay',original['version'])
     app=create_app(ws.root);server=make_server('127.0.0.1',0,app,threaded=True)
-    worker=threading.Thread(target=server.serve_forever,daemon=True);worker.start()
+    worker=threading.Thread(target=server.serve_forever,kwargs={"poll_interval":0.02},daemon=True);worker.start()
     def cli(*arguments):
         result=subprocess.run([sys.executable,'-m','looking_glass.cli','agent','--root',str(ws.root),'--url',f'http://127.0.0.1:{server.server_port}',*arguments],capture_output=True,text=True)
         return result

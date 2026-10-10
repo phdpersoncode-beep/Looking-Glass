@@ -73,7 +73,7 @@ def test_discovery_inference_search_and_instructions(tmp_path, monkeypatch):
     url=f'http://127.0.0.1:{server.server_port}'
     app.config['LOCAL_SERVER_URL']=url
     register_project(root,url)
-    worker=threading.Thread(target=server.serve_forever,daemon=True);worker.start()
+    worker=threading.Thread(target=server.serve_forever,kwargs={"poll_interval":0.02},daemon=True);worker.start()
     monkeypatch.chdir(child)
 
     def run(*args, ok=True):
@@ -149,7 +149,7 @@ def test_markdown_body_file_and_stdin(tmp_path):
     from looking_glass.app import create_app
     (tmp_path/'notes.md').write_text('A passage.\n')
     app=create_app(tmp_path);server=make_server('127.0.0.1',0,app,threaded=True)
-    worker=threading.Thread(target=server.serve_forever,daemon=True);worker.start()
+    worker=threading.Thread(target=server.serve_forever,kwargs={"poll_interval":0.02},daemon=True);worker.start()
     command=[sys.executable,'-m','looking_glass.cli','agent','--root',str(tmp_path),'--url',f'http://127.0.0.1:{server.server_port}']
     markdown='Use `width`, "quotes", $(do_not_execute), and 🪞.\n\n```python\nwidth = 12\n```'
     body=tmp_path/'reply.md';body.write_text(markdown,encoding='utf-8')
@@ -183,7 +183,7 @@ def test_agent_reattach_repairs_failed_and_wrong_anchors(tmp_path):
     path = tmp_path / 'notes.md'; path.write_text(old, encoding='utf-8')
     app = create_app(tmp_path); ws = app.extensions['workspace']
     server = make_server('127.0.0.1', 0, app, threaded=True)
-    worker = threading.Thread(target=server.serve_forever, daemon=True); worker.start()
+    worker = threading.Thread(target=server.serve_forever,kwargs={"poll_interval":0.02}, daemon=True); worker.start()
     command = [sys.executable, '-m', 'looking_glass.cli', 'agent', '--root', str(tmp_path),
                '--url', f'http://127.0.0.1:{server.server_port}']
     def run(*args, ok=True):
@@ -245,7 +245,7 @@ def test_agent_reattach_rejects_a_file_change_between_read_and_patch(tmp_path, m
     source = ws.read('notes.md')
     thread = ws.create_thread('notes.md', 0, 21, 'Review', 'Agent', source['version'])
     server = make_server('127.0.0.1', 0, app, threaded=True)
-    worker = threading.Thread(target=server.serve_forever, daemon=True); worker.start()
+    worker = threading.Thread(target=server.serve_forever,kwargs={"poll_interval":0.02}, daemon=True); worker.start()
     original = cli.api
     def racing_api(root, url, route, *args, **kwargs):
         result = original(root, url, route, *args, **kwargs)

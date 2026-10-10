@@ -1,3 +1,21 @@
+# Whole-app integration and regression coverage
+
+Branch: `test/whole-app-regressions`.
+
+- [x] Merge PR #11 into main (`b8decb0`) and verify the merged PR identity.
+- [x] Audit the entire app's desired behavior and document the coverage map in `docs/TESTING.md`.
+- [x] Add seven backend and twelve browser cases spanning editing/review, per-file approval, drafts/undo, discussion editing/search/resolution, immutable origins, attachments, persistence, conflicts and Git staging.
+- [x] Preserve every existing test; reuse browser processes with fresh contexts and shorten disposable test-server shutdown polling.
+- [x] Split the complete Chromium/Firefox suite into four CI shards, with an automated completeness/no-duplicates guard.
+- [x] Reproduce and fix native mouse focus moving HTML reading positions; verify four cases fail before and pass after.
+- [x] Pass 108 backend, 20 JavaScript and 387 browser cases; verify reproducible builds and exact packaged assets.
+- [x] Measure the same nine browser cases: 39.70 s before, 22.89 s after. Full four-shard local run: 382.35 s.
+- [ ] Publish the follow-up, pass locked-dependency GitHub checks and merge it into main. PR #11 itself is already merged.
+
+See `docs/VERIFICATION.md` for results and local browser versions.
+
+---
+
 # Context return and resolved passage presentation
 
 Branch: `feature/context-return-and-resolved-passages` (integrated with main after PR #10).

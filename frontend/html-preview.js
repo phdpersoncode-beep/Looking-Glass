@@ -3,16 +3,24 @@ import {htmlTextMap} from './html-text-map.mjs';
 const send = (type, data={}) => parent.postMessage({lookingGlass:config.channel,type,...data},config.parentOrigin);
 let threads=[], active=null, ranges=new Map(), selected=null,reviewChanges=[],reviewSignature='';
 let readingPosition=null;
+let readingGesture=null;
 let suspendedPosition=null;
-function retainReadingPosition(event){
+function captureReadingPosition(event){
   const caret=document.caretPositionFromPoint?.(event.clientX,event.clientY),point=!caret&&document.caretRangeFromPoint?.(event.clientX,event.clientY);
   const node=caret?.offsetNode||point?.startContainer,offset=caret?.offset??point?.startOffset;
   if(node?.nodeType!==Node.TEXT_NODE||!node.length)return;
   const range=document.createRange(),at=Math.min(offset,node.length-1);range.setStart(node,at);range.setEnd(node,at+1);
-  const position=readingPosition={range,top:range.getBoundingClientRect().top,x:window.scrollX};let remaining=3;
+  return {range,top:range.getBoundingClientRect().top,x:window.scrollX};
+}
+function retainReadingPosition(event){
+  // Native mouse focus may already have scrolled by the time click fires.
+  const position=readingPosition=readingGesture?.position||captureReadingPosition(event);
+  readingGesture=null;
+  if(!position)return;
+  const {range}=position;let remaining=3;
   const restore=()=>{
     if(readingPosition!==position)return;
-    if(!node.isConnected){readingPosition=null;return;}
+    if(!range.startContainer.isConnected){readingPosition=null;return;}
     window.scrollTo(position.x,window.scrollY+range.getBoundingClientRect().top-position.top);
     if(--remaining)requestAnimationFrame(restore);else readingPosition=null;
   };
@@ -185,7 +193,7 @@ window.addEventListener('message',event=>{
     threads=message.threads;active=message.active;paint();
   }
   if(message.type==='jump'){
-    readingPosition=null;
+    readingPosition=null;readingGesture=null;
     active=message.id;paint();const range=ranges.get(active)?.[0];if(!range){send('unmapped',{id:active});return;}
     const element=range.startContainer.parentElement;element?.scrollIntoView({block:'center',behavior:'smooth'});
   }
@@ -193,20 +201,30 @@ window.addEventListener('message',event=>{
 document.addEventListener('selectionchange',()=>capture());
 document.addEventListener('pointerup',()=>setTimeout(capture,0));
 document.addEventListener('keydown',event=>{
-  readingPosition=null;
+  readingPosition=null;readingGesture=null;
   if(event.key==='Escape')send('exit-spotlight');
   if((event.ctrlKey||event.metaKey)&&event.altKey&&!event.shiftKey&&event.key.toLowerCase()==='z'){event.preventDefault();event.stopPropagation();send('zen');return;}
   if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='p'){event.preventDefault();event.stopPropagation();send('quick-open');}
 },true);
 document.addEventListener('keydown',event=>{if((event.ctrlKey||event.metaKey)&&event.key==='Enter'&&!['INPUT','TEXTAREA','SELECT'].includes(event.target.tagName)){capture();if(selected){event.preventDefault();send('comment');}}});
-document.addEventListener('pointerdown',()=>{readingPosition=null;},true);
-document.addEventListener('wheel',()=>{readingPosition=null;},{capture:true,passive:true});
-document.addEventListener('touchmove',()=>{readingPosition=null;},{capture:true,passive:true});
+document.addEventListener('pointerdown',event=>{
+  readingPosition=null;readingGesture=null;
+  if(event.button===0&&!event.target.closest('a,button,input,textarea,select')){
+    readingGesture={position:captureReadingPosition(event),x:event.clientX,y:event.clientY};
+  }
+},true);
+document.addEventListener('pointermove',event=>{
+  if(readingGesture&&Math.hypot(event.clientX-readingGesture.x,event.clientY-readingGesture.y)>5)readingGesture=null;
+});
+document.addEventListener('pointercancel',()=>{readingPosition=null;readingGesture=null;});
+document.addEventListener('wheel',()=>{readingPosition=null;readingGesture=null;},{capture:true,passive:true});
+document.addEventListener('touchmove',()=>{readingPosition=null;readingGesture=null;},{capture:true,passive:true});
 document.addEventListener('click',event=>{
-  if(!getSelection()?.isCollapsed||event.target.closest('a,button,input,textarea,select'))return;
+  if(!getSelection()?.isCollapsed||event.target.closest('a,button,input,textarea,select')){readingGesture=null;return;}
   const ids=[];
   for(const [id,matches] of ranges){if(threads.find(t=>t.id===id)?.resolved)continue;if(matches.some(range=>[...range.getClientRects()].some(rect=>event.clientX>=rect.left&&event.clientX<=rect.right&&event.clientY>=rect.top&&event.clientY<=rect.bottom)))ids.push(id);}
   if(ids.length){retainReadingPosition(event);send('thread',{id:ids[0],ids});}
+  else readingGesture=null;
 });
 let mutationTimer=0;
 new MutationObserver(()=>{clearTimeout(mutationTimer);mutationTimer=setTimeout(()=>{paint();capture();},150);}).observe(document.body,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['class','style','hidden']});
