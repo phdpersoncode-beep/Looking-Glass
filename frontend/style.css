@@ -2,6 +2,9 @@
 @import "./newsreader.css";
 @source "../looking_glass/templates";
 @source "./app.js";
+.passage-highlight.resolved-passage{background:transparent;border-bottom-color:color-mix(in srgb,var(--muted) 28%,transparent)}
+.original-banner #context-return{float:right;border:0;color:var(--muted);font-size:10px}
+.original-reading{flex:1;min-height:0;overflow:auto}
 .stl-view svg{display:block;touch-action:none}
 .stl-status{position:absolute;inset:70px 24px auto;padding:16px;border:1px solid var(--border);border-radius:7px;background:var(--paper);color:var(--text);font-size:13px;overflow-wrap:anywhere}
 #selection-tools{position:fixed;z-index:45;display:flex;gap:2px;padding:3px;background:var(--paper);border:1px solid var(--border);border-radius:7px;box-shadow:0 4px 18px #0002;user-select:none}

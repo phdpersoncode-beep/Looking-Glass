@@ -3,6 +3,7 @@ import {htmlTextMap} from './html-text-map.mjs';
 const send = (type, data={}) => parent.postMessage({lookingGlass:config.channel,type,...data},config.parentOrigin);
 let threads=[], active=null, ranges=new Map(), selected=null,reviewChanges=[],reviewSignature='';
 let readingPosition=null;
+let suspendedPosition=null;
 function retainReadingPosition(event){
   const caret=document.caretPositionFromPoint?.(event.clientX,event.clientY),point=!caret&&document.caretRangeFromPoint?.(event.clientX,event.clientY);
   const node=caret?.offsetNode||point?.startContainer,offset=caret?.offset??point?.startOffset;
@@ -108,7 +109,7 @@ function locate(map,anchor){
   const from=supported.length===1?supported[0]:candidates.length===1?candidates[0]:null;
   return from===null?null:rangeFor(map,from,from+anchor.quote.length);
 }
-const style=document.createElement('style');style.textContent='::selection{background:#b84dff45;color:inherit}::highlight(looking-glass-passages){background:#a84dff30;text-decoration:underline #9935ee}::highlight(looking-glass-active){background:#a84dff60}::highlight(looking-glass-review-human){color:#18733b}::highlight(looking-glass-review-agent){color:#235fca}.looking-glass-review-deletion{color:#bf303c!important;text-decoration:line-through!important;white-space:pre-wrap;font-family:monospace;}';document.head.append(style);
+const style=document.createElement('style');style.textContent='::selection{background:#b84dff45;color:inherit}::highlight(looking-glass-resolved){background:transparent;text-decoration:underline #8885}::highlight(looking-glass-passages){background:#a84dff30;text-decoration:underline #9935ee}::highlight(looking-glass-active){background:#a84dff60}::highlight(looking-glass-review-human){color:#18733b}::highlight(looking-glass-review-agent){color:#235fca}.looking-glass-review-deletion{color:#bf303c!important;text-decoration:line-through!important;white-space:pre-wrap;font-family:monospace;}';document.head.append(style);
 function clearReviewDeletions(){
   for(const {ghost,node,tail,binding,left,right} of reviewDeletions.reverse()){
     ghost.remove();
@@ -155,18 +156,34 @@ function paint(){
   paintReviewDeletions();
   const map=textMap(),statuses=[];ranges=new Map();
   for(const thread of threads){const matches=thread.source?sourceRanges(map,thread.source.from,thread.source.to):[locate(map,thread.render_anchor)].filter(Boolean);if(matches.length)ranges.set(thread.id,matches);if(!thread.source)statuses.push({id:thread.id,attached:!!matches.length});}
-  if(window.CSS?.highlights){CSS.highlights.set('looking-glass-passages',new Highlight(...threads.filter(t=>!t.resolved).flatMap(t=>ranges.get(t.id)||[])));CSS.highlights.set('looking-glass-active',new Highlight(...(ranges.get(active)||[])));}
+  if(window.CSS?.highlights){const resolved=new Highlight(...threads.filter(t=>t.resolved).flatMap(t=>ranges.get(t.id)||[])),open=new Highlight(...threads.filter(t=>!t.resolved).flatMap(t=>ranges.get(t.id)||[]));resolved.priority=-1;CSS.highlights.set('looking-glass-resolved',resolved);CSS.highlights.set('looking-glass-passages',open);CSS.highlights.set('looking-glass-active',new Highlight(...(threads.find(t=>t.id===active&&!t.resolved)?ranges.get(active)||[]:[])));}
   if(window.CSS?.highlights){for(const role of ['human','agent'])CSS.highlights.set('looking-glass-review-'+role,new Highlight(...reviewChanges.filter(s=>s.kind==='insert'&&s.role===role).flatMap(s=>sourceRanges(map,s.from,s.to))));}
   send('anchors',{statuses});
+}
+function rangesOverlap(selected,passage){
+  const overlap=selected.cloneRange();
+  if(overlap.compareBoundaryPoints(Range.START_TO_START,passage)<0)overlap.setStart(passage.startContainer,passage.startOffset);
+  if(overlap.compareBoundaryPoints(Range.END_TO_END,passage)>0)overlap.setEnd(passage.endContainer,passage.endOffset);
+  return !overlap.collapsed;
 }
 window.addEventListener('message',event=>{
   if(event.source!==parent||event.origin!==config.parentOrigin||event.data?.lookingGlass!==config.channel)return;
   const message=event.data;
+  if(message.type==='suspend'){suspendedPosition={x:window.scrollX,y:window.scrollY};send('suspended',{requestId:message.requestId});}
+  if(message.type==='resume'&&suspendedPosition){
+    const position=suspendedPosition;let remaining=3;
+    const restore=()=>{if(suspendedPosition!==position)return;window.scrollTo(position.x,position.y);if(--remaining)requestAnimationFrame(restore);else{suspendedPosition=null;capture();}};
+    requestAnimationFrame(restore);
+  }
   if(message.type==='clear-selection'||message.type==='jump'){getSelection()?.removeAllRanges();capture();}
   if(message.type==='capture')capture(message.requestId);
   if(message.type==='initialize'){bindSource(message.mapping);paint();capture();}
   if(message.type==='review'){reviewChanges=message.changes||[];paint();}
-  if(message.type==='threads'){threads=message.threads;active=message.active;paint();}
+  if(message.type==='threads'){
+    const selection=getSelection(),newlyResolved=message.threads.filter(t=>t.resolved&&threads.some(old=>old.id===t.id&&!old.resolved));
+    if(selection?.rangeCount&&newlyResolved.some(t=>(ranges.get(t.id)||[]).some(range=>rangesOverlap(selection.getRangeAt(0),range)))){selection.removeAllRanges();capture();}
+    threads=message.threads;active=message.active;paint();
+  }
   if(message.type==='jump'){
     readingPosition=null;
     active=message.id;paint();const range=ranges.get(active)?.[0];if(!range){send('unmapped',{id:active});return;}
