@@ -30,6 +30,9 @@ def start(page, url, path, work):
     if work == 'review':
         page.locator('#work-mode').click()
         expect(page.locator('#review-status')).to_have_text('Review saved')
+        # The saved label appears when the reader mounts; the switch is enabled
+        # only after its asynchronous discussion refresh has also completed.
+        expect(page.locator('#work-mode')).to_be_enabled()
 
 
 @pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
@@ -361,8 +364,20 @@ def test_resolving_selected_markdown_clears_selection_fill(workspace_page, work,
         page.locator('.cm-content').click()
         page.keyboard.press('Control+Home')
         page.keyboard.press('Shift+End')
+    elif mode == 'preview':
+        passage = page.locator('.markdown-preview>p .passage-highlight')
+        expect(passage).to_have_text(quote)
+        page.wait_for_function("document.fonts.status==='loaded'")
+        # Exercise a browser selection with actual focus and mouse release,
+        # after the new reader's mapped passage is ready. A synthetic Range
+        # immediately after the mode switch races the native focus transition.
+        passage.scroll_into_view_if_needed()
+        box = passage.bounding_box(); y = box['y'] + box['height'] / 2
+        page.mouse.move(box['x'] + .5, y); page.mouse.down()
+        page.mouse.move(box['x'] + box['width'] - .5, y, steps=8); page.mouse.up()
+        assert page.evaluate('getSelection().toString()') == quote
     else:
-        select_text(page, '.md-table .passage-highlight' if mode == 'table' else '.markdown-preview>p')
+        select_text(page, '.md-table .passage-highlight')
     expect(page.locator('#selection-comment')).to_be_visible()
     ws.update_thread(thread['id'], resolved=True)
     expect(page.locator('.resolved-passage')).to_have_text(quote, timeout=10000)
