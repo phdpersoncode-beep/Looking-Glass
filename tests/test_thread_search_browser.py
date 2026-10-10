@@ -171,7 +171,7 @@ def test_search_review_drafts_filters_navigation_and_approval(workspace_page):
     otherfile=ws.read('other.txt');otherdraft=ws.reviews.start('other.txt',otherfile['version'])
     outside=ws.reviews.create_thread(otherdraft['id'],otherdraft['version'],0,7,'Verifier feedback','Agent')
     ws.update_thread(outside['id'],resolved=True)
-    page.goto(url);open_file(page,'note.txt');page.locator('#work-mode').select_option('review')
+    page.goto(url);open_file(page,'note.txt');page.locator('#work-mode').click()
     expect(page.locator('.review-agent')).to_have_text('Draftvalue')
     search=page.locator('#thread-search');search.fill('verifer')
     expect(page.locator('#thread-search-status')).to_contain_text('1 match')
@@ -185,12 +185,12 @@ def test_search_review_drafts_filters_navigation_and_approval(workspace_page):
     page.locator('#show-resolved').check();expect(page.locator('#thread-search-status')).to_contain_text('2 matches')
     page.locator(f'.thread[data-thread="{outside["id"]}"] .thread-search-match').click()
     expect(page.locator('#document-name')).to_have_text('other.txt')
-    expect(page.locator('#work-mode')).to_have_value('review')
+    expect(page.locator('#work-mode')).to_have_attribute('aria-checked','true')
     expect(page.locator('.thread.active')).to_have_attribute('data-thread',str(outside['id']))
     page.wait_for_function("getSelection().toString()==='Outside'")
     page.keyboard.press('Escape');open_file(page,'note.txt')
     assert (root/'note.txt').read_text()==original
-    page.locator('#approve-review').click();expect(page.locator('#work-mode')).to_have_value('edit')
+    page.locator('#approve-review').click();expect(page.locator('#work-mode')).to_have_attribute('aria-checked','false')
     expect(page.locator('#thread-search-status')).to_contain_text('1 match')
     assert visible_ids(page)==[local['id']]
     assert (root/'note.txt').read_text()==draft['content']
@@ -213,7 +213,7 @@ def test_review_search_hints_use_draft_passages_and_clear_on_mode_switch(workspa
     search.fill('uniquereview');expect(page.locator('#thread-search-empty')).to_be_visible()
     # Wait for the index response rather than relying on a fixed delay.
     with page.expect_response('**/api/thread-search-index?review=*'):
-        page.locator('#work-mode').select_option('review')
+        page.locator('#work-mode').click()
     expect(hints).to_contain_text('1 match in other files')
     hints.get_by_role('button',name='1 match in other files',exact=True).click()
     expect(page.locator('#thread-search-status')).to_contain_text('1 match')
@@ -222,8 +222,8 @@ def test_review_search_hints_use_draft_passages_and_clear_on_mode_switch(workspa
     page.locator('#thread-scope').uncheck();search.fill('closedreview')
     expect(hints).to_contain_text('1 match in resolved threads in other files')
     with page.expect_response('**/api/thread-search-index'):
-        page.locator('#work-mode').select_option('edit')
-    expect(page.locator('#work-mode')).to_have_value('edit')
+        page.locator('#work-mode').click()
+    expect(page.locator('#work-mode')).to_have_attribute('aria-checked','false')
     expect(page.locator('#thread-search-empty')).to_be_visible();expect(hints.locator('button')).to_have_count(0)
     page.locator('#thread-scope').check();page.locator('#show-resolved').check()
     expect(page.locator('#thread-search-empty')).to_be_visible();assert visible_ids(page)==[]

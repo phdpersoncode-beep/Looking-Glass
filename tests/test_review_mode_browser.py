@@ -19,7 +19,7 @@ def test_review_source_lifecycle_and_agent_changes(workspace_page):
     original='first = 1\r\nsecond = "🧠"\r\n'
     (root/'sample.py').write_bytes(original.encode())
     page.goto(url);open_file(page,'sample.py')
-    page.locator('#work-mode').select_option('review')
+    page.locator('#work-mode').click()
     expect(page.locator('#approve-review')).to_be_visible()
     page.locator('.cm-content').click();page.keyboard.press('Control+Home');page.keyboard.press('End')
     page.keyboard.press('Shift+ArrowLeft');page.keyboard.insert_text('9')
@@ -30,21 +30,21 @@ def test_review_source_lifecycle_and_agent_changes(workspace_page):
     draft=ws.reviews.read(ws.reviews.list()[0]['id'])
     draft=ws.reviews.update(draft['id'],draft['version'],[dict(start=len(draft['content']),end=len(draft['content']),insert='third = 3\r\n')],'Codex','agent')
     expect(page.locator('.review-agent')).to_have_text('third = 3')
-    page.locator('#work-mode').select_option('edit')
+    page.locator('#work-mode').click()
     expect(page.locator('.review-deletion')).to_have_count(0)
     expect(page.locator('.cm-content')).to_contain_text('first = 1')
     assert 'third' not in page.locator('.cm-content').inner_text()
-    page.locator('#work-mode').select_option('review')
+    page.locator('#work-mode').click()
     expect(page.locator('.review-agent')).to_have_text('third = 3')
     page.reload()
-    expect(page.locator('#work-mode')).to_have_value('review')
+    expect(page.locator('#work-mode')).to_have_attribute('aria-checked','true')
     expect(page.locator('.review-human')).to_have_text('9')
     expect(page.locator('.review-agent')).to_have_text('third = 3')
     page.locator('#review-history').click()
     expect(page.locator('#review-events')).to_contain_text('Codex')
     page.locator('#review-history-dialog [data-close]').click()
     page.locator('#approve-review').click()
-    expect(page.locator('#work-mode')).to_have_value('edit')
+    expect(page.locator('#work-mode')).to_have_attribute('aria-checked','false')
     expect(page.locator('.cm-content .review-agent')).to_have_count(0)
     assert (root/'sample.py').read_bytes()==draft['content'].encode()
     assert ws.reviews.list()==[]
@@ -57,7 +57,7 @@ def test_review_markdown_tables_and_draft_comments(workspace_page,mode):
     root,page,url,ws=workspace_page
     text='# Report\n\n**old** passage.\n\n| Label | Value |\n| --- | --- |\n| width | 12 |\n\n```python\nx = 1\n```\n'
     (root/'report.md').write_text(text)
-    page.goto(url);open_file(page,'report.md');page.locator('#work-mode').select_option('review')
+    page.goto(url);open_file(page,'report.md');page.locator('#work-mode').click()
     expect(page.locator('#approve-review')).to_be_visible()
     draft=ws.reviews.read(ws.reviews.list()[0]['id'])
     operations=[dict(start=text.index('12'),end=text.index('12')+2,insert='24'),dict(start=text.index('old'),end=text.index('old')+3,insert='new')]
@@ -74,11 +74,11 @@ def test_review_markdown_tables_and_draft_comments(workspace_page,mode):
     assert ws.threads('report.md')==[]
     assert ws.threads('report.md',review=draft['id'])[0]['quote']=='24'
     assert (root/'report.md').read_text()==text
-    page.locator('#work-mode').select_option('edit')
+    page.locator('#work-mode').click()
     expect(page.locator('.thread')).to_have_count(0)
-    page.locator('#work-mode').select_option('review')
+    page.locator('#work-mode').click()
     expect(page.locator('.thread')).to_have_count(1)
-    page.locator('#approve-review').click();expect(page.locator('#work-mode')).to_have_value('edit')
+    page.locator('#approve-review').click();expect(page.locator('#work-mode')).to_have_attribute('aria-checked','false')
     expect(page.locator('.thread')).to_have_count(1)
     assert ws.threads('report.md')[0]['quote']=='24'
 
@@ -88,7 +88,7 @@ def test_removed_passage_comments_editing_and_undo(workspace_page):
     from playwright.sync_api import expect
     root,page,url,ws=workspace_page
     (root/'note.txt').write_text('Original passage.\n')
-    page.goto(url);open_file(page,'note.txt');page.locator('#work-mode').select_option('review')
+    page.goto(url);open_file(page,'note.txt');page.locator('#work-mode').click()
     expect(page.locator('#approve-review')).to_be_visible()
     page.locator('.cm-content').click();page.keyboard.press('Control+Home');page.keyboard.press('Control+Shift+ArrowRight');page.keyboard.press('Backspace')
     wait_saved(page)
@@ -116,7 +116,7 @@ def test_concurrent_review_drafts_have_explicit_recovery(workspace_page):
     from playwright.sync_api import expect
     root,page,url,ws=workspace_page
     text='first = 1\nsecond = 2\n';(root/'sample.py').write_text(text)
-    page.goto(url);open_file(page,'sample.py');page.locator('#work-mode').select_option('review')
+    page.goto(url);open_file(page,'sample.py');page.locator('#work-mode').click()
     expect(page.locator('#approve-review')).to_be_visible()
     draft=ws.reviews.read(ws.reviews.list()[0]['id'])
     # Freeze autosave delivery, then let the agent win the revision race.
@@ -144,17 +144,17 @@ def test_approval_refuses_external_original_change(workspace_page):
     from playwright.sync_api import expect
     root,page,url,ws=workspace_page
     (root/'note.txt').write_text('Original')
-    page.goto(url);open_file(page,'note.txt');page.locator('#work-mode').select_option('review')
+    page.goto(url);open_file(page,'note.txt');page.locator('#work-mode').click()
     expect(page.locator('#approve-review')).to_be_visible()
     page.locator('.cm-content').click();page.keyboard.press('Control+End');page.keyboard.insert_text(' proposed');wait_saved(page)
     (root/'note.txt').write_text('External version')
     page.locator('#approve-review').click()
     expect(page.locator('#notice')).to_contain_text('changed on disk')
     assert (root/'note.txt').read_text()=='External version'
-    expect(page.locator('#work-mode')).to_have_value('review')
-    page.locator('#work-mode').select_option('edit')
+    expect(page.locator('#work-mode')).to_have_attribute('aria-checked','true')
+    page.locator('#work-mode').click()
     expect(page.locator('.cm-content')).to_have_text('External version')
-    page.locator('#work-mode').select_option('review')
+    page.locator('#work-mode').click()
     expect(page.locator('.cm-content')).to_contain_text('proposed')
 
 
@@ -164,7 +164,7 @@ def test_review_html_rendering_source_and_runtime_comments(workspace_page):
     root,page,url,ws=workspace_page
     text='<h1>Report</h1><p>Old value</p><div id="runtime"></div><script>document.getElementById("runtime").textContent="Runtime passage"</script>'
     (root/'report.html').write_text(text)
-    page.goto(url);open_file(page,'report.html');page.locator('#work-mode').select_option('review')
+    page.goto(url);open_file(page,'report.html');page.locator('#work-mode').click()
     expect(page.locator('#approve-review')).to_be_visible()
     draft=ws.reviews.read(ws.reviews.list()[0]['id'])
     draft=ws.reviews.update(draft['id'],draft['version'],[dict(start=text.index('Old'),end=text.index('Old')+3,insert='New')],'Codex','agent')
@@ -188,7 +188,7 @@ def test_review_html_deletions_keep_character_order_and_source_anchors(workspace
     root,page,url,ws=workspace_page
     text='<p>Old value &amp; final tail</p>'
     (root/'report.html').write_text(text)
-    page.goto(url);open_file(page,'report.html');page.locator('#work-mode').select_option('review')
+    page.goto(url);open_file(page,'report.html');page.locator('#work-mode').click()
     expect(page.locator('#approve-review')).to_be_visible()
     draft=ws.reviews.read(ws.reviews.list()[0]['id'])
     start=text.index(removed)
@@ -221,7 +221,7 @@ def test_review_html_multiple_deletions_preserve_mapped_selection(workspace_page
     root,page,url,ws=workspace_page
     text='<p>🧠 One first two second three</p>'
     (root/'report.html').write_text(text)
-    page.goto(url);open_file(page,'report.html');page.locator('#work-mode').select_option('review')
+    page.goto(url);open_file(page,'report.html');page.locator('#work-mode').click()
     expect(page.locator('#approve-review')).to_be_visible()
     draft=ws.reviews.read(ws.reviews.list()[0]['id'])
     operations=[dict(start=text.index(quote),end=text.index(quote)+len(quote),insert='')
