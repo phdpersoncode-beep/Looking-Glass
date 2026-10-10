@@ -21,10 +21,18 @@ def thread_for(ws, path, text, quote, work):
 def start(page, url, path, work):
     from playwright.sync_api import expect
     page.goto(url)
+    if work == 'review_preference':
+        page.evaluate("localStorage.setItem('looking-glass-review-mode:'+document.querySelector('.root-label').textContent,'true')")
+        page.reload()
     open_file(page, path)
+    if work == 'review_preference':
+        expect(page.locator('#work-mode')).to_be_hidden()
     if work == 'review':
         page.locator('#work-mode').click()
         expect(page.locator('#review-status')).to_have_text('Review saved')
+        # The saved label appears when the reader mounts; the switch is enabled
+        # only after its asynchronous discussion refresh has also completed.
+        expect(page.locator('#work-mode')).to_be_enabled()
 
 
 @pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
@@ -205,7 +213,7 @@ def test_already_resolved_context_closes_after_reopen_and_resolve(workspace_page
 
 
 @pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
-@pytest.mark.parametrize('work', ['edit', 'review'])
+@pytest.mark.parametrize('work', ['edit', 'review_preference'])
 @pytest.mark.parametrize('exit', ['return', 'resolve', 'external_delete'])
 def test_html_context_preserves_iframe_state_and_scroll(workspace_page, work, exit):
     from playwright.sync_api import expect
@@ -234,7 +242,7 @@ def test_html_context_preserves_iframe_state_and_scroll(workspace_page, work, ex
 
 
 @pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
-@pytest.mark.parametrize('work', ['edit', 'review'])
+@pytest.mark.parametrize('work', ['edit', 'review_preference'])
 @pytest.mark.parametrize('dirty', [False, True])
 def test_resolved_html_clears_active_fill_and_selection(workspace_page, work, dirty):
     from playwright.sync_api import expect
@@ -356,8 +364,20 @@ def test_resolving_selected_markdown_clears_selection_fill(workspace_page, work,
         page.locator('.cm-content').click()
         page.keyboard.press('Control+Home')
         page.keyboard.press('Shift+End')
+    elif mode == 'preview':
+        passage = page.locator('.markdown-preview>p .passage-highlight')
+        expect(passage).to_have_text(quote)
+        page.wait_for_function("document.fonts.status==='loaded'")
+        # Exercise a browser selection with actual focus and mouse release,
+        # after the new reader's mapped passage is ready. A synthetic Range
+        # immediately after the mode switch races the native focus transition.
+        passage.scroll_into_view_if_needed()
+        box = passage.bounding_box(); y = box['y'] + box['height'] / 2
+        page.mouse.move(box['x'] + .5, y); page.mouse.down()
+        page.mouse.move(box['x'] + box['width'] - .5, y, steps=8); page.mouse.up()
+        assert page.evaluate('getSelection().toString()') == quote
     else:
-        select_text(page, '.md-table .passage-highlight' if mode == 'table' else '.markdown-preview>p')
+        select_text(page, '.md-table .passage-highlight')
     expect(page.locator('#selection-comment')).to_be_visible()
     ws.update_thread(thread['id'], resolved=True)
     expect(page.locator('.resolved-passage')).to_have_text(quote, timeout=10000)
@@ -366,7 +386,7 @@ def test_resolving_selected_markdown_clears_selection_fill(workspace_page, work,
 
 
 @pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
-@pytest.mark.parametrize('work', ['edit', 'review'])
+@pytest.mark.parametrize('work', ['edit', 'review_preference'])
 def test_html_resolution_preserves_unrelated_selection_in_same_node(workspace_page, work):
     from playwright.sync_api import expect
     root, page, url, ws = workspace_page

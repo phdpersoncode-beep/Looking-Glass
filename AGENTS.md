@@ -8,7 +8,7 @@ Persistent, passage-anchored discussions are the priority. Feedback, attachments
 
 ## Product and data contracts
 
-- Edit mode works on ordinary disk files. Review mode keeps a persistent proposal separate until explicit human approval of the active file. Retain authorship/history: green human additions, blue agent additions, red struck-through removals.
+- Edit mode works on ordinary disk files. Review mode keeps a persistent proposal separate until confirmed human approval of the active file; JSON and HTML stay in Edit mode. Retain authorship/history: green human additions, blue agent additions, red struck-through removals.
 - Agents run separately through the local CLI (command-line interface) and API (application programming interface). Review edits use that interface rather than writing originals. Comments never automatically replace text; built-in model calls/orchestration remain outside current scope.
 - Preserve drafts, undo history, selections, and per-tab state through navigation/mode changes. Reload clean external changes; preserve dirty work, offer comparison, and reject stale saves/approvals.
 - Anchor conservatively. Deleted or ambiguous passages require reattachment; immutable reviewed context stays readable. Never silently attach feedback to unrelated text.
@@ -21,7 +21,7 @@ Persistent, passage-anchored discussions are the priority. Feedback, attachments
 - Minimal, elegant, quiet: Notion-style prose editing, Obsidian-style live Markdown, familiar tabs/file explorer, and anchored right-sidebar discussions. Support light/dark themes and a compact Edit/Review toggle.
 - Use bundled Newsreader prose and monospace code/JSON. Keep prose at a readable line width; allow wider tables with smaller readable text, compact cells, and horizontal scrolling.
 - Use consistent purple passage highlights across code, Markdown, tables, and HTML. Highlight text without filling margins. Resolved discussions leave a subtle indication rather than an active fill.
-- Keep reading stable: document-highlight clicks focus sidebar discussions without moving the passage. Explicit sidebar passage links, comment icons, and navigation may move the document. Returning from original context restores reading position and editor/report state.
+- Keep reading stable: document-highlight clicks focus sidebar discussions without moving the passage. Sidebar thread-card clicks, passage links, comment icons, and navigation scroll to the passage. Returning from original context restores reading position and editor/report state.
 - Polling, autosave, and focus changes must not flicker, replace unchanged content, clear selections, reorder cards, lose replies, or steal focus. Routine status feedback stays quiet; errors/conflicts stay clear.
 - Sidebars resize and collapse to thin strips with restore controls in fixed positions. Preserve pane state. Support narrow windows and keyboard access; keep shortcuts discoverable. Ctrl+Z remains undo; Ctrl+Alt+Z is zen mode.
 - Keep annotation/editing consistent across source, live Markdown, preview, tables, and rendered HTML. Search respects file/resolved scopes. Navigation preserves unsent work. Thread-card clicks retain normal copying, links, and embedded controls.

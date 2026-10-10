@@ -12,7 +12,7 @@ existing ones; browser sharding changes where tests run, never which cases run.
 | Fuzzy thread search, ranking, thread numbers, file/resolved scopes and draft passages | `thread-search.test.mjs`, `test_thread_search_browser.py` |
 | Live/source/preview Markdown, numbered lists/tasks, wide tables, syntax highlighting and local Mermaid | `test_markdown_discussions.py`, `test_requested_features.py`, `test_navigation_browser.py`, `test_context_return_browser.py` |
 | HTML source mapping, runtime anchors, report interactions and iframe isolation | `html-source.test.mjs`, `test_html_annotations.py`, `test_html_annotations_browser.py`, `test_browser.py` |
-| Edit/review toggle, quiet autosave, dense-highlight DOM stability and selectable thread cards | `test_interaction_polish_browser.py` |
+| Stable Edit/review controls, confirmation/cancellation and revision races, JSON/HTML exclusion, quiet autosave, dense-highlight DOM stability, selectable thread cards and passage navigation | `test_interaction_polish_browser.py` |
 | Spotlight, unchanged reading positions, sidebar geometry, zen mode and navigation | `test_discussion_reading_browser.py`, `test_spotlight_navigation_browser.py`, `test_navigation_browser.py` |
 | Git graph/branches, durable commit/branch discussions and selected checkpoints preserving the index | `history.test.mjs`, `test_history.py`, `test_history_browser.py`, `test_git_discussions.py`, `test_revisions.py` |
 | JSON/JSONL folding, formatting/search/navigation/download, images, STL and software fallback | `json-format.test.mjs`, `test_requested_features.py`, `test_navigation_browser.py`, `test_browser.py` |
@@ -56,8 +56,11 @@ geometry/fonts before recording their baseline. HTML alignment uses instant
 scrolling to stop an earlier sidebar animation. The preservation assertions and
 deadlines remain unchanged; separate cases also exercise reports that request
 smooth scrolling during a highlight click and verify normal wheel navigation.
-JSONL comparison checks also sample multiple frames after row selection, so a
-transient restoration followed by a late editor-anchor jump cannot pass.
+JSONL comparison checks sample frames starting at the row click and again after
+restoration, so neither a transient reset nor a late editor-anchor jump can pass.
+Row changes restore inside CodeMirror's layout cycle before it captures the new
+scroll anchor; shorter entries clamp naturally and ordinary wheel scrolling stays
+available.
 
 Production assets must rebuild without differences after the intended asset
 changes are committed. CI also builds wheel/source distributions. See
