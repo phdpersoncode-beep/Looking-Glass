@@ -482,9 +482,9 @@ Branch: `feature/context-return-and-resolved-passages`, integrated with main
 ## Whole-app regression coverage and suite speed · 2026-10-10
 
 PR #11 is merged into main at `b8decb0404b58e0b120aa33a5e802807eeaf7118`.
-Follow-up branch: `test/whole-app-regressions`, targeting main after PR #11.
-The results below record the completed local verification; locked-dependency
-GitHub checks are required before merging this follow-up.
+Follow-up: [PR #12](https://github.com/phdpersoncode-beep/Looking-Glass/pull/12),
+branch `test/whole-app-regressions`, targeting main after PR #11.
+The results below record completed local and locked-dependency GitHub verification.
 
 - The full existing collection is retained. **7 backend** and **12 browser**
   cases were added: Unicode/CRLF discussion origins and attachments across
@@ -518,10 +518,18 @@ GitHub checks are required before merging this follow-up.
   dragging, wheel and keyboard navigation. All **four** new focus-nudge cases
   fail on PR #11's old assets and pass with the fix. The original 30 spotlight
   cases pass locally, and all remain in the final full collection.
-- Browser verification uses the available **Playwright 1.55.0 / Chromium 140 /
-  Firefox 141** fallback. The locked Playwright 1.63.0 workflow has not run on
-  this follow-up yet. Firefox's container process sandbox setting does
+- Local browser verification uses the available **Playwright 1.55.0 / Chromium
+  140 / Firefox 141** fallback. Firefox's container process sandbox setting does
   not disable the application's report iframe isolation checks.
+- The [locked-dependency GitHub workflow](https://github.com/phdpersoncode-beep/Looking-Glass/actions/runs/38037330382)
+  passed on `68413e3d46d2a3b98fac76ee236e12057aa41722`: **108 backend**
+  tests in **14.13 seconds**, **20 JavaScript** tests, and all **387 browser**
+  cases with Playwright **1.63.0** and its pinned Chromium/Firefox downloads.
+  Shard counts/times: 97/280.14 s, 97/197.96 s, 97/212.23 s and 96/223.83 s.
+  The full workflow finished in **5 minutes 28 seconds**, including setup and
+  builds; the longest browser test shard took **4 minutes 40 seconds**.
+  The shard completeness check, reproducible asset check and package builds
+  also passed. There were no browser failures or skipped cases.
 - Asset rebuilds are reproducible; wheel/source distribution builds pass.
   All **18** packaged static assets/templates match the checkout byte for byte.
   `git diff --check` passes. The follow-up workflow runs all four browser shards

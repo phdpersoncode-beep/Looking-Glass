@@ -10,7 +10,7 @@ Branch: `test/whole-app-regressions`.
 - [x] Reproduce and fix native mouse focus moving HTML reading positions; verify four cases fail before and pass after.
 - [x] Pass 108 backend, 20 JavaScript and 387 browser cases; verify reproducible builds and exact packaged assets.
 - [x] Measure the same nine browser cases: 39.70 s before, 22.89 s after. Full four-shard local run: 382.35 s.
-- [ ] Publish the follow-up, pass locked-dependency GitHub checks and merge it into main. PR #11 itself is already merged.
+- [x] Publish [PR #12](https://github.com/phdpersoncode-beep/Looking-Glass/pull/12) and pass all locked-dependency GitHub checks: 108 backend, 20 JavaScript and 387 browser cases. PR #11 itself is already merged.
 
 See `docs/VERIFICATION.md` for results and local browser versions.
 
