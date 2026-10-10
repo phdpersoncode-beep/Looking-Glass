@@ -23,7 +23,7 @@ def start(page, url, path, work):
     page.goto(url)
     open_file(page, path)
     if work == 'review':
-        page.locator('#work-mode').select_option('review')
+        page.locator('#work-mode').click()
         expect(page.locator('#review-status')).to_have_text('Review saved')
 
 

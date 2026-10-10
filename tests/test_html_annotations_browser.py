@@ -45,7 +45,7 @@ def test_missing_runtime_anchor_reopens_report_for_reattachment(workspace_page,m
     thread=ws.create_rendered_thread('report.html',dict(quote='Previous runtime passage',prefix='',suffix=''),'Runtime comment','Agent',file['version'])
     ws.update_thread(thread['id'],render_attached=False,version=file['version'])
     page.goto(url);open_file(page,'report.html')
-    if mode=='review':page.locator('#work-mode').select_option('review')
+    if mode=='review':page.locator('#work-mode').click()
     expect(page.locator('.anchor-warning')).to_be_visible()
     page.locator('#html-toggle').click();expect(page.locator('#editor')).to_be_visible()
     search=page.locator('#thread-search');search.fill('runtime comment');search.press('Enter')

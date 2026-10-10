@@ -21,7 +21,7 @@ def test_edit_draft_survives_other_file_review_and_active_file_approval(workspac
     page.keyboard.insert_text('Unsaved human work\n')
     expect(page.locator('#dirty')).to_contain_text('Unsaved')
     open_file(page, 'code.py')
-    page.locator('#work-mode').select_option('review')
+    page.locator('#work-mode').click()
     expect(page.locator('#review-status')).to_have_text('Review saved')
     page.locator('.cm-content').click()
     page.keyboard.press('Control+End')
@@ -34,7 +34,7 @@ def test_edit_draft_survives_other_file_review_and_active_file_approval(workspac
     page.locator('#thread-search').fill('inspect')
     expect(page.locator('#thread-search-status')).to_contain_text('1 match')
     page.locator('#approve-review').click()
-    expect(page.locator('#work-mode')).to_have_value('edit')
+    expect(page.locator('#work-mode')).to_have_attribute('aria-checked','false')
     expect(page.locator('.thread')).to_have_count(1)
     assert (root / 'code.py').read_text() == 'value = 1\nextra = 2\n'
     assert (root / 'notes.md').read_text() == '# Notes\n\nOrdinary original.\n'
@@ -69,7 +69,7 @@ def test_edited_comments_search_resolve_reopen_and_context_survive_reload(worksp
     page.goto(url)
     open_file(page, 'report.md')
     if work == 'review':
-        page.locator('#work-mode').select_option('review')
+        page.locator('#work-mode').click()
         expect(page.locator('#review-status')).to_have_text('Review saved')
     page.locator('.edit-comment').click()
     page.locator('#edit-comment-body').fill('Revised verifier finding')

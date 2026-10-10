@@ -111,7 +111,7 @@ export function renderMarkdown(host,source,decorate=()=>{}) {
 export function mountMappedMarkdown(host,source,offset=0,decorate=()=>{}) {
   host.innerHTML=DOMPurify.sanitize(mappedMarkdownHTML(source,offset));
   decorate(host);wrapMarkdownTables(host);
-  let lastHighlights=null,reviewChanges=[];
+  let lastHighlights=null,lastActive=null,reviewChanges=[];
   const leaves=[...host.querySelectorAll('.md-mapped-text')],nodes=new WeakMap();
   for(const leaf of leaves) {
     const from=Number(leaf.dataset.mdFrom),to=Number(leaf.dataset.mdTo),text=leaf.textContent;
@@ -165,10 +165,21 @@ export function mountMappedMarkdown(host,source,offset=0,decorate=()=>{}) {
       return {from,to,rect:range.getBoundingClientRect()};
     },
     highlight(spans,active) {
-      const signature=JSON.stringify([spans,active,reviewChanges]);if(signature===lastHighlights)return;
+      const signature=JSON.stringify([spans,reviewChanges]);
+      if(signature===lastHighlights){
+        if(active===lastActive)return;
+        const resolved=spans.some(s=>s.id===active&&s.resolved);
+        // Focus changes only colors, never text nodes, source maps or selection.
+        for(const mark of host.querySelectorAll('[data-anchors]')){
+          const ids=mark.dataset.anchors.split(',').map(Number),focused=ids.includes(active);
+          mark.classList.toggle('focused-highlight',focused&&!resolved);
+          mark.dataset.anchor=String(focused?active:ids[0]);
+        }
+        lastActive=active;return;
+      }
       const selection=window.getSelection();
       if(selection&&!selection.isCollapsed&&host.contains(selection.anchorNode))return;
-      lastHighlights=signature;
+      lastHighlights=signature;lastActive=active;
       host.querySelectorAll('.review-empty-deletions').forEach(el=>el.remove());
       const deletions=reviewChanges.filter(s=>s.kind==='delete'),assigned=new Map();
       for(const deletion of deletions){

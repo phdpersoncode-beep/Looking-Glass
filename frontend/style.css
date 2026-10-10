@@ -175,3 +175,5 @@ html[data-theme="dark"] { --review-human: #78d49a; --review-agent: #84b4ff; --re
 .thread-searching .thread-summary{font-size:11px}.thread-searching .thread-file{display:block}
 #thread-search-hints{margin-top:8px}#thread-search-hints button{display:block;border:0;padding:3px 0;font-size:10px;color:var(--muted);white-space:normal;text-align:left}#thread-search-hints button:hover{background:transparent;color:var(--purple)}
 .discussions-hidden #thread-search-status{display:none}
+
+.thread:focus-visible{outline:2px solid var(--purple);outline-offset:2px}
