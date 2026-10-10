@@ -124,6 +124,7 @@ def build_parser():
                     'looking-glass agent reply 4 --author Agent --body "Here is my explanation."')
     reply.add_argument('id', type=int, help='Thread ID from list, search, or create.')
     reply.add_argument('--author', default='Agent', help='Comment author label (default: Agent).')
+    reply.add_argument('--review', type=int, help='Capture reply context from this review draft instead of the disk file.')
     for op in (create, reply):
         bodies = op.add_mutually_exclusive_group(required=True)
         bodies.add_argument('--body', help='Literal text. Use single shell quotes for Markdown: double quotes execute backticks and $(...).')
@@ -141,6 +142,28 @@ def build_parser():
     delete.add_argument('--message', type=int, help='Delete only this message ID, obtained from read.')
     command(operations, 'instructions', 'Print copyable agent instructions for the current workspace.',
             'looking-glass agent instructions')
+    review = command(operations,'review','Read and edit persistent review drafts without writing source files.',
+                     'looking-glass agent review list')
+    review_ops = review.add_subparsers(dest='review_operation',required=True)
+    command(review_ops,'list','List pending review drafts.','looking-glass agent review list')
+    for name in ('read','history','edit'):
+        op = command(review_ops,name,{'read':'Read a review draft and its current revision.',
+            'history':'Read chronological edits with authors and UTC timestamps.',
+            'edit':'Apply sequential Unicode-code-point edits with a revision check.'}[name],
+            f'looking-glass agent review {name} 1')
+        op.add_argument('id',type=int,help='Review ID from review list.')
+        if name=='history':
+            op.add_argument('--after',type=int,default=0); op.add_argument('--limit',type=int,default=100)
+        if name=='edit':
+            op.add_argument('--version',required=True,help='Exact version from the latest review read.')
+            op.add_argument('--author',default='Agent')
+            op.add_argument('--operations-file',type=Path,required=True,
+                help='UTF-8 JSON array of {start,end,insert}, applied sequentially; - reads stdin.')
+    create.add_argument('--review',type=int,help='Anchor the comment in this review draft instead of the disk file.')
+    for name in ('list','search'):
+        # Operations are parser objects, not separate transport mechanisms.
+        operations.choices[name].add_argument('--review',type=int,help='Include draft discussions and review-local passage positions.')
+    operations.choices['read'].add_argument('--review',type=int,help='Read passage context from this review.')
     return parser
 
 
@@ -179,16 +202,26 @@ def main(argv=None):
         elif args.operation == 'instructions':
             print(call('agent-instructions')['instructions'])
             return
+        elif args.operation == 'review':
+            if args.review_operation=='list': result=call('reviews')
+            elif args.review_operation=='read': result=call(f'reviews/{args.id}')
+            elif args.review_operation=='history': result=call(f'reviews/{args.id}/edits?'+urlencode(dict(after=args.after,limit=args.limit)))
+            else:
+                raw=sys.stdin.read() if str(args.operations_file)=='-' else args.operations_file.read_text(encoding='utf-8')
+                result=call(f'reviews/{args.id}','PATCH',dict(version=args.version,operations=json.loads(raw),author=args.author,role='agent'))
         elif args.operation in ('list', 'search'):
             query = dict(status=args.status, limit=args.limit, offset=args.offset,
                          summary='false' if args.full else 'true')
+            if args.review is not None: query['review']=args.review
             for key, value in (('path', args.path), ('author', args.author),
                                ('anchor_status', args.anchor_status), ('q', getattr(args, 'query', None))):
                 if value is not None:
                     query[key] = value
             result = call('threads?' + urlencode(query))
         elif args.operation == 'read':
-            result = call(f'threads/{args.id}?' + urlencode({'context_lines':args.context_lines}))
+            query={'context_lines':args.context_lines}
+            if args.review is not None: query['review']=args.review
+            result = call(f'threads/{args.id}?' + urlencode(query))
         elif args.operation == 'reattach':
             thread = call(f'threads/{args.id}')
             if thread['anchor_kind'] != 'source':
@@ -204,12 +237,15 @@ def main(argv=None):
             else:
                 message_body = args.body
             if args.operation == 'reply':
-                result = call(f'threads/{args.id}/replies', 'POST', dict(body=message_body, author=args.author))
+                result = call(f'threads/{args.id}/replies', 'POST', dict(body=message_body, author=args.author,
+                              **({'review_id':args.review} if args.review is not None else {})))
                 print(json.dumps(result, indent=2, ensure_ascii=False))
                 return
-            file = call('file?' + urlencode({'path':args.path}))
+            file = call(f'reviews/{args.review}') if args.review else call('file?' + urlencode({'path':args.path}))
+            if file.get('path')!=args.path: parser.error('Review belongs to another file.')
             selection = source_selection(parser, file, args.quote, args.occurrence)
-            result = call('threads', 'POST', dict(path=args.path, **selection, author=args.author, body=message_body))
+            result = call('threads', 'POST', dict(path=args.path, **selection, author=args.author, body=message_body,
+                          **({'review_id':args.review} if args.review else {})))
         elif args.operation == 'delete':
             route = f'threads/{args.id}' + (f'/messages/{args.message}' if args.message is not None else '')
             result = call(route, 'DELETE')

@@ -36,6 +36,29 @@ def expect_highlights(page,expected,name='looking-glass-active'):
 
 
 @pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+@pytest.mark.parametrize('mode',['edit','review'])
+def test_missing_runtime_anchor_reopens_report_for_reattachment(workspace_page,mode):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    (root/'report.html').write_text('<p id="runtime"></p><script>document.querySelector("#runtime").textContent="Current runtime passage"</script>')
+    file=ws.read('report.html')
+    thread=ws.create_rendered_thread('report.html',dict(quote='Previous runtime passage',prefix='',suffix=''),'Runtime comment','Agent',file['version'])
+    ws.update_thread(thread['id'],render_attached=False,version=file['version'])
+    page.goto(url);open_file(page,'report.html')
+    if mode=='review':page.locator('#work-mode').select_option('review')
+    expect(page.locator('.anchor-warning')).to_be_visible()
+    page.locator('#html-toggle').click();expect(page.locator('#editor')).to_be_visible()
+    search=page.locator('#thread-search');search.fill('runtime comment');search.press('Enter')
+    expect(page.locator('#document-name')).to_have_text('report.html')
+    expect(page.frame_locator('#html-preview').locator('#runtime')).to_have_text('Current runtime passage')
+    expect(page.locator('.anchor-warning')).to_be_visible()
+    select(page,'#runtime');page.locator('[data-action=reattach]').click()
+    expect(page.locator('.anchor-warning')).to_have_count(0)
+    review=ws.reviews.list()[0]['id'] if mode=='review' else None
+    assert ws.get_thread(thread['id'],review=review)['quote']=='Current runtime passage'
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
 def test_html_source_selection_navigation_and_persistence(workspace_page):
     from playwright.sync_api import expect
     root,page,url,ws=workspace_page

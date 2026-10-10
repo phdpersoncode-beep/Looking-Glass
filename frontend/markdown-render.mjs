@@ -1,3 +1,4 @@
+import {label as reviewLabel} from './review-model.mjs';
 import {marked, Renderer} from 'marked';
 import DOMPurify from 'dompurify';
 
@@ -110,7 +111,7 @@ export function renderMarkdown(host,source,decorate=()=>{}) {
 export function mountMappedMarkdown(host,source,offset=0,decorate=()=>{}) {
   host.innerHTML=DOMPurify.sanitize(mappedMarkdownHTML(source,offset));
   decorate(host);wrapMarkdownTables(host);
-  let lastHighlights=null;
+  let lastHighlights=null,reviewChanges=[];
   const leaves=[...host.querySelectorAll('.md-mapped-text')],nodes=new WeakMap();
   for(const leaf of leaves) {
     const from=Number(leaf.dataset.mdFrom),to=Number(leaf.dataset.mdTo),text=leaf.textContent;
@@ -120,7 +121,7 @@ export function mountMappedMarkdown(host,source,offset=0,decorate=()=>{}) {
   function register(leaf) {
     if(!leaf._mapping)return;
     const walker=document.createTreeWalker(leaf,NodeFilter.SHOW_TEXT);let node,at=0;
-    while((node=walker.nextNode())){nodes.set(node,leaf._mapping.slice(at,at+node.length));at+=node.length;}
+    while((node=walker.nextNode())){if(node.parentElement.closest('.review-deletion'))continue;nodes.set(node,leaf._mapping.slice(at,at+node.length));at+=node.length;}
   }
   leaves.forEach(register);
   function boundary(node,at,end) {
@@ -138,6 +139,7 @@ export function mountMappedMarkdown(host,source,offset=0,decorate=()=>{}) {
   }
   return {
     host,
+    setReview(changes){reviewChanges=changes;},
     readingAnchor({x,y}) {
       const caret=document.caretPositionFromPoint?.(x,y),range=!caret&&document.caretRangeFromPoint?.(x,y);
       const node=caret?.offsetNode||range?.startContainer,offset=caret?.offset??range?.startOffset;
@@ -163,21 +165,32 @@ export function mountMappedMarkdown(host,source,offset=0,decorate=()=>{}) {
       return {from,to,rect:range.getBoundingClientRect()};
     },
     highlight(spans,active) {
-      const signature=JSON.stringify([spans,active]);if(signature===lastHighlights)return;
+      const signature=JSON.stringify([spans,active,reviewChanges]);if(signature===lastHighlights)return;
       const selection=window.getSelection();
       if(selection&&!selection.isCollapsed&&host.contains(selection.anchorNode))return;
       lastHighlights=signature;
+      host.querySelectorAll('.review-empty-deletions').forEach(el=>el.remove());
+      const deletions=reviewChanges.filter(s=>s.kind==='delete'),assigned=new Map();
+      for(const deletion of deletions){
+        let leaf=leaves.find(l=>l._mapping?.some(p=>p.to>=deletion.from));leaf??=leaves.filter(l=>l._mapping?.length).at(-1);
+        if(leaf){const items=assigned.get(leaf)||[];items.push(deletion);assigned.set(leaf,items);}
+        else{const ghost=document.createElement('span');ghost.className='review-deletion review-empty-deletions';ghost.textContent=deletion.text;ghost.title=reviewLabel(deletion);ghost.dataset.reviewDeletion=String(deletion.edit_id||'local');ghost.dataset.reviewFrom=String(deletion.from);host.append(ghost);}
+      }
       for(const leaf of leaves) {
         const map=leaf._mapping;if(!map)continue;
-        const target=leaf.querySelector('code')||leaf,fragment=document.createDocumentFragment();
+        const target=leaf.querySelector('code')||leaf,fragment=document.createDocumentFragment(),ghosts=assigned.get(leaf)||[];let ghostAt=0;
+        const addGhost=deletion=>{const ghost=document.createElement('span');ghost.className='review-deletion';ghost.textContent=deletion.text;ghost.title=reviewLabel(deletion);ghost.dataset.reviewDeletion=String(deletion.edit_id||'local');ghost.dataset.reviewFrom=String(deletion.from);fragment.append(ghost);};
+        const idsAt=at=>spans.filter(s=>s.from<map[at].to&&s.to>map[at].from).map(s=>s.id);
+        const changeAt=at=>reviewChanges.find(s=>s.kind==='insert'&&s.from<map[at].to&&s.to>map[at].from);
         for(let at=0;at<map.length;) {
-          const ids=spans.filter(s=>s.from<map[at].to&&s.to>map[at].from).map(s=>s.id);
-          let end=at+1;
-          while(end<map.length&&spans.filter(s=>s.from<map[end].to&&s.to>map[end].from).map(s=>s.id).join(',')===ids.join(','))end++;
+          while(ghostAt<ghosts.length&&ghosts[ghostAt].from<=map[at].from)addGhost(ghosts[ghostAt++]);
+          const ids=idsAt(at),change=changeAt(at);let end=at+1;
+          while(end<map.length&&idsAt(end).join(',')===ids.join(',')&&changeAt(end)===change&&!(ghostAt<ghosts.length&&ghosts[ghostAt].from<=map[end].from))end++;
           const text=leaf._text.slice(at,end);
-          if(ids.length){const mark=document.createElement('span');mark.className='passage-highlight'+(ids.includes(active)?' focused-highlight':'');mark.dataset.anchor=String(ids.includes(active)?active:ids[0]);mark.dataset.anchors=ids.join(',');mark.textContent=text;fragment.append(mark);}
+          if(ids.length||change){const mark=document.createElement('span');mark.className=(ids.length?'passage-highlight'+(ids.includes(active)?' focused-highlight':''):'')+(change?' '+(change.role==='agent'?'review-agent':'review-human'):'');if(ids.length){mark.dataset.anchor=String(ids.includes(active)?active:ids[0]);mark.dataset.anchors=ids.join(',');}if(change)mark.title=reviewLabel(change);mark.textContent=text;fragment.append(mark);}
           else fragment.append(document.createTextNode(text));at=end;
         }
+        while(ghostAt<ghosts.length)addGhost(ghosts[ghostAt++]);
         target.replaceChildren(fragment);
       }
       decorate(host);leaves.forEach(register);

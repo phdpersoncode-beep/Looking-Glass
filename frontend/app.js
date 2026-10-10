@@ -1,3 +1,5 @@
+import {apply as applyReview,accepted as acceptedReview,ranges as reviewRanges,label as reviewLabel,pointLength} from './review-model.mjs';
+import {reviewTracking,reviewEffect,remoteReview,operationsFor} from './review-editor.mjs';
 import {prepareHTMLPreview,sourceOffsets} from './html-source.mjs';
 import {createComposers} from './composer.mjs';
 import {mountHistory} from './history.mjs';
@@ -8,9 +10,9 @@ import {createThreadSpotlight} from './thread-spotlight.mjs';
 import {createThreadSearchView} from './thread-search-view.mjs';
 import {mountMarkdownContents} from './markdown-contents.mjs';
 import {basicSetup} from 'codemirror';
-import {EditorState, StateEffect, StateField, Compartment, Text, RangeSet} from '@codemirror/state';
+import {EditorState, StateEffect, StateField, Compartment, Text, RangeSet, Transaction} from '@codemirror/state';
 import {EditorView, Decoration, ViewPlugin, keymap, WidgetType, gutter, GutterMarker} from '@codemirror/view';
-import {Chunk} from '@codemirror/merge';
+import {Chunk,diff} from '@codemirror/merge';
 import {TaskList, Table} from '@lezer/markdown';
 import {undo, redo, indentWithTab, isolateHistory} from '@codemirror/commands';
 import {openSearchPanel} from '@codemirror/search';
@@ -30,13 +32,15 @@ const $ = selector => document.querySelector(selector);
 const token = $('meta[name=looking-glass-token]').content;
 const root = $('.root-label').textContent;
 const threadSpotlight=createThreadSpotlight($('.discussion-sidebar'),filterThreads);
-const threadSearch=createThreadSearchView($('.discussion-sidebar'),{onInput:()=>{threadSpotlight.restore();filterThreads();},onOpen:guard(focusSidebarThread),onRefresh:filterThreads,loadIndex:async etag=>{
-  const response=await fetch('/api/thread-search-index',{headers:{'X-Looking-Glass-Token':token,...(etag?{'If-None-Match':etag}:{})}});
+const threadSearch=createThreadSearchView($('.discussion-sidebar'),{onInput:()=>{threadSpotlight.restore();filterThreads();},onOpen:guard(focusSidebarThread),onRefresh:filterThreads,loadIndex:async (etag,review)=>{
+  const response=await fetch('/api/thread-search-index'+(review?'?review='+review:''),{headers:{'X-Looking-Glass-Token':token,...(etag?{'If-None-Match':etag}:{})}});
   if(!response.ok&&response.status!==304)throw new Error('Unable to search other discussions.');
   return {data:response.status===304?null:await response.json(),etag:response.headers.get('ETag')};
 }});
 const composers=createComposers({token,api,onError:message=>notify(message,true)});
 const tabs = new Map();
+let reviewMode=localStorage.getItem('looking-glass-review-mode:'+root)==='true';
+let changingWorkMode=false;
 const HISTORY='looking-glass://history',ORIGINAL='looking-glass://thread/';
 async function readTab(path){
   if(path===HISTORY)return {content:'',version:null,kind:'history'};
@@ -67,6 +71,7 @@ let contentsController=null;
 const markdownViews=new Set();
 function markdownSelection(){for(const rendered of markdownViews){if(rendered.host.isConnected){const selection=rendered.selection();if(selection)return selection;}}return null;}
 function markdownSpans(){const e=entry();return view?view.state.field(spanField):e?spansFor(currentThreads,e.content).map(span=>({...span,from:toRawUnits(e.content,span.from),to:toRawUnits(e.content,span.to)})):[];}
+function currentReviewRanges(normalized=false){const e=entry();return e?.review&&e.workMode==='review'?reviewRanges(e.reviewSegments||e.review.segments,normalized):[];}
 function refreshMarkdownHighlights(){const spans=markdownSpans();for(const rendered of markdownViews){if(rendered.host.isConnected)rendered.highlight(spans,activeThread);else markdownViews.delete(rendered);}}
 function toRawUnits(text,units){let at=0;for(let i=0;i<text.length;i++){if(at===units)return i;if(text[i]==='\r'&&text[i+1]==='\n')i++;at++;}return text.length;}
 
@@ -75,6 +80,7 @@ function previewThreads(){
   const e=entry();if(!renderedPreview||!e)return;
   const draft=e.dirty?new Map((e.state?.field(spanField)||[]).map(span=>[span.id,{from:toRawUnits(e.content,span.from),to:toRawUnits(e.content,span.to)}])):null;
   const offsets=sourceOffsets(e.content,currentThreads.filter(t=>t.path===active&&t.anchor_kind==='source').flatMap(t=>[t.start,t.end]));
+  previewMessage('review',{changes:currentReviewRanges()});
   previewMessage('threads',{threads:currentThreads.filter(t=>t.path===active&&(t.anchor_kind==='rendered'||t.anchor_kind==='source'&&t.anchor_status==='attached'&&(!draft||draft.has(t.id)))).map(t=>({id:t.id,render_anchor:t.render_anchor,resolved:t.resolved,source:t.anchor_kind==='source'?(draft?.get(t.id)||{from:offsets.get(t.start),to:offsets.get(t.end)}):null})),active:activeThread});
 }
 async function captureHTMLSelection(){
@@ -162,20 +168,20 @@ const blockEditing=StateField.define({create:()=>null,update(value,tr){
   return value;
 }});
 class MarkdownTable extends WidgetType {
-  constructor(source,from,spans){super();this.source=source;this.from=from;this.spans=spans;this.focused=activeThread;}
-  eq(other){return this.source===other.source&&this.from===other.from&&this.focused===other.focused&&JSON.stringify(this.spans)===JSON.stringify(other.spans);}
+  constructor(source,from,spans,review=[]){super();this.source=source;this.from=from;this.spans=spans;this.focused=activeThread;this.review=review.filter(r=>r.from<=from+source.length&&r.to>=from);}
+  eq(other){return this.source===other.source&&this.from===other.from&&this.focused===other.focused&&JSON.stringify(this.spans)===JSON.stringify(other.spans)&&JSON.stringify(this.review)===JSON.stringify(other.review);}
   updateDOM(el,_view,previous){
     if(this.source!==previous.source||this.from!==previous.from)return false;
     // Annotation updates must keep the DOM holding a native cell selection.
     // The mapped renderer defers highlight changes while that selection is live.
-    el._markdown.highlight(this.spans,this.focused);return true;
+    el._markdown.setReview(this.review);el._markdown.highlight(this.spans,this.focused);return true;
   }
   toDOM(v){
     const el=document.createElement('div');el.className='md-table';
     const edit=document.createElement('button');edit.className='markdown-source-edit';edit.textContent='Edit source';edit.setAttribute('aria-label','Edit table source');
     edit.onclick=()=>{v.dispatch({effects:blockSourceEffect.of({from:this.from,to:this.from+this.source.length,kind:'table'}),selection:{anchor:this.from}});v.focus();};
     const table=document.createElement('div');el.append(edit,table);
-    const rendered=mountMappedMarkdown(table,this.source,this.from);rendered.highlight(this.spans,this.focused);markdownViews.add(rendered);el._markdown=rendered;
+    const rendered=mountMappedMarkdown(table,this.source,this.from);rendered.setReview(this.review);rendered.highlight(this.spans,this.focused);markdownViews.add(rendered);el._markdown=rendered;
     return el;
   }
   destroy(el){markdownViews.delete(el._markdown);}
@@ -200,14 +206,14 @@ class MermaidDiagram extends WidgetType {
 }
 function markdownDiagrams(preview){for(const code of preview.querySelectorAll('pre code.language-mermaid')){const source=code.textContent;renderMermaid(code.parentElement,source);}}
 function tableDecorations(state){
-  const ranges=[],editing=state.field(blockEditing),spans=state.field(spanField);
+  const ranges=[],editing=state.field(blockEditing),spans=state.field(spanField),e=entry(),review=e?.reviewField&&state.field(e.reviewField,false)?reviewRanges(state.field(e.reviewField).segments,true):[];
   if(editing)ranges.push(Decoration.widget({block:true,side:-1,widget:new MarkdownSourceControl(editing.kind||'table')}).range(Math.min(editing.from,state.doc.length)));
   syntaxTree(state).iterate({enter(node){
     const diagram=node.name==='FencedCode'&&/^(`{3,}|~{3,})\s*mermaid\s*$/i.test(state.doc.lineAt(node.from).text.trim());
     if(node.name!=='Table'&&!diagram)return;
     if(editing&&editing.from<=node.to&&editing.to>=node.from)return false;
     if(diagram){const first=state.doc.lineAt(node.from),last=state.doc.lineAt(node.to);const closed=/^(`{3,}|~{3,})\s*$/.test(last.text.trim());const source=state.doc.sliceString(Math.min(first.to+1,state.doc.length),closed?last.from:node.to);ranges.push(Decoration.replace({block:true,widget:new MermaidDiagram(source,node.from,node.to)}).range(node.from,node.to));return false;}
-    ranges.push(Decoration.replace({block:true,widget:new MarkdownTable(state.doc.sliceString(node.from,node.to),node.from,spans.filter(s=>s.from<node.to&&s.to>node.from))}).range(node.from,node.to));return false;
+    ranges.push(Decoration.replace({block:true,widget:new MarkdownTable(state.doc.sliceString(node.from,node.to),node.from,spans.filter(s=>s.from<node.to&&s.to>node.from),review)}).range(node.from,node.to));return false;
   }});
   return Decoration.set(ranges,true);
 }
@@ -274,10 +280,21 @@ const isImage=path=>['png','jpg','jpeg','svg'].includes(ext(path));
 function entry(){return active?tabs.get(active):null;}
 function remember(){localStorage.setItem('looking-glass-tabs:'+root,JSON.stringify({active,tabs:[...tabs.values()].map(e=>({path:e.path,pinned:e.pinned,mode:e.mode,kind:e.kind,...(e.kind==='history'?{history:{target:e.history?.target,selection:e.history?.selection}}:{})}))}));}
 function syncState(){const e=entry();if(e&&view){e.state=view.state;e.content=view.state.sliceDoc();}}
-function spansFor(threads,text){return threads.filter(t=>t.path===active&&t.anchor_kind!=='rendered'&&t.anchor_status==='attached'&&!t.resolved).map(t=>({id:t.id,from:toUnits(text,t.start),to:toUnits(text,t.end)})).filter(s=>s.from<s.to&&s.to<=text.length);}
+function spansFor(threads,text){return threads.filter(t=>t.path===active&&t.anchor_kind==='source'&&t.anchor_status==='attached'&&!t.resolved).map(t=>({id:t.id,from:toUnits(text,t.start),to:toUnits(text,t.end)})).filter(s=>s.from<s.to&&s.to<=text.length);}
 
+function removedSelection(){
+  if(entry()?.workMode!=='review')return null;
+  const selection=window.getSelection();if(!selection?.rangeCount||selection.isCollapsed)return null;
+  const range=selection.getRangeAt(0),parent=node=>node.nodeType===Node.TEXT_NODE?node.parentElement:node;
+  const ghost=parent(range.startContainer)?.closest('.review-deletion');
+  if(!ghost||parent(range.endContainer)?.closest('.review-deletion')!==ghost||!$('#surface').contains(ghost))return null;
+  const prefix=range.cloneRange();prefix.selectNodeContents(ghost);prefix.setEnd(range.startContainer,range.startOffset);
+  const start=Array.from(prefix.toString()).length,end=start+Array.from(range.toString()).length;
+  return {removed_anchor:{edit_id:Number(ghost.dataset.reviewDeletion),text:ghost.textContent,start,end},quote:range.toString(),rect:range.getBoundingClientRect()};
+}
 function selectionLocation(){
   if(entry()?.kind)return null;
+  const removed=removedSelection();if(removed)return {coords:removed.rect,bounds:$('#surface').getBoundingClientRect(),from:0,to:0};
   if(renderedPreview&&renderedSelection){const frame=renderedPreview.frame.getBoundingClientRect(),rect=renderedSelection.rect;const coords={left:frame.left+rect.left,right:frame.left+rect.right,top:frame.top+rect.top,bottom:frame.top+rect.bottom};if(coords.bottom<frame.top||coords.top>frame.bottom)return null;return {coords,bounds:frame,from:0,to:0};}
   const md=markdownSelection();if(md){const bounds=$('#surface').getBoundingClientRect();return {coords:md.rect,bounds,from:md.from,to:md.to};}
   if(!view||view.state.selection.main.empty)return null;
@@ -328,7 +345,7 @@ function showTabMenu(e,x,y){
   const others=document.createElement('button');others.textContent='Close other tabs';others.onclick=guard(async()=>{menu.remove();for(const name of [...tabs.keys()])if(name!==e.path&&!tabs.get(name).pinned)await closeTab(name);});menu.append(others);document.body.append(menu);setTimeout(()=>document.addEventListener('click',()=>menu.remove(),{once:true}),0);
 }
 async function closeTab(path){
-  const e=tabs.get(path);if(e.dirty&&!confirm('Discard unsaved edits in '+path+'?'))return;
+  const e=tabs.get(path);if(e.workMode==='review')await flushReview(e);if(e.dirty&&!confirm('Discard unsaved edits in '+path+'?'))return;
   if(path===active){threadSpotlight.restore();closeComment();syncState();view?.destroy();view=null;cleanup();cleanup=()=>{};active=null;}
   tabs.delete(path);remember();renderTabs();
   if(!active&&tabs.size)await openFile([...tabs.keys()].at(-1));
@@ -349,10 +366,10 @@ function highlightMarkdown(preview){
     // Color individual text nodes so source mappings and discussion marks stay
     // intact. Replacing the entire code block would erase passage highlights.
     for(const span of block.querySelectorAll('span'))if([...span.classList].some(name=>name.startsWith('tok-')))span.replaceWith(...span.childNodes);
-    const source=block.textContent,tokens=[];
+    const read=document.createTreeWalker(block,NodeFilter.SHOW_TEXT);let n,source='';while((n=read.nextNode()))if(!n.parentElement.closest('.review-deletion'))source+=n.data;const tokens=[];
     highlightTree(language.parser.parse(source),classHighlighter,(from,to,classes)=>tokens.push({from,to,classes}));
     const walker=document.createTreeWalker(block,NodeFilter.SHOW_TEXT),nodes=[];let node,position=0;
-    while((node=walker.nextNode())){nodes.push({node,from:position,to:position+node.length});position+=node.length;}
+    while((node=walker.nextNode())){if(node.parentElement.closest('.review-deletion'))continue;nodes.push({node,from:position,to:position+node.length});position+=node.length;}
     for(const {node,from,to} of nodes){const fragment=document.createDocumentFragment();let at=from;
       for(const token of tokens){if(token.to<=from||token.from>=to)continue;const start=Math.max(from,token.from),end=Math.min(to,token.to);
         if(start>at)fragment.append(document.createTextNode(source.slice(at,start)));
@@ -364,13 +381,15 @@ function highlightMarkdown(preview){
 }
 function language(path){switch(ext(path)){case'md':case'markdown':return markdown({extensions:[TaskList,Table],codeLanguages:codeLanguage});case'py':return python();case'sh':case'bash':return shellLanguage;case'html':case'htm':return html();case'json':return json();default:return [];}}
 function makeState(e){
+  const tracked=e.workMode==='review'&&e.review;
+  if(tracked)e.reviewField=reviewTracking({...e.review,segments:e.reviewSegments||e.review.segments},()=>({author:$('#author').value||'Altay',role:'human',at:new Date().toISOString()}));
   const docPath=e.sourcePath||e.path,prose=['md','markdown','txt'].includes(ext(docPath));
-  return EditorState.create({doc:e.content,extensions:[EditorState.lineSeparator.of(e.diskContent.includes('\r\n')?'\r\n':'\n'),basicSetup,language(docPath),...(e.kind==='original'?[EditorState.readOnly.of(true),EditorView.editable.of(false)]:[]),syntaxHighlighting(colors),spanField,gitField,gitSlot.of([]),
+  return EditorState.create({doc:e.content,extensions:[EditorState.lineSeparator.of(e.diskContent.includes('\r\n')?'\r\n':'\n'),basicSetup,language(docPath),...(tracked?[e.reviewField]:[]),...(e.kind==='original'?[EditorState.readOnly.of(true),EditorView.editable.of(false)]:[]),syntaxHighlighting(colors),spanField,gitField,gitSlot.of([]),
     themeSlot.of(theme()),liveSlot.of(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables,textSelection]:[]),
     ...(prose?[EditorView.lineWrapping,EditorView.theme({'.cm-scroller':{fontFamily:'var(--prose)',fontSize:'var(--prose-font-size)'},'.cm-content':{maxWidth:'850px',margin:'0 auto',width:'100%'},'.cm-lineNumbers, .cm-foldGutter':{display:'none'}})]:[]),
     EditorView.scrollHandler.of(editor=>passagePosition?.editor===editor),
     keymap.of([{key:'Mod-s',run:()=>{guard(saveActive)();return true;}},{key:'Mod-Enter',run:()=>{guard(startComment)();return true;}},{key:'Mod-f',run:openSearchPanel},{key:'Mod-h',run:openSearchPanel},indentWithTab]),
-    EditorView.updateListener.of(u=>{if(u.docChanged){e.content=u.state.sliceDoc();e.dirty=e.content!==e.diskContent;e.state=u.state;contentsController?.update();updateToolbar();renderTabs();}if(u.selectionSet)updateToolbar();if(u.selectionSet||u.docChanged||u.viewportChanged||u.geometryChanged)scheduleSelectionTools();})
+    EditorView.updateListener.of(u=>{if(u.docChanged){if(tracked){e.reviewSegments=u.state.field(e.reviewField).segments;if(!u.transactions.some(t=>t.effects.some(effect=>effect.is(remoteReview)))){for(const tr of u.transactions)if(tr.docChanged)queueReviewOperations(e,operationsFor(tr));scheduleReviewSave(e);}}e.content=u.state.sliceDoc();e.dirty=e.content!==e.diskContent;e.state=u.state;contentsController?.update();updateToolbar();renderTabs();}if(u.selectionSet)updateToolbar();if(u.selectionSet||u.docChanged||u.viewportChanged||u.geometryChanged)scheduleSelectionTools();})
   ]});
 }
 
@@ -378,6 +397,7 @@ async function openFile(path){
   if(switching){queuedFile=path;return;}switching=true;
   try{
     if(active===path)return;
+    if(entry()?.workMode==='review')await flushReview(entry());
     threadSpotlight.restore();
     closeComment();contentsController?.reset();
     syncState();
@@ -388,6 +408,7 @@ async function openFile(path){
       e={path,...file,diskContent:file.content,dirty:false,conflict:null,pinned:false,state:null,mode:type==='md'||type==='markdown'?'live':type==='html'||type==='htm'?'rendered':'source'};
       tabs.set(path,e);
     }
+    await ensureWorkMode(e);
     view?.destroy();view=null;cleanup();cleanup=()=>{};active=path;activeThread=null;currentThreads=[];
     $('#surface').replaceChildren();renderTabs();revealFile(path);updateToolbar();remember();
     if(e.kind==='history')cleanup=mountHistory($('#surface'),e.history??={},api,{onTarget:guard(async()=>{closeComment();activeThread=null;remember();await refreshThreads();}),onComment:guard(startGitComment),onState:remember});
@@ -430,7 +451,7 @@ function mountDocument(e){
     $('#surface').append(frame);
   }else if(e.mode==='preview'){
     const preview=document.createElement('div');preview.className='markdown-preview';$('#surface').append(preview);
-    const rendered=mountMappedMarkdown(preview,e.content,0,highlightMarkdown);markdownViews.add(rendered);markdownDiagrams(preview);cleanup=()=>markdownViews.delete(rendered);
+    const rendered=mountMappedMarkdown(preview,e.content,0,highlightMarkdown);rendered.setReview(currentReviewRanges());rendered.highlight([],null);markdownViews.add(rendered);markdownDiagrams(preview);cleanup=()=>markdownViews.delete(rendered);
   }else{
     const parent=document.createElement('div');parent.id='editor';if(['md','markdown','txt'].includes(ext(e.path)))parent.className='prose-editor'+(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?' live-markdown':'');$('#surface').append(parent);view=new EditorView({state:e.state||makeState(e),parent});
     view.dispatch({effects:[themeSlot.reconfigure(theme()),liveSlot.reconfigure(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables,textSelection]:[])]});
@@ -438,7 +459,7 @@ function mountDocument(e){
   }
   updateToolbar();
 }
-async function refreshBaseline(){const editor=view,path=active;if(!editor||entry()?.kind)return;const baseline=await api('git/baseline?'+new URLSearchParams({path}));if(view===editor&&active===path)editor.dispatch({effects:[baselineEffect.of(baseline.content),gitSlot.reconfigure(baseline.content===null?[]:gitGutter)]});}
+async function refreshBaseline(){const editor=view,path=active;if(!editor||entry()?.kind||entry()?.workMode==='review')return;const baseline=await api('git/baseline?'+new URLSearchParams({path}));if(view===editor&&active===path)editor.dispatch({effects:[baselineEffect.of(baseline.content),gitSlot.reconfigure(baseline.content===null?[]:gitGutter)]});}
 function updateToolbar(){
   const e=entry(), type=e?ext(e.path):'', viewer=!!e?.kind||['stl','jsonl'].includes(type)||isImage(e?.path||'');
   $('#markdown-contents').hidden=!!e?.kind||!['md','markdown'].includes(type)||e?.mode!=='live';
@@ -446,7 +467,7 @@ function updateToolbar(){
   $('#json-fold-controls').hidden=type!=='json';
   $('#download-file').hidden=e?.kind==='oversized'||!['html','htm','jsonl'].includes(type);
   $('#document-name').textContent=e?.kind==='history'?'Commit history':e?.kind==='original'?'Original · '+e.sourcePath:e?.path||'Open a file';$('#dirty').textContent=e?.dirty?' · Unsaved':'';
-  $('#save').disabled=!e||viewer||!e.dirty||saving;$('#annotate').disabled=!e||viewer||!(renderedPreview?renderedSelection:markdownSelection()||view&&!view.state.selection.main.empty);
+  $('#save').disabled=!e||viewer||!e.dirty||saving;$('#annotate').disabled=!e||viewer||!(renderedPreview?renderedSelection:removedSelection()||markdownSelection()||view&&!view.state.selection.main.empty);
   const mode=$('#mode');const modes=type==='md'||type==='markdown'?[['live','Live Markdown'],['source','Raw source'],['preview','Reading preview']]:type==='html'||type==='htm'?[['rendered','Rendered HTML'],['source','HTML source']]:[['source',viewer?'Viewer':'Source']];
   if(mode.dataset.path!==active){mode.replaceChildren(...modes.map(([value,label])=>{const opt=document.createElement('option');opt.value=value;opt.textContent=label;return opt;}));mode.dataset.path=active||'';}
   const html=type==='html'||type==='htm', toggle=$('#html-toggle');
@@ -454,17 +475,124 @@ function updateToolbar(){
   toggle.hidden=!e||!html;toggle.querySelectorAll('span').forEach(s=>s.classList.toggle('active',s.dataset.mode===e?.mode));
   $('#file-info').textContent=e?(e.kind==='original'?'Read only · '+(e.origin.commit_hash||'No Git commit') :e.kind==='history'?'Local branches and fetched remote branches':viewer?type.toUpperCase()+' viewer':Array.from(e.content).length.toLocaleString()+' characters · UTF-8'):'Choose a file from the sidebar';
   $('#conflict').hidden=!e?.conflict;
+  if(e?.workMode==='review')$('#conflict').hidden=true;
   if(e?.conflict)$('#conflict span').textContent=e.conflict.deleted?'This file was deleted or became unavailable on disk. Copy your draft before closing it.':'Changed on disk. Your unsaved edits are preserved. Compare and merge before saving.';
+  $('#work-mode').hidden=!e||viewer;$('#work-mode').disabled=changingWorkMode||saving;$('#work-mode').value=e?.workMode==='review'?'review':'edit';
+  $('#approve-review').hidden=e?.workMode!=='review';$('#approve-review').disabled=saving||changingWorkMode||!!e?.reviewError;
+  $('#review-status').hidden=e?.workMode!=='review';$('#review-status').textContent=e?.reviewError?'Draft needs attention':e?.pendingOps?.length?'Saving review…':'Review saved';
+  $('#review-history').hidden=e?.workMode!=='review';
+  $('#review-conflict').hidden=!(e?.workMode==='review'&&e.reviewError);
+  if(e?.reviewError)$('#review-conflict-message').textContent=e.reviewError.message;
   scheduleSelectionTools();
 }
 async function saveActive(){
-  const e=entry();if(!e||!e.dirty)return e;if(e.conflict)throw new Error('Resolve the external change before saving.');syncState();saving=true;updateToolbar();
+  const e=entry();if(e?.workMode==='review'){await flushReview(e);return e;}if(!e||!e.dirty)return e;if(e.conflict)throw new Error('Resolve the external change before saving.');syncState();saving=true;updateToolbar();
   const content=e.content;
   try{
     const saved=await api('file','PUT',{path:e.path,content,version:e.version});e.diskContent=content;e.version=saved.version;e.dirty=e.content!==content;
     if(e.path===active)await refreshThreads();notify('Saved to disk');renderTabs();return e;
   }catch(error){if(error.status===409){const disk=await api('file?'+new URLSearchParams({path:e.path}));e.conflict=disk;}throw error;}
   finally{saving=false;updateToolbar();}
+}
+
+function queueReviewOperations(e,operations){
+  for(const op of operations){const last=e.pendingOps.at(-1);
+    if(last&&last.start===last.end&&op.start===op.end&&op.start===last.start+pointLength(last.insert))last.insert+=op.insert;
+    else if(last&&!last.insert&&!op.insert&&op.end===last.start)last.start=op.start;
+    else if(last&&!last.insert&&!op.insert&&op.start===last.start)last.end+=op.end-op.start;
+    else e.pendingOps.push(op);
+  }
+}
+function differenceOperations(before,after){return diff(before,after,{scanLimit:10000,timeout:100}).map(c=>({start:pointLength(before.slice(0,c.fromA)),end:pointLength(before.slice(0,c.toA)),insert:after.slice(c.fromB,c.toB)})).reverse();}
+function scheduleReviewSave(e){clearTimeout(e.reviewTimer);e.reviewTimer=setTimeout(()=>guard(()=>flushReview(e))(),450);}
+async function flushReview(e){
+  if(!e?.review||e.workMode!=='review')return;
+  clearTimeout(e.reviewTimer);
+  if(e.reviewSaving){await e.reviewSaving;if(e.reviewError)throw e.reviewError;return flushReview(e);}
+  if(e.reviewError)throw e.reviewError;
+  if(!e.pendingOps.length)return;
+  const operations=e.pendingOps.slice(0,1000),count=operations.length,metadata={author:$('#author').value||'Altay',role:'human',at:new Date().toISOString()};
+  e.reviewSaving=(async()=>{
+    try{
+      const saved=await api('reviews/'+e.review.id,'PATCH',{version:e.review.version,operations,author:metadata.author,role:'human',minimal:true});
+      const segments=saved.segments||applyReview(e.review.segments,operations,saved.edit||metadata,e.review.base);const content=saved.content??acceptedReview(segments);
+      e.pendingOps.splice(0,count);e.review={...e.review,...saved,segments,content};e.version=saved.version;e.diskContent=content;
+      e.reviewSegments=applyReview(segments,e.pendingOps,metadata,e.review.base);e.dirty=!!e.pendingOps.length;
+      if(e.path===active&&view&&e.reviewField){view.dispatch({effects:reviewEffect.of(e.reviewSegments)});e.state=view.state;}
+      else if(e.state&&e.reviewField)e.state=e.state.update({effects:reviewEffect.of(e.reviewSegments)}).state;
+      if(e.path===active){refreshMarkdownHighlights();await refreshThreads();}
+    }catch(error){e.reviewError=error;notify('Review draft preserved locally: '+error.message,true);throw error;}
+    finally{e.reviewSaving=null;updateToolbar();renderTabs();}
+  })();
+  await e.reviewSaving;if(e.pendingOps.length)return flushReview(e);
+}
+async function ensureWorkMode(e){
+  if(e.kind||['stl','jsonl'].includes(ext(e.path))||isImage(e.path))return;
+  const desired=reviewMode?'review':'edit';if(e.workMode===desired)return;
+  if(!e.workMode&&desired==='edit'){e.workMode='edit';return;}
+  if(desired==='review'){
+    if(e.dirty)throw new Error('Save or undo edit-mode changes before starting review.');
+    e.original={content:e.content,diskContent:e.diskContent,version:e.version,state:e.state};
+    const draft=await api('reviews','POST',{path:e.path,version:e.version});
+    e.review=draft;e.reviewSegments=draft.segments;e.pendingOps=[];e.reviewError=null;
+    e.content=draft.content;e.diskContent=draft.content;e.version=draft.version;e.state=null;e.conflict=null;e.dirty=false;
+  }else{
+    await flushReview(e);
+    const file=await api('file?'+new URLSearchParams({path:e.path}));
+    e.content=file.content;e.diskContent=file.content;e.version=file.version;e.state=null;e.conflict=null;e.dirty=false;e.review=null;e.reviewSegments=null;
+  }
+  e.workMode=desired;
+}
+async function setWorkMode(value){
+  if(changingWorkMode)return;changingWorkMode=true;syncState();updateToolbar();
+  const previous=reviewMode;
+  try{
+    if(entry()?.workMode==='review')await flushReview(entry());
+    reviewMode=value==='review';await ensureWorkMode(entry());
+    if(!reviewMode)for(const e of tabs.values())if(e!==entry()&&e.workMode==='review')await ensureWorkMode(e);
+    localStorage.setItem('looking-glass-review-mode:'+root,String(reviewMode));
+    view?.destroy();view=null;cleanup();cleanup=()=>{};mountDocument(entry());
+    lastThreadKey='';indexTime=0;threadSpotlight.restore();await refreshThreads();renderTabs();
+  }catch(error){reviewMode=previous;throw error;}
+  finally{changingWorkMode=false;updateToolbar();}
+}
+async function pollReview(e){
+  if(e.pendingOps.length||e.reviewSaving||e.reviewError)return;
+  const version=e.review.version;
+  const draft=await api('reviews/'+e.review.id+'?'+new URLSearchParams({version}));
+  if(!draft||e.review.version!==version||e.pendingOps.length||e.workMode!=='review')return;
+  if(draft.status!=='pending'){await setWorkMode('edit');return;}
+  e.review=draft;e.version=draft.version;e.diskContent=draft.content;e.reviewSegments=draft.segments;
+  if(e.path===active&&view&&e.reviewField){
+    const before=e.content,after=draft.content;let a=0,b=before.length,c=after.length;
+    while(a<b&&a<c&&before[a]===after[a])a++;
+    while(b>a&&c>a&&before[b-1]===after[c-1]){b--;c--;}
+    // Keep boundaries outside UTF-16 surrogate pairs and CRLF sequences.
+    const inside=(text,at)=>at>0&&at<text.length&&(/[\uD800-\uDBFF]/.test(text[at-1])&&/[\uDC00-\uDFFF]/.test(text[at])||text[at-1]==='\r'&&text[at]==='\n');
+    if(inside(before,a)||inside(after,a))a--;
+    if(inside(before,b)||inside(after,c)){b++;c++;}
+    // Keep accepted source as the editor document and ghosts as decorations.
+    const from=toUnits(before,Array.from(before.slice(0,a)).length),to=toUnits(before,Array.from(before.slice(0,b)).length);
+    view.dispatch({changes:{from,to,insert:after.slice(a,c)},effects:[remoteReview.of(true),reviewEffect.of(draft.segments)],annotations:[isolateHistory.of('full'),Transaction.addToHistory.of(false)]});
+    e.state=view.state;
+  }else{e.content=draft.content;e.state=null;if(e.path===active){cleanup();cleanup=()=>{};mountDocument(e);}}
+  e.content=draft.content;e.dirty=false;if(e.path===active)await refreshThreads();
+}
+async function approveReview(){
+  const e=entry();if(e?.workMode!=='review')return;
+  await flushReview(e);saving=true;updateToolbar();
+  try{
+    await api('reviews/'+e.review.id+'/approve','POST',{version:e.review.version});
+    // Approval concludes the active file; other drafts stay stored for resuming.
+    e.pendingOps=[];await setWorkMode('edit');notify('Reviewed version approved and saved');
+  }catch(error){notify(error.message,true);throw error;}
+  finally{saving=false;updateToolbar();}
+}
+async function showReviewHistory(){
+  const e=entry();if(!e?.review)return;await flushReview(e);
+  const data=await api('reviews/'+e.review.id+'/edits');const host=$('#review-events');host.replaceChildren();
+  for(const event of data.edits){const item=document.createElement('div');item.className='review-event';const label=document.createElement('p');label.textContent=event.author+' · '+event.role+' · '+event.created_at;item.append(label);for(const op of event.operations){if(op.removed){const del=document.createElement('del');del.textContent=op.removed;item.append(del);}if(op.insert){const add=document.createElement('span');add.className=event.role==='agent'?'review-agent':'review-human';add.textContent=op.insert;item.append(add);}}host.append(item);}
+  if(!data.edits.length)host.textContent='No edits yet.';$('#review-history-dialog').showModal();
 }
 
 function threadScope(){return $('#thread-scope').checked?'all':'file';}
@@ -490,14 +618,14 @@ function renderDiscussions(data,key){
   filterThreads();refreshMarkdownHighlights();if(entry()?.kind==='history')cleanup.updateCounts?.(data.index);
 }
 async function refreshThreads(useCache=false){
-  const current=active,path=discussionPath(),scope=threadScope(),generation=++refreshNumber,key=scope+':'+(path||'');
+  const current=active,path=discussionPath(),scope=threadScope(),review=entry()?.workMode==='review'?entry().review?.id:null,generation=++refreshNumber,key=scope+':'+(path||'')+':'+(review||'');
   const cached=discussionCache.get(key);
   if(useCache&&cached)renderDiscussions(cached.data,key);
   // Showing the in-flow loading row on every poll moves all existing cards.
   // Keep displayed discussions stable; only new views need loading feedback.
   $('#threads-loading').hidden=key===lastThreadKey;$('#threads').setAttribute('aria-busy','true');
   try{
-  const response=await fetch('/api/discussions?'+new URLSearchParams({path:path||'',scope}),{headers:{'X-Looking-Glass-Token':token,...(cached?{'If-None-Match':cached.etag}:{})}});
+  const response=await fetch('/api/discussions?'+new URLSearchParams({path:path||'',scope,...(review?{review}: {})}),{headers:{'X-Looking-Glass-Token':token,...(cached?{'If-None-Match':cached.etag}:{})}});
   if(!response.ok&&response.status!==304)throw new Error((await response.json()).error);
   const data=response.status===304?cached.data:await response.json();
   if(response.status!==304){discussionCache.set(key,{data,etag:response.headers.get('ETag')});if(discussionCache.size>8)discussionCache.delete(discussionCache.keys().next().value);}
@@ -508,11 +636,11 @@ async function refreshThreads(useCache=false){
   }
 }
 async function getNavigationIndex(){
-  if(Date.now()-indexTime>2000){navigationIndex=await api('thread-index');indexTime=Date.now();}
+  if(Date.now()-indexTime>2000){navigationIndex=await api('thread-index'+(entry()?.workMode==='review'?'?review='+entry().review.id:''));indexTime=Date.now();}
   return navigationIndex;
 }
 function filterThreads(){
-  const matches=threadSearch.update(currentThreads,threadSpotlight.active,$('#show-resolved').checked);
+  const matches=threadSearch.update(currentThreads,threadSpotlight.active,$('#show-resolved').checked,entry()?.workMode==='review'?entry().review?.id:null);
   if(zenMode&&!threadSpotlight.active&&!currentThreads.some(t=>t.id===activeThread&&(!t.resolved||$('#show-resolved').checked)&&(!matches||matches.has(t.id)))){activeThread=(matches?currentThreads.find(t=>matches.has(t.id)):currentThreads.find(t=>!t.resolved||$('#show-resolved').checked))?.id||null;zenCollapsed=false;}
   $$('.thread').forEach(t=>{
     const id=Number(t.dataset.thread);
@@ -601,7 +729,11 @@ async function jump(id,target=null,spotlight=false){
   let t=target||currentThreads.find(t=>t.id===id);if(!t)return;
   const show=()=>spotlight?spotlightSidebarThread(id,t):showThread(id);
   if(t.anchor_kind==='commit'||t.anchor_kind==='branch'){if(!t.git_target)t=await api('threads/'+id);await openFile(HISTORY);cleanup.selectTarget?.(t.git_target);await refreshThreads();show();return;}
-  if(t.anchor_status==='needs_reattachment'||tabs.get(t.path)?.conflict?.deleted){await openOriginal(id);show();notify('Showing original reviewed content.');return;}
+  if(t.anchor_kind==='review_removed'&&entry()?.workMode==='review'&&active===t.path){const ghost=$$('.review-deletion').find(el=>Number(el.dataset.reviewDeletion)===t.render_anchor?.edit_id&&el.textContent===t.render_anchor?.text);if(ghost){show();ghost.scrollIntoView({block:'center'});return;}}
+  if(t.anchor_kind==='review_removed'){await openOriginal(id);show();return;}
+  // Rendered-only anchors must reopen the report so a missing runtime passage
+  // can be reattached there, even when preview validation has already finished.
+  if((t.anchor_kind!=='rendered'&&t.anchor_status==='needs_reattachment')||tabs.get(t.path)?.conflict?.deleted){await openOriginal(id);show();notify('Showing original reviewed content.');return;}
   if(t.path!==active){if(!spotlight)showThread(id);try{await openFile(t.path);}catch(error){if(error.status===404){await openOriginal(id);show();return;}notify(error.message,true);return;}}
   t=currentThreads.find(item=>item.id===id)||t;
   show();
@@ -644,9 +776,11 @@ function presentComment(){
   else {$('#comment-dialog').style.left='calc(50% - 160px)';$('#comment-dialog').style.top='30%';}
   scheduleSelectionTools();$('#comment-body').focus();
 }
-function selectedContent(selection){return selection.git_target?'':selection.html||selection.render_anchor||selection.markdown&&!view?entry()?.content:view?.state.sliceDoc();}
+function selectedContent(selection){return selection.git_target?'':selection.removed||selection.html||selection.render_anchor||selection.markdown&&!view?entry()?.content:view?.state.sliceDoc();}
 async function startComment(){
   const e=entry();if(!e||e.kind)return;
+  const removed=removedSelection();
+  if(removed){await flushReview(e);const segment=e.review.segments.find(s=>s.kind==='delete'&&s.text===removed.removed_anchor.text);if(!segment)throw new Error('The removed passage changed. Select it again.');const stable={...removed,removed_anchor:{...removed.removed_anchor,edit_id:segment.edit_id}};pending={path:e.path,...stable,content:e.content,removed:true};presentComment();return;}
   if(renderedPreview)await captureHTMLSelection();
   if(renderedPreview&&renderedSelection){const source=htmlSelection();pending={path:e.path,...(source||{render_anchor:renderedSelection.anchor}),quote:renderedSelection.anchor.quote,content:e.content,html:true};}
   else if(markdownSelection()){const selected=markdownSelection(),text=view?view.state.sliceDoc():e.content;const start=view?selectionPoints(view.state,selected.from):Array.from(text.slice(0,selected.from)).length,end=view?selectionPoints(view.state,selected.to):Array.from(text.slice(0,selected.to)).length;pending={path:e.path,start,end,quote:Array.from(text).slice(start,end).join(''),content:text,markdown:true};}
@@ -660,7 +794,7 @@ async function submitComment(event){
   postingComment=true;composers.setSending($('#comment-form'),true);
   try{
     await saveActive();const e=entry();if(selection!==pending||selection.path!==active||selection.content!==selectedContent(selection))throw new Error('The selected passage changed. Select it again.');
-    const anchor=selection.git_target?{git_target:selection.git_target}:{path:selection.path,...(selection.render_anchor?{render_anchor:selection.render_anchor}:{start:selection.start,end:selection.end}),version:e.version};
+    const anchor=selection.git_target?{git_target:selection.git_target}:{path:selection.path,...(selection.removed_anchor?{removed_anchor:selection.removed_anchor}:selection.render_anchor?{render_anchor:selection.render_anchor}:{start:selection.start,end:selection.end}),version:e.version,...(e.workMode==='review'?{review_id:e.review.id}: {})};
     const result=await composers.post('threads',{...anchor,body,author},$('#comment-form'));
     composers.clear($('#comment-form'));
     if(active===selection.path){closeComment();if(selection.html)previewMessage('clear-selection');activeThread=result.id;await refreshThreads();showThread(result.id);view?.focus();}
@@ -831,6 +965,7 @@ async function poll(){
     for(const e of [...tabs.values()]){
       if(e.kind)continue;
       try{
+        if(e.workMode==='review'){await pollReview(e);continue;}
         const requestedVersion=e.version;
         if(ext(e.path)==='stl'||isImage(e.path)){
           const disk=await api('stat?'+new URLSearchParams({path:e.path}));
@@ -896,7 +1031,7 @@ window.addEventListener('message',guard(async event=>{
     for(const status of message.statuses){const thread=currentThreads.find(t=>t.id===status.id&&t.anchor_kind==='rendered');if(!thread||typeof status.attached!=='boolean')continue;
       if(renderedPreview!==preview||!tabs.has(preview.path))return;
       const next=status.attached?'attached':'needs_reattachment';if(thread.anchor_status===next)continue;
-      await api('threads/'+thread.id,'PATCH',{render_attached:status.attached,version:tabs.get(preview.path).version});thread.anchor_status=next;changed=true;
+      await api('threads/'+thread.id,'PATCH',{render_attached:status.attached,version:tabs.get(preview.path).version,...(entry()?.workMode==='review'?{review_id:entry().review.id}: {})});thread.anchor_status=next;changed=true;
     }
     if(changed&&renderedPreview===preview)await refreshThreads();
   }
@@ -986,6 +1121,7 @@ document.addEventListener('click',guard(async event=>{
   const close=event.target.closest('[data-close]');if(close)close.closest('dialog').close();
   const action=event.target.closest('[data-action]');if(!action)return;
   const id=Number(action.closest('.thread').dataset.thread),t=currentThreads.find(t=>t.id===id);
+  if(action.dataset.action==='edit-message'){const message=t.messages.find(m=>m.id===Number(action.dataset.message));$('#edit-comment-body').value=message.body;$('#edit-comment-form').dataset.thread=id;$('#edit-comment-form').dataset.message=message.id;$('#edit-comment-dialog').showModal();return;}
   if(action.dataset.action==='collapse-thread'){if(zenMode)zenCollapsed=true;else collapsedThreads.add(id);rememberCollapsed();filterThreads();return;}
   if(action.dataset.action==='expand-thread'){await focusSidebarThread(id);return;}
   if(action.dataset.action==='original'||action.dataset.action==='message-original'){await openOriginal(id,action.dataset.message);showThread(id);return;}
@@ -1027,9 +1163,9 @@ document.addEventListener('click',guard(async event=>{
   if(action.dataset.action==='reattach'){
     if(t.path!==active){await openFile(t.path);showThread(id);notify('Select the new passage in this file, then attach the thread.');return;}
     if(renderedPreview)await captureHTMLSelection();
-    if(t.anchor_kind==='rendered'){if(!renderedSelection)throw new Error('Select the new passage in the rendered report first.');await saveActive();await api('threads/'+id,'PATCH',{render_anchor:renderedSelection.anchor,version:entry().version});await refreshThreads();await jump(id);return;}
-    if(renderedPreview){const source=htmlSelection();if(!source)throw new Error('Select a passage with matching HTML source, or attach it in source mode.');await saveActive();await api('threads/'+id,'PATCH',{...source,version:entry().version});await refreshThreads();await jump(id);return;}
-    if(!view||view.state.selection.main.empty)throw new Error('Select the new passage in the editor first.');const {from,to}=view.state.selection.main;const start=selectionPoints(view.state,from),end=selectionPoints(view.state,to);await saveActive();await api('threads/'+id,'PATCH',{start,end,version:entry().version});await refreshThreads();await jump(id);
+    if(t.anchor_kind==='rendered'){if(!renderedSelection)throw new Error('Select the new passage in the rendered report first.');await saveActive();await api('threads/'+id,'PATCH',{render_anchor:renderedSelection.anchor,version:entry().version,...(entry().workMode==='review'?{review_id:entry().review.id}: {})});await refreshThreads();await jump(id);return;}
+    if(renderedPreview){const source=htmlSelection();if(!source)throw new Error('Select a passage with matching HTML source, or attach it in source mode.');await saveActive();await api('threads/'+id,'PATCH',{...source,version:entry().version,...(entry().workMode==='review'?{review_id:entry().review.id}: {})});await refreshThreads();await jump(id);return;}
+    if(!view||view.state.selection.main.empty)throw new Error('Select the new passage in the editor first.');const {from,to}=view.state.selection.main;const start=selectionPoints(view.state,from),end=selectionPoints(view.state,to);await saveActive();await api('threads/'+id,'PATCH',{start,end,version:entry().version,...(entry().workMode==='review'?{review_id:entry().review.id}: {})});await refreshThreads();await jump(id);
   }
 }));
 document.addEventListener('submit',event=>{
@@ -1038,7 +1174,7 @@ document.addEventListener('submit',event=>{
     const id=Number(form.closest('.thread').dataset.thread),field=form.querySelector('textarea'),body=field.value;
     composers.setSending(form,true);composers.status(form,'Sending…');
     try{
-      await composers.post('threads/'+id+'/replies',{author:$('#author').value,body},form);
+      await composers.post('threads/'+id+'/replies',{author:$('#author').value,body,...(entry()?.workMode==='review'?{review_id:entry().review.id}: {})},form);
       composers.clear(form);
       // Keep text entered while a reply was being sent.
       const current=document.getElementById('reply-'+id);if(current?.value===body)current.value='';
@@ -1048,6 +1184,7 @@ document.addEventListener('submit',event=>{
 
   })();}
 });
+$('#edit-comment-form').onsubmit=event=>{event.preventDefault();const form=event.currentTarget;guard(async()=>{await api('threads/'+form.dataset.thread+'/messages/'+form.dataset.message,'PATCH',{body:$('#edit-comment-body').value});$('#edit-comment-dialog').close();await refreshThreads();})();};
 $('#comment-form').onsubmit=event=>{submitComment(event).catch(error=>{$('#comment-error').textContent=error.message;notify(error.message,true);});};
 $('#comment-dialog').addEventListener('close',()=>{composers.clear($('#comment-form'));if(!$('#comment-dialog').open&&pending?.path)pending=null;scheduleSelectionTools();});
 $('#comment-cancel').onclick=()=>{closeComment();view?.focus();};
@@ -1064,6 +1201,19 @@ $('#download-file').onclick=guard(()=>{
   link.href=url;link.download=e.path.split('/').pop();document.body.append(link);link.click();link.remove();
   setTimeout(()=>URL.revokeObjectURL(url),1000);
 });
+$('#review-copy').onclick=guard(async()=>{await navigator.clipboard.writeText(entry().content);notify('Draft copied');});
+$('#review-retry').onclick=guard(async()=>{const e=entry();e.reviewError=null;await flushReview(e);});
+$('#review-compare').onclick=guard(async()=>{const e=entry();const latest=await api('reviews/'+e.review.id);$('#latest-review').textContent=latest.content;$('#merged-review').value=e.content;$('#review-merge-form')._draft=latest;$('#review-merge-dialog').showModal();});
+$('#review-merge-form').onsubmit=event=>{
+  event.preventDefault();const form=event.currentTarget;guard(async()=>{const e=entry(),latest=form._draft;
+  if(latest.id!==e.review?.id)throw new Error('Open the reviewed file before finishing this comparison.');
+  const content=$('#merged-review').value,operations=differenceOperations(latest.content,content);
+  const saved=operations.length?await api('reviews/'+latest.id,'PATCH',{version:latest.version,operations,author:$('#author').value||'Altay',role:'human'}):latest;
+  e.review=saved;e.version=saved.version;e.content=saved.content;e.diskContent=saved.content;e.reviewSegments=saved.segments;e.pendingOps=[];e.reviewError=null;e.dirty=false;e.state=null;
+  view?.destroy();view=null;cleanup();cleanup=()=>{};mountDocument(e);$('#review-merge-dialog').close();await refreshThreads();updateToolbar();renderTabs();
+})();};
+$('#work-mode').onchange=guard(()=>setWorkMode($('#work-mode').value));
+$('#approve-review').onclick=guard(approveReview);$('#review-history').onclick=guard(showReviewHistory);
 $('#save').onclick=guard(saveActive);$('#annotate').onclick=guard(startComment);
 $('#all-discussions').onclick=()=>{passageActivation++;threadSpotlight.restore();};
 function visibleThreadIds(){return $$('.thread').filter(t=>!t.hidden).map(t=>Number(t.dataset.thread));}

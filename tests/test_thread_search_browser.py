@@ -157,3 +157,73 @@ def test_empty_search_hints_reveal_only_the_required_scopes(workspace_page):
     expect(page.locator('#thread-scope')).to_be_checked();expect(page.locator('#show-resolved')).to_be_checked()
     expect(page.locator('#thread-search-status')).to_contain_text('1 match');assert visible_ids(page)==[closed['id']]
     search.fill('trulyabsent');expect(page.locator('#thread-search-empty')).to_be_visible();expect(hints.locator('button')).to_have_count(0)
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_search_review_drafts_filters_navigation_and_approval(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    original='Original passage.\n';(root/'note.txt').write_text(original)
+    file=ws.read('note.txt');draft=ws.reviews.start('note.txt',file['version'])
+    draft=ws.reviews.update(draft['id'],draft['version'],[dict(start=0,end=0,insert='Draftvalue\n')],'Agent','agent')
+    local=ws.reviews.create_thread(draft['id'],draft['version'],0,10,'Verifier feedback','Agent')
+    (root/'other.txt').write_text('Outside passage.')
+    otherfile=ws.read('other.txt');otherdraft=ws.reviews.start('other.txt',otherfile['version'])
+    outside=ws.reviews.create_thread(otherdraft['id'],otherdraft['version'],0,7,'Verifier feedback','Agent')
+    ws.update_thread(outside['id'],resolved=True)
+    page.goto(url);open_file(page,'note.txt');page.locator('#work-mode').select_option('review')
+    expect(page.locator('.review-agent')).to_have_text('Draftvalue')
+    search=page.locator('#thread-search');search.fill('verifer')
+    expect(page.locator('#thread-search-status')).to_contain_text('1 match')
+    assert visible_ids(page)==[local['id']]
+    search.fill('draftvalue');expect(page.locator('.thread-search-match:visible .search-match-label')).to_have_text('Passage')
+    search.press('Enter');expect(page.locator('#passage-spotlight')).to_be_visible()
+    expect(page.locator('.focused-highlight')).to_have_text('Draftvalue')
+    page.keyboard.press('Escape');expect(search).to_have_value('draftvalue')
+    search.fill('verifier');page.locator('#thread-scope').check()
+    expect(page.locator('#thread-search-status')).to_contain_text('1 match')
+    page.locator('#show-resolved').check();expect(page.locator('#thread-search-status')).to_contain_text('2 matches')
+    page.locator(f'.thread[data-thread="{outside["id"]}"] .thread-search-match').click()
+    expect(page.locator('#document-name')).to_have_text('other.txt')
+    expect(page.locator('#work-mode')).to_have_value('review')
+    expect(page.locator('.thread.active')).to_have_attribute('data-thread',str(outside['id']))
+    page.wait_for_function("getSelection().toString()==='Outside'")
+    page.keyboard.press('Escape');open_file(page,'note.txt')
+    assert (root/'note.txt').read_text()==original
+    page.locator('#approve-review').click();expect(page.locator('#work-mode')).to_have_value('edit')
+    expect(page.locator('#thread-search-status')).to_contain_text('1 match')
+    assert visible_ids(page)==[local['id']]
+    assert (root/'note.txt').read_text()==draft['content']
+    assert (root/'other.txt').read_text()=='Outside passage.'
+    assert [item['id'] for item in ws.reviews.list()]==[otherdraft['id']]
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_review_search_hints_use_draft_passages_and_clear_on_mode_switch(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    (root/'note.txt').write_text('Local passage.')
+    (root/'other.txt').write_text('Outside passage.')
+    file=ws.read('other.txt');thread=ws.create_thread('other.txt',0,len(file['content']),'Ordinary comment','Agent',file['version'])
+    draft=ws.reviews.start('other.txt',file['version'])
+    draft=ws.reviews.update(draft['id'],draft['version'],[dict(start=8,end=8,insert='uniquereview ')],'Agent','agent')
+    closed=ws.reviews.create_thread(draft['id'],draft['version'],0,7,'Closedreview observation','Agent')
+    ws.update_thread(closed['id'],resolved=True)
+    page.goto(url);open_file(page,'note.txt');search=page.locator('#thread-search');hints=page.locator('#thread-search-hints')
+    search.fill('uniquereview');expect(page.locator('#thread-search-empty')).to_be_visible()
+    # Wait for the index response rather than relying on a fixed delay.
+    with page.expect_response('**/api/thread-search-index?review=*'):
+        page.locator('#work-mode').select_option('review')
+    expect(hints).to_contain_text('1 match in other files')
+    hints.get_by_role('button',name='1 match in other files',exact=True).click()
+    expect(page.locator('#thread-search-status')).to_contain_text('1 match')
+    assert visible_ids(page)==[thread['id']]
+    expect(page.locator('.thread-search-match:visible mark')).to_have_text('uniquereview')
+    page.locator('#thread-scope').uncheck();search.fill('closedreview')
+    expect(hints).to_contain_text('1 match in resolved threads in other files')
+    with page.expect_response('**/api/thread-search-index'):
+        page.locator('#work-mode').select_option('edit')
+    expect(page.locator('#work-mode')).to_have_value('edit')
+    expect(page.locator('#thread-search-empty')).to_be_visible();expect(hints.locator('button')).to_have_count(0)
+    page.locator('#thread-scope').check();page.locator('#show-resolved').check()
+    expect(page.locator('#thread-search-empty')).to_be_visible();assert visible_ids(page)==[]

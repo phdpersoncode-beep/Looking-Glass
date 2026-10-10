@@ -7,15 +7,19 @@ export function createThreadSearchView(sidebar,{onInput,onOpen,onRefresh,loadInd
   const hints=sidebar.querySelector('#thread-search-hints'),scope=sidebar.querySelector('#thread-scope'),resolved=sidebar.querySelector('#show-resolved');
   let indexed=null,search=()=>[],results=[],listScroll=0,searching=false;
   let globalThreads=[],globalSearch=()=>[],hintTag=null,hintTime=0,hintLoading=false;
+  let context=null;
   async function refreshHints(){
     if(hintLoading||Date.now()-hintTime<2000)return;
+    const requestedContext=context;
     hintLoading=true;hintTime=Date.now();
     try{
-      const result=await loadIndex(hintTag);hintTag=result.etag;
+      const result=await loadIndex(hintTag,requestedContext);
+      if(context!==requestedContext)return;
+      hintTag=result.etag;
       if(result.data){globalThreads=result.data;globalSearch=createThreadSearch(globalThreads);}
       onRefresh();
     }catch{/* Hint discovery should never interrupt the local search. */}
-    finally{hintLoading=false;}
+    finally{if(context===requestedContext)hintLoading=false;}
   }
   function hint(count,label,enableScope,enableResolved){
     if(!count)return;
@@ -51,7 +55,8 @@ export function createThreadSearchView(sidebar,{onInput,onOpen,onRefresh,loadInd
     const button=event.target.closest('.thread-search-match');
     if(button){event.preventDefault();onOpen(Number(button.closest('.thread').dataset.thread));}
   });
-  function update(threads,spotlight,showResolved){
+  function update(threads,spotlight,showResolved,nextContext=null){
+    if(context!==nextContext){context=nextContext;globalThreads=[];globalSearch=()=>[];hintTag=null;hintTime=0;hintLoading=false;}
     if(indexed!==threads){indexed=threads;search=createThreadSearch(threads);}
     const query=input.value.trim(),enabled=!!query&&!spotlight;
     const back=sidebar.querySelector('#all-discussions');back.firstChild.textContent=query?'Search results ':'All discussions ';back.title=(query?'Search results':'All discussions')+' (Esc)';

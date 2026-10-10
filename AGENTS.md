@@ -4,6 +4,7 @@
 A local prose/code editor and review tool for working with coding agents on ordinary files. Persistent, passage-anchored discussions are the priority: highlight text, exchange comments, and navigate editing passes. Keep a small architecture and a clean Notion-style experience with Obsidian-style live Markdown.
 
 ## Current capabilities
+- Non-destructive review drafts: green human additions, blue agent additions, red struck-out removals, edit history, independent discussion anchors, autosave/conflict recovery, and explicit active-file approval. Agents use the review CLI; source files change only on approval.
 - CodeMirror editing: live/raw/preview Markdown with a pinned heading-contents bar in live mode, rendered passage/table annotations, explicit table source editing, local Mermaid diagrams, plain text, Python/Bash highlighting, undo/redo, save, search/replace, tabs, fuzzy file search, and Git change gutters.
 - Persistent source/HTML threads: compact Markdown messages, fuzzy sidebar search with ranked excerpts and scope hints, passage sidebar spotlight that preserves reading and list positions, replies, attachments/renaming, resolve/reopen, deletion, cross-file navigation, collapse controls, commit anchors/original-context tabs, and reattachment. Clipboard screenshots and files use compact comment composers. Loading feedback and file-size warnings. Resizable sidebars; zen mode uses Ctrl+Alt+Z, preserving Ctrl+Z undo.
 - Interactive sandboxed HTML reports with rendered-to-source annotations (runtime-only text keeps rendered anchors), split JSONL viewer with search, entry arrows, and retained detail scroll position, and ASCII/binary STL viewing with orbit/pan/zoom/fit and software fallback.
@@ -11,7 +12,7 @@ A local prose/code editor and review tool for working with coding agents on ordi
 
 ## Constraints
 - Python 3.10+, Flask, HTMX, SQLite, CodeMirror 6, Tailwind, and Three.js. Build application assets locally; no CDN dependencies.
-- Disk files are authoritative; preserve ordinary Markdown/plain text. SQLite holds discussions/metadata in `<workspace>/.looking-glass/`; never commit its database or token.
+- Disk files are authoritative in edit mode; review drafts stay separate until approval. Preserve ordinary Markdown/plain text. SQLite holds discussions/metadata in `<workspace>/.looking-glass/`; never commit its database or token.
 - Reload clean external changes; preserve dirty drafts and reject stale saves. Ambiguous/deleted live anchors need reattachment; immutable review context stays readable.
 - Saving never commits. Git checkpoints are explicit and preserve unrelated staged/unstaged work.
 - Loopback-only server; isolate report scripts from editor state/tokens. Agents run separately through the local interface; no built-in model calls or project-code execution.
@@ -48,8 +49,8 @@ Use `uv run looking-glass` from this checkout if not installed globally. See `--
 
 ## Repo map
 Keep this map and commands current when structure or workflows change.
-- `looking_glass/app.py`: routes/security; `workspace.py`: files, SQLite, threads; `anchors.py`: anchor mapping; `revisions.py`: Git checkpoints/history; `origins.py`: immutable review context.
+- `looking_glass/app.py`: routes/security; `workspace.py`: files, SQLite, threads; `anchors.py`: anchor mapping; `reviews.py`: drafts/provenance/approval; `revisions.py`: Git checkpoints/history; `origins.py`: immutable review context.
 - `looking_glass/cli.py`: server/agent commands; `projects.py`: project registry; `instructions.py`: agent guidance; `attachments.py`: thread-owned uploads.
 - `looking_glass/templates/`: HTML/HTMX; `frontend/app.js`, `frontend/style.css`, and small `.mjs` modules: client sources; `looking_glass/static/`: committed output of `build.mjs`.
-- `tests/`: backend/CLI/browser checks; `.github/workflows/`: automated checks; `scripts/benchmark_discussions.py`, `scripts/benchmark_anchors.py`: disposable benchmarks; `demo_dir/`: fixtures; `docs/`: API, architecture, performance, verification.
+- `tests/`: backend/CLI/browser checks; `.github/workflows/`: automated checks; `scripts/benchmark_*.py`: disposable discussion/anchor/review benchmarks; `demo_dir/`: fixtures; `docs/`: API, architecture, performance, verification.
 - `pyproject.toml`, `uv.lock`: Python packaging/dependencies; `package.json`, `package-lock.json`: frontend dependencies.

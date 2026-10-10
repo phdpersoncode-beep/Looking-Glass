@@ -127,3 +127,26 @@ remaining discussion uses it. Attachments stream to disk; the composer retains
 browser File/Blob references and small previews until sending, rather than
 embedding image bytes in every discussion response. No new frontend dependency
 or backend framework was added.
+
+## Non-destructive review drafts · 2026-10-09
+
+Drafts are created lazily, with coalesced human saves and operation-based history.
+Unchanged polls inspect a small revision record and return 304 without reading or
+transferring draft text. Human saves request small acknowledgements; full content
+is fetched when the revision changes. Browser edit tracking updates provenance
+segments incrementally. Disk files remain unchanged until approval.
+
+Measured with `uv run python scripts/benchmark_reviews.py --mib N --iterations 20`:
+
+| Approximate source size | Ordinary save median | Review save median | Unchanged poll median | Maximum save acknowledgement |
+| --- | ---: | ---: | ---: | ---: |
+| 1 MiB (1,048,525 bytes) | 5.11 ms | 13.47 ms | 0.62 ms | 173 bytes |
+| 8 MiB (8,388,550 bytes) | 35.74 ms | 88.84 ms | 0.62 ms | 173 bytes |
+
+Both runs verified exact preservation of the original. This local microbenchmark
+uses append operations, no discussions, and the Flask test client; it does not
+measure browser rendering, network latency, complex replacement workloads, or
+long histories. Saves still serialize/store the accepted draft and segments, so
+their cost grows with document size. Base/draft content, provenance and history
+require additional disk space. The 8 MiB text limit applies to accepted drafts.
+Review mode adds bounded work, not zero overhead.
