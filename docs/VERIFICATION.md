@@ -486,13 +486,14 @@ Follow-up: [PR #12](https://github.com/phdpersoncode-beep/Looking-Glass/pull/12)
 branch `test/whole-app-regressions`, targeting main after PR #11.
 The results below record completed local and locked-dependency GitHub verification.
 
-- The full existing collection is retained. **7 backend** and **16 browser**
+- The full existing collection is retained. **7 backend** and **18 browser**
   cases were added: Unicode/CRLF discussion origins and attachments across
   review approval/restart; stale writes preserving draft/discussion state;
   approval/checkpoints preserving other files and staged work; independent
   tab drafts/undo; edited-comment search, context, resolution/reopening and
   reload; browser context isolation; pre-focus HTML reading position; and
-  smooth-scroll interruption with visible/hidden discussion sidebars.
+  smooth-scroll interruption with visible/hidden discussion sidebars; and
+  stable JSONL comparison positions through subsequent editor measurements.
   `TESTING.md` maps the entire application's existing and added coverage.
 - Final locked-dependency backend run: **108 passed** in **22.61 seconds**,
   while browser jobs ran concurrently. An earlier run passed in 16.20 seconds.
@@ -544,6 +545,15 @@ The results below record completed local and locked-dependency GitHub verificati
   the full local HTML/spotlight and added integration group passed **46 cases**
   in **86.89 seconds**. Four more HTML cases bring the full collection to **391**.
   Final-head hosted checks remain a merge requirement and are recorded on PR #12.
+- The next [pinned run](https://github.com/phdpersoncode-beep/Looking-Glass/actions/runs/38039392482)
+  passed all context/HTML checks and **390/391 browser cases**; the existing
+  Chromium JSONL comparison check caught position 700 briefly restoring and
+  then moving to 10. CodeMirror's later measure was applying an anchor mapped
+  through the replaced row. The restored new document now receives a native
+  scroll snapshot, preventing that later anchor correction. The existing check
+  plus two new stability/wheel checks pass in both browsers (**4 passed** in
+  **12.02 seconds**). The new checks sample eight consecutive animation frames
+  after each of three row changes; the full browser collection is now **393**.
 - Asset rebuilds are reproducible; wheel/source distribution builds pass.
   All **18** packaged static assets/templates match the checkout byte for byte.
   `git diff --check` passes. The follow-up workflow runs all four browser shards

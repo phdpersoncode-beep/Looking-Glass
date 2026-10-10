@@ -55,6 +55,8 @@ geometry/fonts before recording their baseline. HTML alignment uses instant
 scrolling to stop an earlier sidebar animation. The preservation assertions and
 deadlines remain unchanged; separate cases also exercise reports that request
 smooth scrolling during a highlight click and verify normal wheel navigation.
+JSONL comparison checks also sample multiple frames after row selection, so a
+transient restoration followed by a late editor-anchor jump cannot pass.
 
 Production assets must rebuild without differences after the intended asset
 changes are committed. CI also builds wheel/source distributions. See

@@ -164,3 +164,34 @@ def test_html_highlight_keeps_position_before_mouse_focus(workspace_page, hidden
     frame = next(frame for frame in page.frames if frame.url.startswith(url + '/preview/'))
     frame.wait_for_function('before=>window.scrollY<before', arg=scroll)
     assert (root / 'report.html').read_text() == text
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_jsonl_comparison_position_remains_stable_after_entry_changes(workspace_page):
+    import json
+    from playwright.sync_api import expect
+    root, page, url, _ = workspace_page
+    rows = [{f'field_{i:03}': f'{name} value {i}' for i in range(140)}
+            for name in ['first', 'second', 'third']]
+    text = '\n'.join(json.dumps(row) for row in rows) + '\n'
+    (root / 'rows.jsonl').write_text(text)
+    page.goto(url)
+    open_file(page, 'rows.jsonl')
+    scroller = page.locator('.jsonl-detail .cm-scroller')
+    scroller.evaluate('el=>el.scrollTop=700')
+    page.wait_for_function('()=>document.querySelector(".jsonl-detail .cm-scroller").scrollTop>=690')
+    for index in (1, 2, 0):
+        page.locator(f'.jsonl-row[data-row="{index}"]').click()
+        expect(page.locator('.jsonl-detail .viewer-heading')).to_contain_text(f'ROW {index + 1} / 3')
+        page.wait_for_function('()=>Math.abs(document.querySelector(".jsonl-detail .cm-scroller").scrollTop-700)<10')
+        # A one-frame restoration must survive subsequent editor measurement.
+        positions = scroller.evaluate('''el=>new Promise(resolve=>{
+          const positions=[];let remaining=8;
+          function frame(){positions.push(el.scrollTop);if(--remaining)requestAnimationFrame(frame);else resolve(positions)}
+          requestAnimationFrame(frame);
+        })''')
+        assert all(abs(top - 700) < 10 for top in positions), positions
+    scroller.hover()
+    page.mouse.wheel(0, 250)
+    page.wait_for_function('()=>document.querySelector(".jsonl-detail .cm-scroller").scrollTop>800')
+    assert (root / 'rows.jsonl').read_text() == text
