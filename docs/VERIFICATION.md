@@ -442,3 +442,37 @@ Implementation: `8e5f448`, on `feature/markdown-discussion-reading-polish` (PR #
 - The [locked-dependency workflow](https://github.com/phdpersoncode-beep/Looking-Glass/actions/runs/37918336516)
   passes its fast job, including backend/frontend tests, rebuilt asset equality,
   and packaging. Its browser job is still running when these notes are written.
+
+## Temporary discussion context and resolved passages
+
+Branch: `feature/context-return-and-resolved-passages`, integrated with main
+`1f974f6` after PR #10.
+
+- **101 backend** and **20 JavaScript** tests pass with locked dependencies.
+- **170 distinct new browser cases** pass across the context suite and targeted
+  follow-up runs in Chromium and Firefox. Coverage includes numbered and
+  parenthesized lists/tasks; rendered Markdown/code context; Return/Esc and
+  resolution/deletion/unfocus; exact scroll restoration; preserved editor DOM,
+  unsaved text, reply drafts and isolated HTML report state; faint resolved
+  marks in dirty drafts, tables, previews and HTML; overlapping open discussions;
+  native selection clearing; deletion of comments added during a context visit;
+  and Review mode scope/reply snapshots. Unrelated HTML selections remain intact.
+- The complete existing browser suite passes: **205 cases** in **1040.53 seconds**.
+  Together with the new module, **375 distinct browser cases** pass. The new module's initial run
+  passed 138 cases before encountering a test harness string wait blocked by
+  the application's CSP. That wait now uses a DOM assertion; 16 follow-up
+  cases, 12 Markdown selection cases and 12 final HTML cases pass, with eight
+  repeated HTML cases. These runs cover all 170 distinct cases in the module.
+- Local browser verification uses **Playwright 1.55.0**, **Chromium 140.0.7339.16**
+  and **Firefox 141.0**. Locked Playwright 1.63.0 browser downloads returned
+  incomplete archives. Firefox's process sandbox is disabled for this container;
+  report iframe isolation remains enabled and tested. Dependencies are unchanged.
+- A clean `npm ci` build and a repeated asset rebuild produce identical bytes.
+  Wheel/source distribution builds pass; packaged static assets and templates
+  match the checkout. Light/dark context and resolved-passage layouts were
+  inspected visually. The unpublished patch applies cleanly to the recorded
+  main baseline.
+- Branch/PR publication is blocked by automatic approval review, which requires
+  explicit user authorization to upload these changes to public
+  `phdpersoncode-beep/Looking-Glass`. No remote branch or PR has been created, so
+  no hosted workflow for this change has run.

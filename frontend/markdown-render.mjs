@@ -187,7 +187,7 @@ export function mountMappedMarkdown(host,source,offset=0,decorate=()=>{}) {
           const ids=idsAt(at),change=changeAt(at);let end=at+1;
           while(end<map.length&&idsAt(end).join(',')===ids.join(',')&&changeAt(end)===change&&!(ghostAt<ghosts.length&&ghosts[ghostAt].from<=map[end].from))end++;
           const text=leaf._text.slice(at,end);
-          if(ids.length||change){const mark=document.createElement('span');mark.className=(ids.length?'passage-highlight'+(ids.includes(active)?' focused-highlight':''):'')+(change?' '+(change.role==='agent'?'review-agent':'review-human'):'');if(ids.length){mark.dataset.anchor=String(ids.includes(active)?active:ids[0]);mark.dataset.anchors=ids.join(',');}if(change)mark.title=reviewLabel(change);mark.textContent=text;fragment.append(mark);}
+          if(ids.length||change){const resolved=ids.length&&ids.every(id=>spans.find(s=>s.id===id)?.resolved);const mark=document.createElement('span');mark.className=(ids.length?'passage-highlight'+(resolved?' resolved-passage':ids.includes(active)&&!spans.find(s=>s.id===active)?.resolved?' focused-highlight':''):'')+(change?' '+(change.role==='agent'?'review-agent':'review-human'):'');if(ids.length){mark.dataset.anchor=String(ids.includes(active)?active:ids[0]);mark.dataset.anchors=ids.join(',');}if(change)mark.title=reviewLabel(change);mark.textContent=text;fragment.append(mark);}
           else fragment.append(document.createTextNode(text));at=end;
         }
         while(ghostAt<ghosts.length)addGhost(ghosts[ghostAt++]);

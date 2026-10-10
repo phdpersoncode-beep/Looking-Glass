@@ -1,3 +1,21 @@
+# Context return and resolved passage presentation
+
+Branch: `feature/context-return-and-resolved-passages` (integrated with main after PR #10).
+
+- [x] Preserve numbered and parenthesized list markers in live Markdown, including nested lists and tasks.
+- [x] Render Markdown context with shared headings, tables, lists, and syntax-colored fences; retain read-only code highlighting.
+- [x] Treat thread/message context as a temporary tab with Return/Esc and automatic cleanup after resolution, deletion, or unfocus.
+- [x] Preserve reader position, undo history, unsaved drafts, and isolated HTML report state on return; omit temporary context from restored sessions.
+- [x] Use faint underlines for resolved passages across source, live Markdown, tables, previews, and HTML; preserve local draft anchors and overlapping open highlights.
+- [x] Preserve Review mode discussion scope and capture the current draft when replying from an immutable context tab.
+- [x] Rebuild production assets and pass backend/frontend and package checks.
+- [x] Complete all browser regressions.
+- [ ] Push the branch and publish the PR. Automatic approval review requires explicit authorization to publish these changes to public `phdpersoncode-beep/Looking-Glass`.
+
+Verification: 101 backend, 20 frontend and 375 distinct browser cases pass (205 existing plus 170 new, across Chromium and Firefox). Reproducible assets, wheel/source builds, packaged-byte equality and light/dark visual checks pass. See `docs/VERIFICATION.md` for run details and the publishing blocker.
+
+---
+
 # Spotlight navigation and reading-position fixes
 
 Continue on `feature/markdown-discussion-reading-polish` (PR #8).

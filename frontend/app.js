@@ -32,7 +32,7 @@ const $ = selector => document.querySelector(selector);
 const token = $('meta[name=looking-glass-token]').content;
 const root = $('.root-label').textContent;
 const threadSpotlight=createThreadSpotlight($('.discussion-sidebar'),filterThreads);
-const threadSearch=createThreadSearchView($('.discussion-sidebar'),{onInput:()=>{threadSpotlight.restore();filterThreads();},onOpen:guard(focusSidebarThread),onRefresh:filterThreads,loadIndex:async (etag,review)=>{
+const threadSearch=createThreadSearchView($('.discussion-sidebar'),{onInput:()=>{if(contextVisit)guard(returnFromOriginal)();threadSpotlight.restore();filterThreads();},onOpen:guard(focusSidebarThread),onRefresh:filterThreads,loadIndex:async (etag,review)=>{
   const response=await fetch('/api/thread-search-index'+(review?'?review='+review:''),{headers:{'X-Looking-Glass-Token':token,...(etag?{'If-None-Match':etag}:{})}});
   if(!response.ok&&response.status!==304)throw new Error('Unable to search other discussions.');
   return {data:response.status===304?null:await response.json(),etag:response.headers.get('ETag')};
@@ -42,19 +42,27 @@ const tabs = new Map();
 let reviewMode=localStorage.getItem('looking-glass-review-mode:'+root)==='true';
 let changingWorkMode=false;
 const HISTORY='looking-glass://history',ORIGINAL='looking-glass://thread/';
+let contextVisit=null;
 async function readTab(path){
   if(path===HISTORY)return {content:'',version:null,kind:'history'};
   if(path.startsWith(ORIGINAL)){
     const match=path.slice(ORIGINAL.length).match(/^(\d+)\/original(?:\/(\d+))?$/);if(!match)throw new Error('Invalid context tab.');
     const file=await api('threads/'+match[1]+(match[2]?'/messages/'+match[2]:'')+'/original');
-    return {content:file.content,version:file.origin.snapshot_hash,sourcePath:file.path,origin:file.origin,kind:'original'};
+    const thread=currentThreads.find(t=>t.id===Number(match[1]));
+    return {content:file.content,version:file.origin.snapshot_hash,sourcePath:file.path,origin:file.origin,kind:'original',threadId:Number(match[1]),messageId:match[2]?Number(match[2]):null,resolvedAtOpen:!!thread?.resolved,contextMessages:thread?.messages.map(m=>m.id),contextReview:thread?.review_context||thread?.review_id||discussionReview()};
   }
   const info=await api('stat?'+new URLSearchParams({path}));
   if(info.too_large)return {...info,content:'',kind:'oversized'};
   return ext(path)==='stl'||isImage(path)?{content:'',version:null}:api('file?'+new URLSearchParams({path}));
 }
 function openOriginal(id,message){return openFile(ORIGINAL+id+'/original'+(message?'/'+message:''));}
+async function returnFromOriginal(){
+  if(!contextVisit)return;
+  if(contextVisit.path)await openFile(contextVisit.path);
+  else await closeTab(active,true);
+}
 function discussionPath(){const e=entry();return e?.kind==='original'?e.sourcePath:e?.kind==='history'?e.history?.target?.path||null:e?.kind==='oversized'?null:active;}
+function discussionReview(){const e=entry();return e?.kind==='original'?e.contextReview:e?.workMode==='review'?e.review?.id:null;}
 let expandedFolders=new Set();try{expandedFolders=new Set(JSON.parse(localStorage.getItem('looking-glass-folders:'+root)||'[]'));}catch{}
 let zenMode=localStorage.getItem('looking-glass-zen')==='true',zenCollapsed=false;
 let collapsedThreads=new Set();try{collapsedThreads=new Set(JSON.parse(localStorage.getItem('looking-glass-collapsed-threads:'+root)||'[]'));}catch{}
@@ -70,9 +78,9 @@ let renderedPreview=null,renderedSelection=null,renderedJump=null;
 let contentsController=null;
 const markdownViews=new Set();
 function markdownSelection(){for(const rendered of markdownViews){if(rendered.host.isConnected){const selection=rendered.selection();if(selection)return selection;}}return null;}
-function markdownSpans(){const e=entry();return view?view.state.field(spanField):e?spansFor(currentThreads,e.content).map(span=>({...span,from:toRawUnits(e.content,span.from),to:toRawUnits(e.content,span.to)})):[];}
+function markdownSpans(){const e=entry();return view?view.state.field(spanField):e?(e.dirty&&e.state?e.state.field(spanField):spansFor(currentThreads,e.content)).map(span=>({...span,from:toRawUnits(e.content,span.from),to:toRawUnits(e.content,span.to)})):[];}
 function currentReviewRanges(normalized=false){const e=entry();return e?.review&&e.workMode==='review'?reviewRanges(e.reviewSegments||e.review.segments,normalized):[];}
-function refreshMarkdownHighlights(){const spans=markdownSpans();for(const rendered of markdownViews){if(rendered.host.isConnected)rendered.highlight(spans,activeThread);else markdownViews.delete(rendered);}}
+function refreshMarkdownHighlights(){if(entry()?.kind==='original')return;const spans=markdownSpans();for(const rendered of markdownViews){if(rendered.host.isConnected)rendered.highlight(spans,activeThread);else markdownViews.delete(rendered);}}
 function toRawUnits(text,units){let at=0;for(let i=0;i<text.length;i++){if(at===units)return i;if(text[i]==='\r'&&text[i+1]==='\n')i++;at++;}return text.length;}
 
 function previewMessage(type,data={}){const preview=renderedPreview;if(preview?.ready)preview.frame.contentWindow.postMessage({lookingGlass:preview.channel,type,...data},'*');}
@@ -91,6 +99,14 @@ async function captureHTMLSelection(){
     preview.requests.set(requestId,()=>{clearTimeout(timer);resolve();});previewMessage('capture',{requestId});
   });
   if(renderedPreview!==preview)throw new Error('The document changed. Select the passage again.');
+}
+async function suspendHTMLPreview(){
+  const preview=renderedPreview;if(!preview?.ready)return;
+  const requestId=crypto.randomUUID();preview.requests??=new Map();
+  await new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>{preview.requests.delete(requestId);reject(new Error('The HTML preview did not respond. Try opening context again.'));},2000);
+    preview.requests.set(requestId,()=>{clearTimeout(timer);resolve();});previewMessage('suspend',{requestId});
+  });
 }
 function htmlSelection(){
   const source=renderedSelection?.source,text=entry()?.content;
@@ -140,7 +156,7 @@ const spanField = StateField.define({
     for(const effect of tr.effects) if(effect.is(spansEffect)) spans = effect.value;
     return spans;
   },
-  provide: field => EditorView.decorations.from(field, spans => Decoration.set(spans.map(s => Decoration.mark({class:'passage-highlight' + (s.id === activeThread?' focused-highlight':''), attributes:{'data-anchor':String(s.id)}}).range(s.from,s.to)),true))
+  provide: field => EditorView.decorations.from(field, spans => Decoration.set(spans.map(s => Decoration.mark({class:'passage-highlight' + (s.resolved?' resolved-passage':s.id === activeThread?' focused-highlight':''), attributes:{'data-anchor':String(s.id)}}).range(s.from,s.to)),true))
 });
 const colors = HighlightStyle.define([
   {tag:tags.keyword,color:'#ad5ded'}, {tag:tags.string,color:'#4a9c80'},
@@ -246,7 +262,7 @@ function liveDecorations(v, activeRange) {
         ranges.push(Decoration.replace({}).range(a,b));
       if(name==='URL' && doc.lineAt(b).number===line.number) ranges.push(Decoration.replace({}).range(a,b));
       if(name==='TaskMarker')ranges.push(Decoration.replace({widget:new TaskCheckbox(doc.sliceString(a+1,a+2).toLowerCase()==='x',a)}).range(a,b));
-      if(name==='ListMark'){const task=/^\s*\[[ xX]\]\s/.test(doc.sliceString(b,line.to));ranges.push(Decoration.replace({widget:task?undefined:new Bullet()}).range(a,b));}
+      if(name==='ListMark'&&!/^\d+[.)]$/.test(doc.sliceString(a,b))){const task=/^\s*\[[ xX]\]\s/.test(doc.sliceString(b,line.to));ranges.push(Decoration.replace({widget:task?undefined:new Bullet()}).range(a,b));}
     }
   });
   return Decoration.set(ranges,true);
@@ -278,9 +294,9 @@ const selectionPoints=(state,units)=>Array.from(state.sliceDoc(0,units)).length;
 const ext=path=>path.split('.').pop().toLowerCase();
 const isImage=path=>['png','jpg','jpeg','svg'].includes(ext(path));
 function entry(){return active?tabs.get(active):null;}
-function remember(){localStorage.setItem('looking-glass-tabs:'+root,JSON.stringify({active,tabs:[...tabs.values()].map(e=>({path:e.path,pinned:e.pinned,mode:e.mode,kind:e.kind,...(e.kind==='history'?{history:{target:e.history?.target,selection:e.history?.selection}}:{})}))}));}
+function remember(){localStorage.setItem('looking-glass-tabs:'+root,JSON.stringify({active:entry()?.kind==='original'?contextVisit?.path:active,tabs:[...tabs.values()].filter(e=>e.kind!=='original').map(e=>({path:e.path,pinned:e.pinned,mode:e.mode,kind:e.kind,...(e.kind==='history'?{history:{target:e.history?.target,selection:e.history?.selection}}:{})}))}));}
 function syncState(){const e=entry();if(e&&view){e.state=view.state;e.content=view.state.sliceDoc();}}
-function spansFor(threads,text){return threads.filter(t=>t.path===active&&t.anchor_kind==='source'&&t.anchor_status==='attached'&&!t.resolved).map(t=>({id:t.id,from:toUnits(text,t.start),to:toUnits(text,t.end)})).filter(s=>s.from<s.to&&s.to<=text.length);}
+function spansFor(threads,text){return threads.filter(t=>t.path===active&&t.anchor_kind==='source'&&t.anchor_status==='attached').map(t=>({id:t.id,resolved:t.resolved,from:toUnits(text,t.start),to:toUnits(text,t.end)})).filter(s=>s.from<s.to&&s.to<=text.length);}
 
 function removedSelection(){
   if(entry()?.workMode!=='review')return null;
@@ -332,7 +348,7 @@ function renderTabs(){
     const open=document.createElement('button');open.className='tab-name';open.title=e.path;open.textContent=(e.pinned?'⌖ ':'')+(e.kind==='history'?'Commit history':e.kind==='original'?'Original · '+e.sourcePath.split('/').pop():e.path.split('/').pop())+(e.dirty?' •':'');open.onclick=guard(()=>openFile(e.path));
     const pin=document.createElement('button');pin.className='tab-control';pin.title=e.pinned?'Unpin tab':'Pin tab';pin.setAttribute('aria-label',pin.title);pin.textContent=e.pinned?'◆':'◇';pin.onclick=()=>{e.pinned=!e.pinned;renderTabs();remember();};
     const close=document.createElement('button');close.className='tab-control';close.title='Close tab';close.setAttribute('aria-label','Close '+e.path);close.textContent='×';close.onclick=guard(()=>closeTab(e.path));
-    tab.append(open,pin,close);
+    tab.append(open,...(e.kind==='original'?[]:[pin]),close);
     tab.oncontextmenu=ev=>{ev.preventDefault();showTabMenu(e,ev.clientX,ev.clientY);};
     $('#tabs').append(tab);
   });
@@ -344,8 +360,13 @@ function showTabMenu(e,x,y){
   $('.tab-menu')?.remove();const menu=document.createElement('div');menu.className='tab-menu';menu.style.left=x+'px';menu.style.top=y+'px';
   const others=document.createElement('button');others.textContent='Close other tabs';others.onclick=guard(async()=>{menu.remove();for(const name of [...tabs.keys()])if(name!==e.path&&!tabs.get(name).pinned)await closeTab(name);});menu.append(others);document.body.append(menu);setTimeout(()=>document.addEventListener('click',()=>menu.remove(),{once:true}),0);
 }
-async function closeTab(path){
+async function closeTab(path,returning=false){
+  if(!tabs.has(path))return;
+  if(tabs.get(path).kind==='original'&&!returning){await returnFromOriginal();return;}
+  if(contextVisit?.path===path&&entry()?.kind==='original'){await returnFromOriginal();await closeTab(path);return;}
   const e=tabs.get(path);if(e.workMode==='review')await flushReview(e);if(e.dirty&&!confirm('Discard unsaved edits in '+path+'?'))return;
+  if(contextVisit?.path===path){contextVisit.editor?.destroy();contextVisit.cleanup();contextVisit.nodes.forEach(node=>node.remove());contextVisit=null;}
+  if(returning)contextVisit=null;
   if(path===active){threadSpotlight.restore();closeComment();syncState();view?.destroy();view=null;cleanup();cleanup=()=>{};active=null;}
   tabs.delete(path);remember();renderTabs();
   if(!active&&tabs.size)await openFile([...tabs.keys()].at(-1));
@@ -409,15 +430,43 @@ async function openFile(path){
       tabs.set(path,e);
     }
     await ensureWorkMode(e);
+    // Keep the reading surface mounted during this temporary visit. This
+    // preserves the editor history, native table layout and HTML browsing
+    // context, rather than reconstructing the document on return.
+    if(e.kind==='original'&&!contextVisit){
+      await suspendHTMLPreview();
+      const scroller=view?.scrollDOM||$('#surface');
+      contextVisit={path:active,content:entry()?.content,editor:view,cleanup,nodes:[...$('#surface').children],preview:renderedPreview,selection:renderedSelection,jump:renderedJump,thread:activeThread,top:scroller.scrollTop,left:scroller.scrollLeft,snapshot:view?.scrollSnapshot()};
+      contextVisit.nodes.forEach(node=>node.hidden=true);view=null;cleanup=()=>{};
+    }
+    const held=contextVisit;
     view?.destroy();view=null;cleanup();cleanup=()=>{};active=path;activeThread=null;currentThreads=[];
-    $('#surface').replaceChildren();renderTabs();revealFile(path);updateToolbar();remember();
-    if(e.kind==='history')cleanup=mountHistory($('#surface'),e.history??={},api,{onTarget:guard(async()=>{closeComment();activeThread=null;remember();await refreshThreads();}),onComment:guard(startGitComment),onState:remember});
+    if(held){for(const node of [...$('#surface').children])if(!held.nodes.includes(node))node.remove();}
+    else $('#surface').replaceChildren();
+    if(e.kind==='original')for(const [name,tab] of tabs)if(tab.kind==='original'&&name!==path)tabs.delete(name);
+    const resume=held&&e.kind!=='original'&&path===held.path&&e.content===held.content;
+    if(held&&e.kind!=='original'){
+      for(const [name,tab] of tabs)if(tab.kind==='original')tabs.delete(name);
+      contextVisit=null;
+      if(resume){
+        held.nodes.forEach(node=>node.hidden=false);view=held.editor;cleanup=held.cleanup;renderedPreview=held.preview;renderedSelection=held.selection;renderedJump=held.jump;activeThread=held.thread;
+        previewMessage('resume');
+        if(view&&held.snapshot)view.dispatch({effects:held.snapshot});
+        const scroller=view?.scrollDOM||$('#surface');let remaining=3;
+        const restore=()=>{if(active!==path||!scroller.isConnected)return;scroller.scrollTop=held.top;scroller.scrollLeft=held.left;if(--remaining)requestAnimationFrame(restore);};
+        requestAnimationFrame(restore);view?.requestMeasure();
+      }else{held.editor?.destroy();held.cleanup();held.nodes.forEach(node=>node.remove());}
+    }
+    renderTabs();revealFile(path);updateToolbar();remember();
+    if(resume){/* The suspended reading surface is already mounted. */}
+    else if(e.kind==='history')cleanup=mountHistory($('#surface'),e.history??={},api,{onTarget:guard(async()=>{closeComment();activeThread=null;remember();await refreshThreads();}),onComment:guard(startGitComment),onState:remember});
     else if(e.kind==='original')mountOriginal(e);
     else if(e.kind==='oversized')mountOversized(e);
     else if(isImage(path))await mountImage(e);
     else if(ext(path)==='stl')await mountSTL(e);
     else if(ext(path)==='jsonl')mountJSONL(e);
     else mountDocument(e);
+    if(held&&!resume&&e.kind!=='original'&&path===held.path){const scroller=view?.scrollDOM||$('#surface');requestAnimationFrame(()=>{if(active===path){scroller.scrollTop=held.top;scroller.scrollLeft=held.left;}});}
     await refreshThreads();notify('');
   }finally{switching=false;if(queuedFile){const next=queuedFile;queuedFile=null;queueMicrotask(()=>guard(()=>openFile(next))());}}
 }
@@ -433,7 +482,14 @@ function mountOriginal(e){
   closeComment();renderedPreview=null;renderedSelection=null;
   const banner=document.createElement('div');banner.className='original-banner';
   const label=document.createElement('p');label.textContent=(e.origin.provenance.startsWith('recovered')?'Recovered context':'Original reviewed content')+' · '+(e.origin.commit_hash?.slice(0,8)||'No Git commit')+' · Read only';
-  const quote=document.createElement('blockquote');quote.textContent=e.origin.quote;banner.append(label,quote);$('#surface').append(banner);
+  const back=document.createElement('button');back.id='context-return';back.textContent='Return to document';back.title='Return to where you left off';back.append(Object.assign(document.createElement('kbd'),{textContent:'Esc'}));back.onclick=guard(returnFromOriginal);
+  const quote=document.createElement('blockquote');quote.textContent=e.origin.quote;banner.append(back,label,quote);$('#surface').append(banner);
+  if(['md','markdown'].includes(ext(e.sourcePath))){
+    const scroller=document.createElement('div');scroller.className='original-reading';const preview=document.createElement('div');preview.className='markdown-preview';scroller.append(preview);$('#surface').append(scroller);
+    const rendered=mountMappedMarkdown(preview,e.content,0,highlightMarkdown);markdownViews.add(rendered);markdownDiagrams(preview);cleanup=()=>markdownViews.delete(rendered);
+    const from=toRawUnits(e.content,toUnits(e.content,e.origin.start)),to=toRawUnits(e.content,toUnits(e.content,e.origin.end));
+    rendered.highlight([{id:e.threadId,from,to}],e.threadId);requestAnimationFrame(()=>rendered.jump(from,to));return;
+  }
   const parent=document.createElement('div');parent.id='editor';parent.className='original-editor';$('#surface').append(parent);
   view=new EditorView({state:e.state||makeState(e),parent});
   if(!e.origin.render_anchor){const from=toUnits(e.content,e.origin.start),to=toUnits(e.content,e.origin.end);if(from<to&&to<=view.state.doc.length)view.dispatch({selection:{anchor:from,head:to},effects:EditorView.scrollIntoView(from,{y:'center'})});}
@@ -597,28 +653,54 @@ async function showReviewHistory(){
 
 function threadScope(){return $('#thread-scope').checked?'all':'file';}
 const discussionCache=new Map();let lastThreadHTML='',lastThreadKey='',navigationIndex=[],indexTime=0;
+const replyDrafts=new Map();
 function renderDiscussions(data,key){
+  const previous=currentThreads,e=entry();
   currentThreads=data.threads;navigationIndex=data.index;indexTime=Date.now();
+  if(e?.kind==='original'){
+    const thread=data.threads.find(t=>t.id===e.threadId);
+    const resolved=e.contextResolved??e.resolvedAtOpen;
+    e.contextResolved=thread?.resolved;
+    const messages=thread?.messages.map(m=>m.id)||[];
+    const deletedMessage=e.contextMessages?.some(id=>!messages.includes(id));
+    e.contextMessages=messages;
+    if(!thread||thread.resolved&&!resolved||deletedMessage||e.messageId&&!thread.messages.some(m=>m.id===e.messageId))queueMicrotask(()=>guard(returnFromOriginal)());
+  }
   composers.prune(new Set(data.index.map(thread=>thread.id)));
   $('#thread-count').textContent=currentThreads.filter(t=>!t.resolved).length;
-  previewThreads();const e=entry();
-  if(view&&e&&!e.dirty)view.dispatch({effects:spansEffect.of(spansFor(currentThreads,e.content))});
+  if(view&&e&&e.kind!=='original'){
+    const old=view.state.field(spanField),byId=new Map(currentThreads.map(t=>[t.id,t]));
+    const spans=e.dirty?old.filter(s=>byId.has(s.id)).map(s=>({...s,resolved:byId.get(s.id).resolved})):spansFor(currentThreads,e.content);
+    const newlyResolved=spans.filter(s=>s.resolved&&(old.some(o=>o.id===s.id&&!o.resolved)||previous.some(t=>t.id===s.id&&!t.resolved)));
+    const selected=view.state.selection.main;
+    if(newlyResolved.some(s=>s.from<selected.to&&s.to>selected.from))view.dispatch({selection:{anchor:selected.head}});
+    view.dispatch({effects:spansEffect.of(spans)});
+    e.state=view.state;
+  }
+  if(!view&&e?.dirty&&e.state&&e.kind!=='original'){
+    const byId=new Map(currentThreads.map(t=>[t.id,t]));
+    e.state=e.state.update({effects:spansEffect.of(e.state.field(spanField).filter(s=>byId.has(s.id)).map(s=>({...s,resolved:byId.get(s.id).resolved})))}).state;
+  }
+  const native=markdownSelection(),resolved=currentThreads.filter(t=>t.resolved&&previous.some(p=>p.id===t.id&&!p.resolved));
+  if(native&&markdownSpans().some(s=>resolved.some(t=>t.id===s.id)&&s.from<native.to&&s.to>native.from)){window.getSelection()?.removeAllRanges();updateNativeTextSelection();}
+  previewThreads();
   if(data.html!==lastThreadHTML||key!==lastThreadKey){
     if(key!==lastThreadKey)threadSpotlight.restore();
     const scroll=$('.discussion-content').scrollTop,focusedView=threadSpotlight.active;
-    const drafts=new Map($$('.reply-form').map(f=>[f.closest('.thread').dataset.thread,f.querySelector('textarea').value]));
+    for(const form of $$('.reply-form'))replyDrafts.set(form.closest('.thread').dataset.thread,form.querySelector('textarea').value);
     const focused=document.activeElement,focusId=focused?.id,start=focused?.selectionStart,end=focused?.selectionEnd;
     $('#threads').innerHTML=data.html;lastThreadHTML=data.html;lastThreadKey=key;
     for(const body of $$('.comment-markdown')){const source=body.textContent;renderMarkdown(body,source,highlightMarkdown);markdownDiagrams(body);}
-    for(const form of $$('.reply-form')){const draft=drafts.get(form.closest('.thread').dataset.thread);if(draft)form.querySelector('textarea').value=draft;}
+    for(const form of $$('.reply-form')){const draft=replyDrafts.get(form.closest('.thread').dataset.thread);if(draft)form.querySelector('textarea').value=draft;}
     syncSpotlight();filterThreads();if(!focusedView||threadSpotlight.active)$('.discussion-content').scrollTop=scroll;
     if(focusId){const field=document.getElementById(focusId);if(field?.closest('.thread')){field.focus({preventScroll:true});field.setSelectionRange?.(start,end);}}
   }
   for(const form of $$('.reply-form'))composers.render(form);
-  filterThreads();refreshMarkdownHighlights();if(entry()?.kind==='history')cleanup.updateCounts?.(data.index);
+  for(const id of replyDrafts.keys())if(!data.index.some(t=>String(t.id)===id))replyDrafts.delete(id);
+  filterThreads();if(e?.kind!=='original')refreshMarkdownHighlights();if(entry()?.kind==='history')cleanup.updateCounts?.(data.index);
 }
 async function refreshThreads(useCache=false){
-  const current=active,path=discussionPath(),scope=threadScope(),review=entry()?.workMode==='review'?entry().review?.id:null,generation=++refreshNumber,key=scope+':'+(path||'')+':'+(review||'');
+  const current=active,path=discussionPath(),scope=threadScope(),review=discussionReview(),generation=++refreshNumber,key=scope+':'+(path||'')+':'+(review||'');
   const cached=discussionCache.get(key);
   if(useCache&&cached)renderDiscussions(cached.data,key);
   // Showing the in-flow loading row on every poll moves all existing cards.
@@ -636,11 +718,11 @@ async function refreshThreads(useCache=false){
   }
 }
 async function getNavigationIndex(){
-  if(Date.now()-indexTime>2000){navigationIndex=await api('thread-index'+(entry()?.workMode==='review'?'?review='+entry().review.id:''));indexTime=Date.now();}
+  if(Date.now()-indexTime>2000){navigationIndex=await api('thread-index'+(discussionReview()?'?review='+discussionReview():''));indexTime=Date.now();}
   return navigationIndex;
 }
 function filterThreads(){
-  const matches=threadSearch.update(currentThreads,threadSpotlight.active,$('#show-resolved').checked,entry()?.workMode==='review'?entry().review?.id:null);
+  const matches=threadSearch.update(currentThreads,threadSpotlight.active,$('#show-resolved').checked,discussionReview());
   if(zenMode&&!threadSpotlight.active&&!currentThreads.some(t=>t.id===activeThread&&(!t.resolved||$('#show-resolved').checked)&&(!matches||matches.has(t.id)))){activeThread=(matches?currentThreads.find(t=>matches.has(t.id)):currentThreads.find(t=>!t.resolved||$('#show-resolved').checked))?.id||null;zenCollapsed=false;}
   $$('.thread').forEach(t=>{
     const id=Number(t.dataset.thread);
@@ -711,6 +793,7 @@ function syncSpotlight(){
   threadSpotlight.sync(ids);
 }
 function showThread(id,focused=false,ids=[id]){
+  if(entry()?.kind==='original'&&entry().threadId!==id){guard(async()=>{await returnFromOriginal();await jump(id,null,focused);})();return;}
   passageActivation++;
   if(discussionsHidden)setDiscussionsHidden(false);
   activeThread=id;zenCollapsed=false;if(!zenMode){collapsedThreads.delete(id);rememberCollapsed();}
@@ -983,8 +1066,9 @@ async function poll(){
     }
     updateToolbar();
     await refreshBaseline();
-    // Avoid replacing a reply field while the user is writing.
-    if(threadSearch.query||!document.activeElement?.matches('.reply-form textarea')&&!$$('.reply-form textarea').some(t=>t.value))await refreshThreads();
+    // Refresh preserves reply text, focus and selection. Status changes must
+    // remain visible while a reply is being composed.
+    await refreshThreads();
   }catch(e){notify(e.message,true);}finally{polling=false;}
 }
 
@@ -1011,6 +1095,7 @@ window.addEventListener('message',guard(async event=>{
   const preview=renderedPreview,message=event.data;
   if(!preview||event.source!==preview.frame.contentWindow||event.origin!=='null'||message?.lookingGlass!==preview.channel)return;
   if(message.type==='ready'){preview.ready=true;previewMessage('initialize',{mapping:preview.mapping});previewThreads();if(renderedJump)previewMessage('jump',{id:renderedJump});}
+  if(message.type==='suspended'){preview.requests?.get(message.requestId)?.();preview.requests?.delete(message.requestId);}
   if(message.type==='selection'){
     const selection=message.selection;
     renderedSelection=selection&&typeof selection.anchor?.quote==='string'&&selection.anchor.quote.length<=50000&&['left','right','top','bottom'].every(key=>Number.isFinite(selection.rect?.[key]))?selection:null;
@@ -1091,6 +1176,7 @@ document.addEventListener('keydown',event=>{
   if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='p'){event.preventDefault();event.stopPropagation();guard(showQuickOpen)();}
   if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='f'&&jsonlSearch&&!document.querySelector('dialog:modal')){event.preventDefault();jsonlSearch();}
   if(event.key==='Escape'&&$('#comment-dialog').open){event.preventDefault();closeComment();view?.focus();}
+  else if(event.key==='Escape'&&contextVisit&&!document.querySelector('dialog:modal')){event.preventDefault();guard(returnFromOriginal)();}
   else if(event.key==='Escape'&&threadSpotlight.active){event.preventDefault();threadSpotlight.restore();}
 },true);
 document.addEventListener('pointerdown',event=>{
@@ -1122,9 +1208,9 @@ document.addEventListener('click',guard(async event=>{
   const action=event.target.closest('[data-action]');if(!action)return;
   const id=Number(action.closest('.thread').dataset.thread),t=currentThreads.find(t=>t.id===id);
   if(action.dataset.action==='edit-message'){const message=t.messages.find(m=>m.id===Number(action.dataset.message));$('#edit-comment-body').value=message.body;$('#edit-comment-form').dataset.thread=id;$('#edit-comment-form').dataset.message=message.id;$('#edit-comment-dialog').showModal();return;}
-  if(action.dataset.action==='collapse-thread'){if(zenMode)zenCollapsed=true;else collapsedThreads.add(id);rememberCollapsed();filterThreads();return;}
+  if(action.dataset.action==='collapse-thread'){if(contextVisit&&entry()?.threadId===id)await returnFromOriginal();if(zenMode)zenCollapsed=true;else collapsedThreads.add(id);rememberCollapsed();filterThreads();return;}
   if(action.dataset.action==='expand-thread'){await focusSidebarThread(id);return;}
-  if(action.dataset.action==='original'||action.dataset.action==='message-original'){await openOriginal(id,action.dataset.message);showThread(id);return;}
+  if(action.dataset.action==='original'||action.dataset.action==='message-original'){await openOriginal(id,action.dataset.message);spotlightSidebarThread(id,t);return;}
   if(action.dataset.action.endsWith('-attachment')){
     const attachmentId=Number(action.closest('[data-attachment]').dataset.attachment),item=t.attachments.find(a=>a.id===attachmentId);
     if(action.dataset.action==='rename-attachment'){const name=prompt('Attachment name',item.name);if(name!==null){await api('attachments/'+attachmentId,'PATCH',{name});await refreshThreads();}return;}
@@ -1174,7 +1260,7 @@ document.addEventListener('submit',event=>{
     const id=Number(form.closest('.thread').dataset.thread),field=form.querySelector('textarea'),body=field.value;
     composers.setSending(form,true);composers.status(form,'Sending…');
     try{
-      await composers.post('threads/'+id+'/replies',{author:$('#author').value,body,...(entry()?.workMode==='review'?{review_id:entry().review.id}: {})},form);
+      await composers.post('threads/'+id+'/replies',{author:$('#author').value,body,...(discussionReview()?{review_id:discussionReview()}: {})},form);
       composers.clear(form);
       // Keep text entered while a reply was being sent.
       const current=document.getElementById('reply-'+id);if(current?.value===body)current.value='';
@@ -1215,9 +1301,9 @@ $('#review-merge-form').onsubmit=event=>{
 $('#work-mode').onchange=guard(()=>setWorkMode($('#work-mode').value));
 $('#approve-review').onclick=guard(approveReview);$('#review-history').onclick=guard(showReviewHistory);
 $('#save').onclick=guard(saveActive);$('#annotate').onclick=guard(startComment);
-$('#all-discussions').onclick=()=>{passageActivation++;threadSpotlight.restore();};
+$('#all-discussions').onclick=guard(async()=>{passageActivation++;if(contextVisit)await returnFromOriginal();threadSpotlight.restore();});
 function visibleThreadIds(){return $$('.thread').filter(t=>!t.hidden).map(t=>Number(t.dataset.thread));}
-$('#collapse-threads').onclick=()=>{if(zenMode)zenCollapsed=true;else for(const id of visibleThreadIds())collapsedThreads.add(id);rememberCollapsed();filterThreads();};
+$('#collapse-threads').onclick=guard(async()=>{if(contextVisit)await returnFromOriginal();if(zenMode)zenCollapsed=true;else for(const id of visibleThreadIds())collapsedThreads.add(id);rememberCollapsed();filterThreads();});
 $('#expand-threads').onclick=()=>{for(const id of visibleThreadIds())collapsedThreads.delete(id);rememberCollapsed();filterThreads();};
 $('#previous').onclick=guard(()=>navigate(-1));$('#next').onclick=guard(()=>navigate(1));$('#show-resolved').onchange=filterThreads;
 $('#thread-scope').checked=localStorage.getItem('looking-glass-thread-scope:'+root)==='all';
@@ -1270,6 +1356,7 @@ $('#explorer-toggle').onclick=()=>setExplorerHidden(!explorerHidden,true);
 setExplorerHidden(explorerHidden);
 let discussionsHidden=localStorage.getItem('looking-glass-discussions-hidden')==='true';
 function setDiscussionsHidden(hidden,focus=false){
+  if(hidden&&contextVisit)guard(returnFromOriginal)();
   if(hidden)threadSpotlight.restore();
   discussionsHidden=hidden;document.body.classList.toggle('discussions-hidden',hidden);
   const button=$('#discussions-toggle'),label=(hidden?'Show':'Hide')+' discussions';
@@ -1326,7 +1413,7 @@ let restored={tabs:[]};try{restored=JSON.parse(localStorage.getItem('looking-gla
 guard(async()=>{
   switching=true;
   try{
-    const results=await Promise.allSettled((restored.tabs||[]).map(async item=>{
+    const results=await Promise.allSettled((restored.tabs||[]).filter(item=>!item.path.startsWith(ORIGINAL)).map(async item=>{
       const file=await readTab(item.path);
       return {path:item.path,...file,diskContent:file.content,dirty:false,conflict:null,pinned:!!item.pinned,state:null,history:item.history,mode:item.mode||'source'};
     }));
