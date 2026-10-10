@@ -21,7 +21,12 @@ def thread_for(ws, path, text, quote, work):
 def start(page, url, path, work):
     from playwright.sync_api import expect
     page.goto(url)
+    if work == 'review_preference':
+        page.evaluate("localStorage.setItem('looking-glass-review-mode:'+document.querySelector('.root-label').textContent,'true')")
+        page.reload()
     open_file(page, path)
+    if work == 'review_preference':
+        expect(page.locator('#work-mode')).to_be_hidden()
     if work == 'review':
         page.locator('#work-mode').click()
         expect(page.locator('#review-status')).to_have_text('Review saved')
@@ -205,7 +210,7 @@ def test_already_resolved_context_closes_after_reopen_and_resolve(workspace_page
 
 
 @pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
-@pytest.mark.parametrize('work', ['edit', 'review'])
+@pytest.mark.parametrize('work', ['edit', 'review_preference'])
 @pytest.mark.parametrize('exit', ['return', 'resolve', 'external_delete'])
 def test_html_context_preserves_iframe_state_and_scroll(workspace_page, work, exit):
     from playwright.sync_api import expect
@@ -234,7 +239,7 @@ def test_html_context_preserves_iframe_state_and_scroll(workspace_page, work, ex
 
 
 @pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
-@pytest.mark.parametrize('work', ['edit', 'review'])
+@pytest.mark.parametrize('work', ['edit', 'review_preference'])
 @pytest.mark.parametrize('dirty', [False, True])
 def test_resolved_html_clears_active_fill_and_selection(workspace_page, work, dirty):
     from playwright.sync_api import expect
@@ -366,7 +371,7 @@ def test_resolving_selected_markdown_clears_selection_fill(workspace_page, work,
 
 
 @pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
-@pytest.mark.parametrize('work', ['edit', 'review'])
+@pytest.mark.parametrize('work', ['edit', 'review_preference'])
 def test_html_resolution_preserves_unrelated_selection_in_same_node(workspace_page, work):
     from playwright.sync_api import expect
     root, page, url, ws = workspace_page

@@ -63,8 +63,9 @@ Switch to Edit to see the original; switch back to resume the saved proposal.
 Markdown tables, syntax highlighting, comments and navigation work in both modes.
 **Approve reviewed version**, in the reading pane’s lower-right corner, asks
 for confirmation before replacing the active file and returning to Edit.
-JSON and HTML files always use Edit mode and hide the review toggle. It refuses to overwrite an original changed on disk; concurrent
-draft edits preserve unsent work for explicit comparison and merge.
+Approval refuses to overwrite an original changed on disk; concurrent draft edits
+preserve unsent work for explicit comparison and merge. JSON and HTML files
+always use Edit mode and hide the review toggle.
 
 Agents use `looking-glass agent review` instead of writing the source file.
 See [the review contract](docs/REVIEW_MODE.md) and
