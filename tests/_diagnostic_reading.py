@@ -33,3 +33,27 @@ def test_observe_low_html(workspace_page, trial):
     after=endpoint(target,2)['y']
     print(json.dumps({'trial':trial,'before':before,'after':after,'events':target.evaluate('()=>{observe("after");return observations}')}))
     assert abs(after-before)<2
+
+@pytest.mark.parametrize('workspace_page', ['chromium'], indirect=True)
+@pytest.mark.parametrize('trial', range(20))
+def test_observe_context(workspace_page, trial):
+    from test_context_return_browser import test_context_restores_reader_and_drafts
+    page=workspace_page[1]
+    page.add_init_script('''
+      window.contextObservations=[];
+      let previous='';
+      function observe(){
+        const scroller=window.heldReader?.querySelector('.cm-scroller');
+        if(scroller){
+          const data={top:scroller.scrollTop,height:scroller.scrollHeight,clientHeight:scroller.clientHeight,held:window.heldScroll,hidden:window.heldReader.hidden,original:!!document.querySelector('.original-reading'),fonts:document.fonts.status};
+          const key=JSON.stringify(data);
+          if(key!==previous){contextObservations.push({...data,time:performance.now()});previous=key;}
+        }
+        requestAnimationFrame(observe);
+      }
+      requestAnimationFrame(observe);
+    ''')
+    try:
+        test_context_restores_reader_and_drafts(workspace_page, 'edit', 'source', 'return')
+    finally:
+        print(json.dumps({'context_trial':trial,'events':page.evaluate('()=>contextObservations')}))
