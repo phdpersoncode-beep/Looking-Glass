@@ -10,9 +10,9 @@ Branch: `feature/context-return-and-resolved-passages` (integrated with main aft
 - [x] Preserve Review mode discussion scope and capture the current draft when replying from an immutable context tab.
 - [x] Rebuild production assets and pass backend/frontend and package checks.
 - [x] Complete all browser regressions.
-- [ ] Push the branch and publish the PR. Automatic approval review requires explicit authorization to publish these changes to public `phdpersoncode-beep/Looking-Glass`.
+- [x] Publish the branch and open [PR #11](https://github.com/phdpersoncode-beep/Looking-Glass/pull/11). The uploaded implementation tree matches the verified local tree.
 
-Verification: 101 backend, 20 frontend and 375 distinct browser cases pass (205 existing plus 170 new, across Chromium and Firefox). Reproducible assets, wheel/source builds, packaged-byte equality and light/dark visual checks pass. See `docs/VERIFICATION.md` for run details and the publishing blocker.
+Verification: 101 backend, 20 frontend and 375 distinct browser cases pass (205 existing plus 170 new, across Chromium and Firefox). Reproducible assets, wheel/source builds, packaged-byte equality and light/dark visual checks pass. See `docs/VERIFICATION.md` for run details and delivery status.
 
 ---
 

@@ -470,9 +470,11 @@ Branch: `feature/context-return-and-resolved-passages`, integrated with main
 - A clean `npm ci` build and a repeated asset rebuild produce identical bytes.
   Wheel/source distribution builds pass; packaged static assets and templates
   match the checkout. Light/dark context and resolved-passage layouts were
-  inspected visually. The unpublished patch applies cleanly to the recorded
+  inspected visually. The patch applies cleanly to the recorded
   main baseline.
-- Branch/PR publication is blocked by automatic approval review, which requires
-  explicit user authorization to upload these changes to public
-  `phdpersoncode-beep/Looking-Glass`. No remote branch or PR has been created, so
-  no hosted workflow for this change has run.
+- Published to `phdpersoncode-beep/Looking-Glass` as
+  [PR #11](https://github.com/phdpersoncode-beep/Looking-Glass/pull/11). The
+  implementation tree was fetched back and matches the verified local tree
+  (`b771d606fdb36b8c673a6ff834728db3ec0baf0d`) byte for byte. GitHub reports
+  the PR mergeable. Hosted CI status is available on the PR; the local browser
+  fallback above remains distinct from the locked-dependency workflow.
