@@ -1,0 +1,48 @@
+import {threadDestination,createRequestGate} from './navigation.mjs';
+
+// This controller chooses destinations. Surfaces only reveal resolved targets.
+export function createThreadNavigator(ports) {
+  const requests = createRequestGate();
+  async function activate(id, target = null, spotlight = false, focusEditor = true) {
+    let thread = target || ports.find(id);
+    if (!thread) return;
+    const key = String(id), request = requests.begin(key), current = () => requests.accepts(request, key);
+    const show = () => ports.focus(id, spotlight, thread);
+    const destination = threadDestination(thread, ports.session(thread.path), ports.paths);
+    if (destination.surface === 'history') {
+      if (!thread.git_target) thread = await ports.read(id);
+      if (!current()) return;
+      const opened = await ports.open(destination.path);
+      if (opened.status !== 'ready' || !current()) return;
+      await ports.selectGit(thread.git_target);
+      if (current()) show();
+      return;
+    }
+    if (destination.surface === 'removed' && ports.revealRemoved(thread)) {show(); return;}
+    if (['original', 'removed'].includes(destination.surface)) {
+      const opened = await ports.open(ports.paths.originalPath(id));
+      if (opened.status === 'ready' && current()) {show(); ports.originalNotice();}
+      return;
+    }
+    if (thread.path !== ports.displayed()) {
+      try {
+        const opened = await ports.open(thread.path);
+        if (opened.status !== 'ready' || !current() || thread.path !== ports.displayed()) return;
+      } catch (error) {
+        if (!current()) return;
+        if (error.status !== 404) throw error;
+        const opened = await ports.open(ports.paths.originalPath(id));
+        if (opened.status === 'ready' && current()) show();
+        return;
+      }
+    }
+    thread = ports.find(id) || thread;
+    if (!current()) return;
+    show();
+    if (thread.anchor_kind === 'rendered' || ports.session(thread.path)?.mode === 'rendered' && thread.anchor_kind === 'source') {
+      await ports.revealRendered(thread, current); return;
+    }
+    ports.revealSource(thread, focusEditor);
+  }
+  return {activate, invalidate: () => requests.invalidate()};
+}

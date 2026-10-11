@@ -1,0 +1,82 @@
+import {createThreadSearch} from './thread-search.mjs';
+
+const searchIndexes = new WeakMap();
+export function selectVisibleThreads(state) {
+  if (state.spotlight) return state.threads.filter(t => state.spotlightIds.includes(t.id));
+  const eligible = state.threads.filter(t => state.showResolved || !t.resolved);
+  if (!state.searchQuery.trim()) return eligible;
+  let search = searchIndexes.get(state.threads);
+  if (!search) { search = createThreadSearch(state.threads); searchIndexes.set(state.threads, search); }
+  const byId = new Map(eligible.map(t => [t.id, t]));
+  return search(state.searchQuery).map(result => byId.get(result.id)).filter(Boolean);
+}
+
+export function passageGroup(threads, passage) {
+  if (!passage) return [];
+  const seeds = passage.seeds.map(seed => threads.find(t => t.id === seed.id) || seed);
+  const source = seeds.filter(t => t.anchor_kind === 'source' && t.anchor_status === 'attached');
+  const from = Math.max(...source.map(t => t.start)), to = Math.min(...source.map(t => t.end));
+  return threads.filter(t => t.path === passage.path && (
+    seeds.some(seed => seed.id === t.id) ||
+    t.anchor_kind === 'source' && t.anchor_status === 'attached' && from < to && t.start < to && t.end > from ||
+    t.anchor_kind === 'rendered' && seeds.some(seed => seed.anchor_kind === 'rendered' && JSON.stringify(seed.render_anchor) === JSON.stringify(t.render_anchor))
+  )).map(t => t.id);
+}
+
+export function initialAppState(preferences = {}) {
+  return {displayedDocument: null, requestedDocument: null, focusedThread: null,
+    spotlight: null, spotlightIds: [], threads: [], searchQuery: '', scope: 'file',
+    showResolved: false, zen: false, reviewPreference: false, ...preferences};
+}
+
+function reconcileFocus(state) {
+  const spotlightIds = passageGroup(state.threads, state.spotlight);
+  let next = {...state, spotlightIds, spotlight: spotlightIds.length ? state.spotlight : null};
+  if (next.zen && !next.spotlight) {
+    const visible = selectVisibleThreads(next);
+    if (!visible.some(t => t.id === next.focusedThread)) next.focusedThread = visible[0]?.id ?? null;
+  }
+  return next;
+}
+
+export function transition(state, event) {
+  let next = state;
+  const effects = [];
+  switch (event.type) {
+    case 'THREAD_ACTIVATED': {
+      const seeds = event.ids?.map(id => state.threads.find(t => t.id === id)).filter(Boolean);
+      const thread = event.thread || state.threads.find(t => t.id === event.threadId);
+      const spotlight = event.spotlight ? {path: thread?.path || state.displayedDocument, seeds: seeds?.length ? seeds : thread ? [thread] : []} : null;
+      next = {...state, focusedThread: event.threadId, spotlight};
+      next.spotlightIds = event.spotlight ? passageGroup(state.threads, spotlight) : [];
+      if (event.origin && event.origin !== 'document-highlight') effects.push({type: 'REVEAL_THREAD', threadId: event.threadId, origin: event.origin});
+      break;
+    }
+    case 'FOCUS_CLEARED': next = {...state, focusedThread: null}; break;
+    case 'SPOTLIGHT_CLEARED': next = reconcileFocus({...state, spotlight: null, spotlightIds: []}); break;
+    case 'THREADS_RECEIVED': next = reconcileFocus({...state, threads: event.threads}); break;
+    case 'FILTERS_CHANGED': next = reconcileFocus({...state, ...event.filters}); break;
+    case 'ZEN_CHANGED': next = reconcileFocus({...state, zen: event.value}); break;
+    case 'REVIEW_PREFERENCE_CHANGED': next = {...state, reviewPreference: event.value}; break;
+    case 'DOCUMENT_REQUESTED': next = {...state, requestedDocument: event.path}; break;
+    case 'DOCUMENT_DISPLAYED': next = {...state, displayedDocument: event.path, requestedDocument: event.path, threads: [], focusedThread: event.focusedThread ?? null, spotlight: null, spotlightIds: []}; break;
+    case 'DOCUMENT_FAILED': next = {...state, requestedDocument: state.displayedDocument}; break;
+    default: throw new Error('Unknown application transition: ' + event.type);
+  }
+  return {state: next, effects};
+}
+
+export function createAppStore(preferences) {
+  let state = initialAppState(preferences);
+  const listeners = new Set();
+  return {
+    get state() { return state; },
+    dispatch(event) {
+      const previous = state, result = transition(state, event);
+      state = result.state;
+      for (const listener of listeners) listener(state, previous, event);
+      return result.effects;
+    },
+    subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); }
+  };
+}

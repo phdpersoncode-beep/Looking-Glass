@@ -11,9 +11,9 @@ Change the REFACTOR_PLAN.md only if you hit blockers or contradictions, a change
 
 
 ## Task list (you can change here)
-- [ ] 1. Record ownership/interaction contracts and regression cases.
-- [ ] 2. Centralize focus, spotlight, and scope in pure application transitions.
-- [ ] 3. Extract document sessions/navigation with awaited readiness and stale-result guards.
+- [x] 1. Record ownership/interaction contracts and regression cases.
+- [x] 2. Centralize focus, spotlight, and scope in pure application transitions.
+- [x] 3. Extract document sessions/navigation with awaited readiness and stale-result guards.
 - [ ] 4. Extract passage resolution, overlap selection, and coordinate/Markdown mapping.
 - [ ] 5. Isolate review synchronization, mode sessions, conflicts, and approval targeting.
 - [ ] 6. Update discussion cards incrementally; give composers one draft owner.
