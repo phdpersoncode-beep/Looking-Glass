@@ -29,6 +29,9 @@ Navigation promises resolve only after the requested surface is ready, or report
 supersession/failure. Superseding a read never cancels a write. Async completions
 must match their request, document/session identity and revision before applying.
 Failed mode preparation must leave the previous mode and preference coherent.
+Hiding a review discussion in Edit must retain its reply, attachment previews
+and composer nodes. Only a newer authoritative index for the same visibility
+universe can retire a cached discussion; displaying older cached data cannot.
 Approval remains bound to the document, draft ID and revision confirmed by the
 user; later edits invalidate that target.
 

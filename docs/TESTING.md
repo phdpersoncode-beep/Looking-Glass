@@ -17,7 +17,7 @@ existing ones; browser sharding changes where tests run, never which cases run.
 | Git graph/branches, durable commit/branch discussions and selected checkpoints preserving the index | `history.test.mjs`, `test_history.py`, `test_history_browser.py`, `test_git_discussions.py`, `test_revisions.py` |
 | JSON/JSONL folding, formatting/search/navigation/download, images, STL and software fallback | `json-format.test.mjs`, `test_requested_features.py`, `test_navigation_browser.py`, `test_browser.py` |
 | Local agent CLI, project discovery, token/origin checks and bounded reads/work | `test_cli.py`, `test_reviews.py`, `test_workspace.py`, `test_anchors.py`, `test_discussion_workflow.py` |
-| Pure application transitions, awaited navigation, stale completions, independent mode undo and unchanged node/cursor identity | `app-state.test.mjs`, `navigation.test.mjs`, `passages.test.mjs`, `review-sync.test.mjs`, `test_architecture_browser.py` |
+| Pure application transitions, awaited navigation, stale completions, independent mode undo and unchanged node/cursor identity | `app-state.test.mjs`, `navigation.test.mjs`, `passages.test.mjs`, `review-sync.test.mjs`, `discussion-lifetime.test.mjs`, `test_architecture_browser.py` |
 | Shared Python/JavaScript Unicode/CRLF review operations | `tests/fixtures/review-operations.json`, `test_review_operations_shared.py`, `review-model.test.mjs` |
 | Cross-feature approval, discussion origins/attachments, stale writes, other file drafts and Git staging | `test_app_integration.py`, `test_app_integration_browser.py` |
 

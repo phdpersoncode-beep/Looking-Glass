@@ -112,6 +112,7 @@ See [STATE_CONTRACTS.md](STATE_CONTRACTS.md) for ownership and interaction rules
 | `frontend/coordinates.mjs`, `passages.mjs`, `markdown-source.mjs` | Named Unicode/CRLF boundaries, conservative resolution, passage groups and source mapping without browser objects |
 | `frontend/review-sync.mjs` | Per-document operations, frozen save batches, remote revision guards, conflicts and confirmed approval targets |
 | `frontend/discussion-view.mjs`, `composer.mjs` | Keyed cards/messages; one owner for reply body, attachments and sending state |
+| `frontend/discussion-lifetime.mjs` | Authoritative index observations; retain hidden mode scopes and retire observed deletions |
 | `looking_glass/discussion_store.py` | Existing SQLite schema and connection lifetime |
 | `looking_glass/discussion_reconciliation.py` | Conservative ordinary-file reconciliation and refresh |
 | `looking_glass/discussion_queries.py` | Shared review visibility plus specialized lean navigation/search queries |
@@ -137,3 +138,6 @@ Unchanged cards and messages keep their native nodes; composers are retained eve
 when their own thread receives a reply. Scoped views reuse cached cards, and only
 actual deletion prunes drafts/attachments. Existing API payloads, SQLite layouts,
 CLI contracts and review approval/recovery checks remain compatible.
+Review-only cards and pending attachments survive switching to Edit and back.
+Cached presentation data cannot retire IDs; a newer authoritative index for the
+same visibility universe establishes deletion.

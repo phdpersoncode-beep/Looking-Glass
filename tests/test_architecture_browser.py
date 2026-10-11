@@ -161,3 +161,36 @@ def test_highlight_intent_during_save_finishes_write_without_navigation(workspac
     expect(page.locator('.thread.active')).to_have_attribute('data-thread', str(thread['id']))
     assert ws.reviews.read(ws.reviews.list()[0]['id'])['content'] == 'Reading passage saved proposal'
     assert (root / 'reading.txt').read_text() == 'Reading passage'
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_review_reply_and_attachment_survive_hidden_mode_scope(workspace_page):
+    import base64
+    from playwright.sync_api import expect
+    root, page, url, ws = workspace_page
+    (root / 'note.txt').write_text('Review passage')
+    page.goto(url); open_file(page, 'note.txt'); page.locator('#work-mode').click()
+    expect(page.locator('#review-status')).to_have_text('Review saved')
+    draft = ws.reviews.read(ws.reviews.list()[0]['id'])
+    thread = ws.reviews.create_thread(draft['id'], draft['version'], 0, 6, 'Review-only discussion', 'Reviewer')
+    card = page.locator(f'.thread[data-thread="{thread["id"]}"]')
+    expect(card).to_be_visible(); card.click(position={'x': 4, 'y': 4})
+    field = card.locator('textarea'); field.fill('Unsent review reply')
+    field.evaluate('el=>{el.setSelectionRange(3,7);window.heldReviewForm=el.closest("form");}')
+    card.locator('.attach-files').set_input_files({'name': 'pending.png', 'mimeType': 'image/png',
+        'buffer': base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=')})
+    expect(card.locator('.pending-file')).to_contain_text('pending.png')
+    preview = card.locator('.pending-file img').get_attribute('src')
+    page.locator('#work-mode').click()
+    expect(page.locator('#work-mode')).to_have_attribute('aria-checked', 'false')
+    expect(card).to_have_count(0)
+    page.locator('#work-mode').click()
+    expect(page.locator('#review-status')).to_have_text('Review saved'); expect(card).to_be_visible()
+    card.click(position={'x': 4, 'y': 4})
+    expect(field).to_have_value('Unsent review reply')
+    assert page.evaluate('window.heldReviewForm===document.querySelector(".thread.active .reply-form")')
+    assert field.evaluate('el=>[el.selectionStart,el.selectionEnd]') == [3, 7]
+    expect(card.locator('.pending-file')).to_contain_text('pending.png')
+    assert card.locator('.pending-file img').get_attribute('src') == preview
+    ws.delete_thread(thread['id']); expect(card).to_have_count(0)
+    assert page.evaluate('async url=>{try{await fetch(url);return false;}catch{return true;}}', preview)

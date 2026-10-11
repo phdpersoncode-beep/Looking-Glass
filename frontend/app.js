@@ -1,4 +1,5 @@
 import {createDiscussionView} from './discussion-view.mjs';
+import {createDiscussionRetention} from './discussion-lifetime.mjs';
 import {createReviewSync,prepareWorkMode} from './review-sync.mjs';
 import {codePointsToEditorUnits as toUnits,editorUnitsToRawUnits as toRawUnits,rawUnitsToCodePoints,replacementFor} from './coordinates.mjs';
 import {sourceSpans,resolveSourcePassage} from './passages.mjs';
@@ -659,7 +660,8 @@ async function showReviewHistory(){
 function threadScope(){return appStore.state.scope;}
 const discussionCache=new Map();let lastThreadHTML='',lastThreadKey='',navigationIndex=[],indexTime=0;
 const discussionView=createDiscussionView($('#threads'),{composers,renderBody:(host,source)=>{renderMarkdown(host,source,highlightMarkdown);markdownDiagrams(host);}});
-function receiveDiscussions(data,key){
+const discussionRetention=createDiscussionRetention();
+function receiveDiscussions(data,key,authoritative=true){
   const previous=appStore.state.threads,e=entry();
   appStore.dispatch({type:'THREADS_RECEIVED',threads:data.threads,availableIds:data.index.map(t=>t.id)});navigationIndex=data.index;indexTime=Date.now();
   if(e?.kind==='original'){
@@ -671,7 +673,8 @@ function receiveDiscussions(data,key){
     e.contextMessages=messages;
     if(!thread||thread.resolved&&!resolved||deletedMessage||e.messageId&&!thread.messages.some(m=>m.id===e.messageId))queueMicrotask(()=>guard(returnFromOriginal)());
   }
-  composers.prune(new Set(data.index.map(thread=>thread.id)));
+  const retained=authoritative?discussionRetention.accept(discussionReview()?'pending-reviews':'ordinary',data.index.map(thread=>thread.id)):null;
+  if(retained)composers.prune(retained);
   $('#thread-count').textContent=appStore.state.threads.filter(t=>!t.resolved).length;
   if(view&&e&&e.kind!=='original'){
     const old=view.state.field(spanField),byId=new Map(appStore.state.threads.map(t=>[t.id,t]));
@@ -689,7 +692,7 @@ function receiveDiscussions(data,key){
   const native=markdownSelection(),resolved=appStore.state.threads.filter(t=>t.resolved&&previous.some(p=>p.id===t.id&&!p.resolved));
   if(native&&markdownSpans().some(s=>resolved.some(t=>t.id===s.id)&&s.from<native.to&&s.to>native.from)){window.getSelection()?.removeAllRanges();updateNativeTextSelection();}
   previewThreads();
-  discussionView.prune(new Set(data.index.map(thread=>thread.id)));
+  if(retained)discussionView.prune(retained);
   discussionView.render(data.html);lastThreadHTML=data.html;lastThreadKey=key;
   for(const form of $$('.reply-form'))composers.render(form);
   filterThreads();if(e?.kind!=='original')refreshMarkdownHighlights();if(entry()?.kind==='history')cleanup.updateCounts?.(data.index);
@@ -698,7 +701,7 @@ async function refreshThreads(useCache=false){
   const current=appStore.state.displayedDocument,path=discussionPath(),scope=threadScope(),review=discussionReview(),generation=++refreshNumber,key=scope+':'+(path||'')+':'+(review||'');
   const request=discussionRequests.begin(key),session=entry();
   const cached=discussionCache.get(key);
-  if(useCache&&cached)receiveDiscussions(cached.data,key);
+  if(useCache&&cached)receiveDiscussions(cached.data,key,false);
   // Showing the in-flow loading row on every poll moves all existing cards.
   // Keep displayed discussions stable; only new views need loading feedback.
   $('#threads-loading').hidden=key===lastThreadKey;$('#threads').setAttribute('aria-busy','true');
