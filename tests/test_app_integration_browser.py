@@ -33,7 +33,7 @@ def test_edit_draft_survives_other_file_review_and_active_file_approval(workspac
     expect(page.locator('.thread')).to_have_count(1)
     page.locator('#thread-search').fill('inspect')
     expect(page.locator('#thread-search-status')).to_contain_text('1 match')
-    page.locator('#approve-review').click()
+    page.locator('#approve-review').click();page.locator('#confirm-review-approve').click()
     expect(page.locator('#work-mode')).to_have_attribute('aria-checked','false')
     expect(page.locator('.thread')).to_have_count(1)
     assert (root / 'code.py').read_text() == 'value = 1\nextra = 2\n'
@@ -181,7 +181,18 @@ def test_jsonl_comparison_position_remains_stable_after_entry_changes(workspace_
     scroller.evaluate('el=>el.scrollTop=700')
     page.wait_for_function('()=>document.querySelector(".jsonl-detail .cm-scroller").scrollTop>=690')
     for index in (1, 2, 0):
-        page.locator(f'.jsonl-row[data-row="{index}"]').click()
+        row = page.locator(f'.jsonl-row[data-row="{index}"]')
+        # Start sampling at the click, so a reset before the eventual restore
+        # cannot be hidden by waiting for the requested position below.
+        row.evaluate('''el=>el.addEventListener('click',()=>{
+          const scroller=document.querySelector('.jsonl-detail .cm-scroller');
+          window.jsonlTransitionPositions=new Promise(resolve=>{
+            const positions=[];let remaining=8;
+            function frame(){positions.push(scroller.scrollTop);if(--remaining)requestAnimationFrame(frame);else resolve(positions)}
+            requestAnimationFrame(frame);
+          });
+        },{once:true,capture:true})''')
+        row.click()
         expect(page.locator('.jsonl-detail .viewer-heading')).to_contain_text(f'ROW {index + 1} / 3')
         page.wait_for_function('()=>Math.abs(document.querySelector(".jsonl-detail .cm-scroller").scrollTop-700)<10')
         # A one-frame restoration must survive subsequent editor measurement.
@@ -190,6 +201,7 @@ def test_jsonl_comparison_position_remains_stable_after_entry_changes(workspace_
           function frame(){positions.push(el.scrollTop);if(--remaining)requestAnimationFrame(frame);else resolve(positions)}
           requestAnimationFrame(frame);
         })''')
+        positions = page.evaluate('window.jsonlTransitionPositions') + positions
         assert all(abs(top - 700) < 10 for top in positions), positions
     scroller.hover()
     page.mouse.wheel(0, 250)

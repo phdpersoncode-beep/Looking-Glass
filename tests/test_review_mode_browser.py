@@ -43,7 +43,7 @@ def test_review_source_lifecycle_and_agent_changes(workspace_page):
     page.locator('#review-history').click()
     expect(page.locator('#review-events')).to_contain_text('Codex')
     page.locator('#review-history-dialog [data-close]').click()
-    page.locator('#approve-review').click()
+    page.locator('#approve-review').click();page.locator('#confirm-review-approve').click()
     expect(page.locator('#work-mode')).to_have_attribute('aria-checked','false')
     expect(page.locator('.cm-content .review-agent')).to_have_count(0)
     assert (root/'sample.py').read_bytes()==draft['content'].encode()
@@ -78,7 +78,7 @@ def test_review_markdown_tables_and_draft_comments(workspace_page,mode):
     expect(page.locator('.thread')).to_have_count(0)
     page.locator('#work-mode').click()
     expect(page.locator('.thread')).to_have_count(1)
-    page.locator('#approve-review').click();expect(page.locator('#work-mode')).to_have_attribute('aria-checked','false')
+    page.locator('#approve-review').click();page.locator('#confirm-review-approve').click();expect(page.locator('#work-mode')).to_have_attribute('aria-checked','false')
     expect(page.locator('.thread')).to_have_count(1)
     assert ws.threads('report.md')[0]['quote']=='24'
 
@@ -148,7 +148,7 @@ def test_approval_refuses_external_original_change(workspace_page):
     expect(page.locator('#approve-review')).to_be_visible()
     page.locator('.cm-content').click();page.keyboard.press('Control+End');page.keyboard.insert_text(' proposed');wait_saved(page)
     (root/'note.txt').write_text('External version')
-    page.locator('#approve-review').click()
+    page.locator('#approve-review').click();page.locator('#confirm-review-approve').click()
     expect(page.locator('#notice')).to_contain_text('changed on disk')
     assert (root/'note.txt').read_text()=='External version'
     expect(page.locator('#work-mode')).to_have_attribute('aria-checked','true')
@@ -156,86 +156,3 @@ def test_approval_refuses_external_original_change(workspace_page):
     expect(page.locator('.cm-content')).to_have_text('External version')
     page.locator('#work-mode').click()
     expect(page.locator('.cm-content')).to_contain_text('proposed')
-
-
-@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
-def test_review_html_rendering_source_and_runtime_comments(workspace_page):
-    from playwright.sync_api import expect
-    root,page,url,ws=workspace_page
-    text='<h1>Report</h1><p>Old value</p><div id="runtime"></div><script>document.getElementById("runtime").textContent="Runtime passage"</script>'
-    (root/'report.html').write_text(text)
-    page.goto(url);open_file(page,'report.html');page.locator('#work-mode').click()
-    expect(page.locator('#approve-review')).to_be_visible()
-    draft=ws.reviews.read(ws.reviews.list()[0]['id'])
-    draft=ws.reviews.update(draft['id'],draft['version'],[dict(start=text.index('Old'),end=text.index('Old')+3,insert='New')],'Codex','agent')
-    frame=page.frame_locator('#html-preview')
-    expect(frame.locator('p')).to_contain_text('New value')
-    expect(frame.locator('.looking-glass-review-deletion')).to_have_text('Old')
-    assert page.locator('#html-preview').content_frame.locator('p').evaluate("()=>CSS.highlights.has('looking-glass-review-agent')")
-    frame.locator('#runtime').evaluate('''el=>{const range=document.createRange();range.selectNodeContents(el);const selection=getSelection();selection.removeAllRanges();selection.addRange(range);document.dispatchEvent(new Event('selectionchange'));}''')
-    expect(page.locator('#annotate')).to_be_enabled();page.locator('#annotate').click()
-    page.locator('#comment-body').fill('Runtime note');page.locator('#comment-submit').click();expect(page.locator('.thread')).to_have_count(1)
-    assert ws.threads('report.html',review=draft['id'])[0]['anchor_kind']=='rendered'
-    assert ws.threads('report.html')==[]
-    assert (root/'report.html').read_text()==text
-    page.locator('#html-toggle').click();expect(page.locator('.cm-content .review-agent')).to_have_text('New')
-
-
-@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
-@pytest.mark.parametrize('removed',['Old ','value','tail','value &amp; '])
-def test_review_html_deletions_keep_character_order_and_source_anchors(workspace_page,removed):
-    from playwright.sync_api import expect
-    root,page,url,ws=workspace_page
-    text='<p>Old value &amp; final tail</p>'
-    (root/'report.html').write_text(text)
-    page.goto(url);open_file(page,'report.html');page.locator('#work-mode').click()
-    expect(page.locator('#approve-review')).to_be_visible()
-    draft=ws.reviews.read(ws.reviews.list()[0]['id'])
-    start=text.index(removed)
-    draft=ws.reviews.update(draft['id'],draft['version'],[dict(start=start,end=start+len(removed),insert='')],'Codex','agent')
-    frame=page.frame_locator('#html-preview')
-    expect(frame.locator('.looking-glass-review-deletion')).to_have_text(removed)
-    # Deleted source stays inert; entity spellings are displayed literally.
-    expected='Old value & final tail' if '&amp;' not in removed else 'Old value &amp; final tail'
-    expect(frame.locator('p')).to_have_text(expected)
-    frame.locator('p').evaluate('''el=>{
-      const walker=document.createTreeWalker(el,NodeFilter.SHOW_TEXT);let node;
-      while(walker.nextNode())if(!walker.currentNode.parentElement.closest('[data-looking-glass-overlay]')&&walker.currentNode.data.includes('final')){node=walker.currentNode;break;}
-      const range=document.createRange(),at=node.data.indexOf('final');range.setStart(node,at);range.setEnd(node,at+5);
-      const selection=getSelection();selection.removeAllRanges();selection.addRange(range);document.dispatchEvent(new Event('selectionchange'));
-    }''')
-    expect(page.locator('#annotate')).to_be_enabled();page.locator('#annotate').click()
-    page.locator('#comment-body').fill('Still anchored after splitting');page.locator('#comment-submit').click()
-    expect(page.locator('.thread')).to_have_count(1)
-    thread=ws.threads('report.html',review=draft['id'])[0]
-    assert thread['anchor_kind']=='source' and thread['quote']=='final'
-    assert thread['start']==draft['content'].index('final')
-    page.set_viewport_size(dict(width=1100,height=800))
-    expect(frame.locator('p')).to_have_text(expected)
-    assert (root/'report.html').read_text()==text
-
-
-@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
-def test_review_html_multiple_deletions_preserve_mapped_selection(workspace_page):
-    from playwright.sync_api import expect
-    root,page,url,ws=workspace_page
-    text='<p>🧠 One first two second three</p>'
-    (root/'report.html').write_text(text)
-    page.goto(url);open_file(page,'report.html');page.locator('#work-mode').click()
-    expect(page.locator('#approve-review')).to_be_visible()
-    draft=ws.reviews.read(ws.reviews.list()[0]['id'])
-    operations=[dict(start=text.index(quote),end=text.index(quote)+len(quote),insert='')
-                for quote in ('second ','first ')]
-    draft=ws.reviews.update(draft['id'],draft['version'],operations,'Codex','agent')
-    frame=page.frame_locator('#html-preview')
-    expect(frame.locator('.looking-glass-review-deletion')).to_have_text(['first ','second '])
-    expect(frame.locator('p')).to_have_text('🧠 One first two second three')
-    frame.locator('p').evaluate('''el=>{const range=document.createRange();range.selectNodeContents(el);const selection=getSelection();selection.removeAllRanges();selection.addRange(range);document.dispatchEvent(new Event('selectionchange'));}''')
-    expect(page.locator('#annotate')).to_be_enabled();page.locator('#annotate').click()
-    expect(page.locator('#selected-quote')).to_have_text('🧠 One two three')
-    page.locator('#comment-body').fill('Accepted source across both deletions');page.locator('#comment-submit').click()
-    expect(page.locator('.thread')).to_have_count(1)
-    thread=ws.threads('report.html',review=draft['id'])[0]
-    assert thread['anchor_kind']=='source' and thread['quote']=='🧠 One two three'
-    assert thread['start']==3
-    assert (root/'report.html').read_text()==text

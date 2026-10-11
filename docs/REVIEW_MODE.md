@@ -2,7 +2,7 @@
 
 ## Operating contract
 
-Edit mode continues to edit ordinary disk files. Review mode is a workspace-wide viewing preference, with one persistent draft per text file, created lazily when the file is opened in review mode. Switching modes preserves both the original and review draft. Approval applies only the active reviewed file and returns to edit mode.
+Edit mode continues to edit ordinary disk files. Review mode is a workspace-wide viewing preference, with one persistent draft per supported text file, created lazily when the file is opened in review mode. Switching modes preserves both the original and review draft. The quiet, green-outlined approval button stays in the reading pane’s lower-right corner so the toolbar toggle does not move. Approval names the active file in a confirmation dialog and explains that it replaces the original on disk; Cancel (focused by default) or Escape leaves the original untouched. Confirmation applies only that draft revision and returns to edit mode. If the draft changes during confirmation, inspect it and approve again.
 
 - Keep the base bytes/hash, accepted draft, compact provenance segments, and chronological edit events in SQLite. Deleted base segments remain visible ghosts; insertions carry human/agent role, author, and UTC timestamp. Store edit operations rather than full document copies for every keystroke.
 - Track direct insert/delete/replace operations with optimistic review revisions. Human additions are green, agent additions blue, and removals red/struck through. Hover reveals author/time. Editing inserted text updates net changes while the event log retains every action.
@@ -15,7 +15,7 @@ Edit mode continues to edit ordinary disk files. Review mode is a workspace-wide
 
 ## Specification decisions
 
-There are no blocking contradictions. Literal zero additional resources is impossible: review drafts and authorship require storage. The goal is bounded, lazy overhead. Deletion color remains red regardless of author; agent insertions are blue and deletion tooltips record authorship. A mode toggle affects viewing across files; approval applies to one file at a time. Unsupported binary/viewer formats keep their existing viewers.
+There are no blocking contradictions. Literal zero additional resources is impossible: review drafts and authorship require storage. The goal is bounded, lazy overhead. Deletion color remains red regardless of author; agent insertions are blue and deletion tooltips record authorship. A mode toggle affects viewing across files; approval applies to one file at a time. JSON, HTML (including `.htm`), and binary/viewer formats hide the review toggle and ignore the workspace review preference. JSON and HTML continue to support ordinary editing and annotations; switching back to a supported file resumes review. Existing stored drafts remain intact and readable through the agent API.
 
 The existing 8 MiB text limit applies to accepted drafts. Approval writes accepted text without display markup and does not create a Git commit. Drafts, provenance, and history remain local metadata. If an interrupted approval already wrote exactly the accepted draft, retrying may finish promotion of its discussion anchors without overwriting different disk bytes.
 
@@ -23,7 +23,7 @@ The existing 8 MiB text limit applies to accepted drafts. Approval writes accept
 
 Backend: persistence/restart, provenance and Unicode/CRLF operations, author/time history, optimistic conflicts, original byte preservation, approval exactness/file permissions, external changes/deletion, separate comment anchors, authentication/limits, CLI contracts.
 
-Frontend/browser: edit/review toggle and reload, human/agent colors, deletions, undo/redo, live/preview Markdown tables and code, comments on inserted/deleted passages, sidebar/spotlight behavior, concurrent edits, approval, light/dark themes, and existing regressions.
+Frontend/browser: edit/review toggle and reload, human/agent colors, deletions, undo/redo, live/preview Markdown tables and code, JSON/HTML exclusion, comments on inserted/deleted passages, sidebar/spotlight behavior, concurrent edits, approval, light/dark themes, and existing regressions.
 
 Performance: operation-based edits/history growth and unchanged polling; compare edit-mode regressions and representative large review documents.
 

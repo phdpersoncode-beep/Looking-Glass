@@ -190,7 +190,7 @@ def test_search_review_drafts_filters_navigation_and_approval(workspace_page):
     page.wait_for_function("getSelection().toString()==='Outside'")
     page.keyboard.press('Escape');open_file(page,'note.txt')
     assert (root/'note.txt').read_text()==original
-    page.locator('#approve-review').click();expect(page.locator('#work-mode')).to_have_attribute('aria-checked','false')
+    page.locator('#approve-review').click();page.locator('#confirm-review-approve').click();expect(page.locator('#work-mode')).to_have_attribute('aria-checked','false')
     expect(page.locator('#thread-search-status')).to_contain_text('1 match')
     assert visible_ids(page)==[local['id']]
     assert (root/'note.txt').read_text()==draft['content']

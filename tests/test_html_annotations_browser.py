@@ -36,7 +36,7 @@ def expect_highlights(page,expected,name='looking-glass-active'):
 
 
 @pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
-@pytest.mark.parametrize('mode',['edit','review'])
+@pytest.mark.parametrize('mode',['edit','review_preference'])
 def test_missing_runtime_anchor_reopens_report_for_reattachment(workspace_page,mode):
     from playwright.sync_api import expect
     root,page,url,ws=workspace_page
@@ -45,7 +45,10 @@ def test_missing_runtime_anchor_reopens_report_for_reattachment(workspace_page,m
     thread=ws.create_rendered_thread('report.html',dict(quote='Previous runtime passage',prefix='',suffix=''),'Runtime comment','Agent',file['version'])
     ws.update_thread(thread['id'],render_attached=False,version=file['version'])
     page.goto(url);open_file(page,'report.html')
-    if mode=='review':page.locator('#work-mode').click()
+    if mode=='review_preference':
+        page.evaluate("localStorage.setItem('looking-glass-review-mode:'+document.querySelector('.root-label').textContent,'true')")
+        page.reload();expect(page.locator('#document-name')).to_have_text('report.html')
+    expect(page.locator('#work-mode')).to_be_hidden()
     expect(page.locator('.anchor-warning')).to_be_visible()
     page.locator('#html-toggle').click();expect(page.locator('#editor')).to_be_visible()
     search=page.locator('#thread-search');search.fill('runtime comment');search.press('Enter')
@@ -54,8 +57,8 @@ def test_missing_runtime_anchor_reopens_report_for_reattachment(workspace_page,m
     expect(page.locator('.anchor-warning')).to_be_visible()
     select(page,'#runtime');page.locator('[data-action=reattach]').click()
     expect(page.locator('.anchor-warning')).to_have_count(0)
-    review=ws.reviews.list()[0]['id'] if mode=='review' else None
-    assert ws.get_thread(thread['id'],review=review)['quote']=='Current runtime passage'
+    assert ws.reviews.list()==[]
+    assert ws.get_thread(thread['id'])['quote']=='Current runtime passage'
 
 
 @pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
