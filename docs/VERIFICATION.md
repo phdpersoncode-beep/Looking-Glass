@@ -1,6 +1,7 @@
 # Architecture refactor · 2026-10-11
 
-Implemented on `refactor/improve-app-architecture`.
+Implemented on `refactor/improve-app-architecture`, in
+[PR #15](https://github.com/phdpersoncode-beep/Looking-Glass/pull/15).
 
 - Completed the seven stages in the unchanged `REFACTOR_PLAN.md`: behavior
   contracts, pure application transitions, awaited session/navigation lifecycles,
@@ -13,11 +14,13 @@ Implemented on `refactor/improve-app-architecture`.
   scroll/readiness fixes, plus a controlled pending-save/highlight race. The final
   **23-case** architecture/spotlight run also passed, including a review-only
   reply/attachment retained across Edit and cleanup after actual thread deletion.
-- The preceding runtime checkpoint passed all **421** Chromium/Firefox cases in
-  [run 38136379951](https://github.com/phdpersoncode-beep/Looking-Glass/actions/runs/38136379951).
-  Final scope-retention checks are pending in CI. The current **423** browser
-  cases have complete/disjoint shards `[106, 106, 106, 105]`;
-  no browser cases or assertions were removed, and failures are not retried.
+- Full locked-dependency CI passed **47 JavaScript**, **112 Python**, and all
+  **423 Chromium/Firefox browser cases** in
+  [run 38137178632](https://github.com/phdpersoncode-beep/Looking-Glass/actions/runs/38137178632),
+  on runtime checkpoint `33341c501a0d92e7e8447cb5d5707fa0897c44ef`.
+  Playwright 1.63.0 installed Chromium 153 and Firefox 155 on Ubuntu 24.04.
+  Shards `[106, 106, 106, 105]` are complete/disjoint; no existing browser cases or
+  assertions were removed, and failures are not retried.
 - Rebuilt committed assets and verified a clean repeat build. Wheel/source builds
   include the extracted backend modules, runtime assets and shared JSON fixture.
   `git diff --check` passed. Existing HTTP/CLI interfaces and SQLite layouts remain

@@ -18,19 +18,13 @@ Change the REFACTOR_PLAN.md only if you hit blockers or contradictions, a change
 - [x] 5. Isolate review synchronization, mode sessions, conflicts, and approval targeting.
 - [x] 6. Update discussion cards incrementally; give composers one draft owner.
 - [x] 7. Separate backend reconciliation/queries/persistence behind Workspace.
-- [ ] Run full JavaScript/Python/browser regressions, assets, packaging, and shard checks; push final changes.
+- [x] Run full regressions, assets, packaging and shard checks; publish final changes.
 
-## Baseline and constraints
-- Starting commit: `582c3b6` (main implementation at `5062f72`).
-- Preserve the Instructions section above and `REFACTOR_PLAN.md` verbatim.
-- Confirmed gaps: queued `openFile()` returns early; mode switches discard saved editor states; rendering/filtering currently changes focus.
-
-## Verification in progress
-- Baseline: 20 JavaScript and 108 non-browser Python tests passed.
-- New controller/passage tests and shared Python/JavaScript operation fixtures added.
-- Latest fast gates: 47 JavaScript and 112 Python tests passed.
-- Chromium architecture/review/interaction journeys passed (26 cases); spotlight scroll regressions fixed and checked.
-- Full Chromium/Firefox gate passed 421 cases; final hidden-review-scope retention regression added (423 total).
-- Review-only reply/attachment retention and actual-deletion cleanup passed locally; final CI pending.
-- Wheel/source builds, packaged shared fixtures, and complete/disjoint browser shards verified.
-- Protected instruction and plan bytes verified unchanged before publication.
+## Verification
+- Starting commit: `582c3b6`; baseline 20 JavaScript and 108 Python tests.
+- Final gates: 47 JavaScript, 112 Python and all 423 Chromium/Firefox browser cases passed.
+- Assets rebuild cleanly; wheel/source distributions and shared fixture contents verified.
+- Browser shards `[106, 106, 106, 105]` cover the complete collection without duplication or retries.
+- Light/dark/narrow layouts inspected; dense projection benchmark verifies identical ranges.
+- Protected instructions, `REFACTOR_PLAN.md`, and `AGENTS.md` remain byte-for-byte unchanged.
+- See `docs/VERIFICATION.md`, `docs/STATE_CONTRACTS.md`, and PR #15 for implementation and evidence.
