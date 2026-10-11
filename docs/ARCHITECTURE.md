@@ -3,14 +3,17 @@
 One Flask process serves a loopback-only application and a small JSON HTTP API.
 Files under the chosen project root are authoritative; SQLite stores threads,
 messages, anchor positions and the last observed file text used for reconciliation.
-CodeMirror 6 owns document editing and undo history. HTMX refreshes the file tree
-and discussion sidebar. The application store owns navigation intent, focus and preferences; document
+CodeMirror 6 owns document editing and undo history. HTMX refreshes the file tree;
+the discussion view patches changed cards and messages by identity. The application store owns navigation intent, focus and preferences; document
 sessions own content/undo; surface adapters own decorations and Three.js viewers; Tailwind is compiled locally.
 
 ```
 looking_glass/
   app.py         HTTP routes, loopback/token protection
-  workspace.py   file reads, optimistic saves, SQLite discussions
+  workspace.py   file reads, optimistic saves and public discussion facade
+  discussion_store.py SQLite schema and connection lifetime
+  discussion_queries.py queries and shared review visibility
+  discussion_reconciliation.py anchor reconciliation and refresh
   anchors.py     conservative anchor mapping across edits
   revisions.py   selected-file Git checkpoints with a temporary index
   cli.py         server and agent commands
@@ -42,8 +45,9 @@ without changing selection contents or anchor coordinates. CodeMirror uses a
 measurement layer; native rendered selections use CSS Custom Highlights.
 Live tables update annotation marks in place while their source and offset stay
 unchanged, preserving native cell selections through background discussion updates.
-`frontend/thread-spotlight.mjs` filters the existing sidebar list in place to the
-clicked passage's discussions. Cards never move or acquire copies. A compact
+The application store derives the clicked passage's discussions; sidebar
+filtering projects them onto the existing cards. `frontend/thread-spotlight.mjs`
+projects the passage heading and retains list geometry. Cards never move or acquire copies. A compact
 header provides the passage thread count and an All discussions return control
 with an Esc key hint and accessible shortcut metadata.
 The original list scroll is retained across passage changes and restored on

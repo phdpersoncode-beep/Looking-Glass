@@ -1,6 +1,6 @@
 import {createDiscussionView} from './discussion-view.mjs';
 import {createReviewSync,prepareWorkMode} from './review-sync.mjs';
-import {codePointsToEditorUnits as toUnits,editorUnitsToRawUnits as toRawUnits,rawUnitsToCodePoints} from './coordinates.mjs';
+import {codePointsToEditorUnits as toUnits,editorUnitsToRawUnits as toRawUnits,rawUnitsToCodePoints,replacementFor} from './coordinates.mjs';
 import {sourceSpans,resolveSourcePassage} from './passages.mjs';
 import {createThreadNavigator} from './thread-navigation.mjs';
 import {createNavigationController,createRequestGate} from './navigation.mjs';
@@ -440,14 +440,15 @@ function makeState(e){
   ]});
 }
 
-const navigation=createNavigationController({load:loadFile,onRequest:({path})=>appStore.dispatch({type:'DOCUMENT_REQUESTED',path}),onFailure:()=>appStore.dispatch({type:'DOCUMENT_FAILED'})});
+const navigation=createNavigationController({load:loadFile,onRequest:({path})=>appStore.dispatch({type:'DOCUMENT_REQUESTED',path}),onFailure:()=>appStore.dispatch({type:'DOCUMENT_FAILED'}),onInvalidate:()=>appStore.dispatch({type:'DOCUMENT_CANCELLED'})});
 const discussionRequests=createRequestGate(),indexRequests=createRequestGate();
-function openFile(path){return navigation.open(path);}
+function openFile(path){threadNavigator.invalidate();return navigation.open(path);}
 async function loadFile(path,request){
     await restoreReady;
     if(!request.current())return;
     if(appStore.state.displayedDocument===path){await entry()?.ready;return;}
     if(entry()?.workMode==='review')await flushReview(entry());
+    if(!request.current())return;
     clearSpotlight();
     closeComment();contentsController?.reset();
     syncState();
@@ -469,7 +470,7 @@ async function loadFile(path,request){
       contextVisit={path:appStore.state.displayedDocument,content:entry()?.content,editor:view,cleanup,nodes:[...$('#surface').children],preview:renderedPreview,selection:renderedSelection,jump:renderedJump,thread:appStore.state.focusedThread,top:scroller.scrollTop,left:scroller.scrollLeft,snapshot:view?.scrollSnapshot()};
       const held=contextVisit;
       held.surface=createSurfaceSession({suspend:async()=>{await suspendHTMLPreview();held.nodes.forEach(node=>node.hidden=true);},resume:()=>held.nodes.forEach(node=>node.hidden=false),dispose:()=>{held.editor?.destroy();held.cleanup();held.nodes.forEach(node=>node.remove());}});
-      await held.surface.suspend();view=null;cleanup=()=>{};
+      await held.surface.suspend();if(!request.current()){held.surface.resume();previewMessage('resume');contextVisit=null;return;}view=null;cleanup=()=>{};
     }
     const held=contextVisit;
     view?.destroy();view=null;cleanup();cleanup=()=>{};appStore.dispatch({type:'DOCUMENT_DISPLAYED',path});
@@ -577,7 +578,7 @@ function updateToolbar(){
   if(e?.conflict)$('#conflict span').textContent=e.conflict.deleted?'This file was deleted or became unavailable on disk. Copy your draft before closing it.':'Changed on disk. Your unsaved edits are preserved. Compare and merge before saving.';
   $('#work-mode').hidden=!supportsReview(e);$('#work-mode').disabled=changingWorkMode||saving;$('#work-mode').setAttribute('aria-checked',String(e?.workMode==='review'));$('#work-mode').querySelectorAll('span').forEach(s=>s.classList.toggle('active',s.dataset.mode===(e?.workMode==='review'?'review':'edit')));
   $('#approve-review').hidden=e?.workMode!=='review';$('#approve-review').disabled=saving||changingWorkMode||!!e?.reviewError;
-  $('#review-status').hidden=e?.workMode!=='review';$('#review-status').textContent=e?.reviewError?'Draft needs attention':['pending','saving'].includes(e?.reviewSync?.status)?'Saving review…':'Review saved';
+  $('#review-status').hidden=e?.workMode!=='review';$('#review-status').textContent=changingWorkMode?'Switching mode…':e?.reviewError?'Draft needs attention':['pending','saving'].includes(e?.reviewSync?.status)?'Saving review…':'Review saved';
   $('#review-history').hidden=e?.workMode!=='review';
   $('#review-conflict').hidden=!(e?.workMode==='review'&&e.reviewError);
   if(e?.reviewError)$('#review-conflict-message').textContent=e.reviewError.message;
@@ -596,13 +597,13 @@ async function saveActive(){
 function reviewSync(e){
   return e.reviewSync??=createReviewSync(e,{api,metadata:()=>({author:$('#author').value||'Altay',role:'human',at:new Date().toISOString()}),changed:()=>{updateToolbar();renderTabs();},error:error=>notify('Review draft preserved locally: '+error.message,true),
     saved:async segments=>{if(e.path===appStore.state.displayedDocument&&view&&e.reviewField){view.dispatch({effects:reviewEffect.of(segments)});e.state=view.state;}else if(e.state&&e.reviewField)e.state=e.state.update({effects:reviewEffect.of(segments)}).state;if(e.path===appStore.state.displayedDocument){refreshMarkdownHighlights();await refreshThreads();}},
-    remote:(draft,before)=>applyRemoteReview(e,draft,before),concluded:()=>setWorkMode('edit')});
+    remote:(draft,before)=>applyRemoteReview(e,draft,before),concluded:async()=>{if(entry()===e)return setWorkMode('edit');const change=await prepareWorkMode(e,'edit',modePorts);change.commit();renderTabs();}});
 }
 function queueReviewOperations(e,operations,segments){reviewSync(e).enqueue(operations,segments);}
 function differenceOperations(before,after){return diff(before,after,{scanLimit:10000,timeout:100}).map(c=>({start:pointLength(before.slice(0,c.fromA)),end:pointLength(before.slice(0,c.toA)),insert:after.slice(c.fromB,c.toB)})).reverse();}
 function scheduleReviewSave(e){reviewSync(e).schedule();}
 function flushReview(e){return e?reviewSync(e).flush():Promise.resolve();}
-const modePorts={api,sync:reviewSync,supports:supportsReview};
+const modePorts={api,sync:reviewSync,supports:supportsReview,resumed:e=>{if(e.workMode==='review'&&e.state&&e.reviewField)e.state=e.state.update({effects:reviewEffect.of(e.reviewSegments)}).state;}};
 async function ensureWorkMode(e){const prepared=await prepareWorkMode(e,appStore.state.reviewPreference?'review':'edit',modePorts);prepared.commit();}
 async function setWorkMode(value){
   if(changingWorkMode)return;changingWorkMode=true;syncState();updateToolbar();
@@ -621,16 +622,7 @@ async function setWorkMode(value){
 function pollReview(e){return reviewSync(e).poll();}
 async function applyRemoteReview(e,draft,before){
   if(e.path===appStore.state.displayedDocument&&view&&e.reviewField){
-    const after=draft.content;let a=0,b=before.length,c=after.length;
-    while(a<b&&a<c&&before[a]===after[a])a++;
-    while(b>a&&c>a&&before[b-1]===after[c-1]){b--;c--;}
-    // Keep boundaries outside UTF-16 surrogate pairs and CRLF sequences.
-    const inside=(text,at)=>at>0&&at<text.length&&(/[\uD800-\uDBFF]/.test(text[at-1])&&/[\uDC00-\uDFFF]/.test(text[at])||text[at-1]==='\r'&&text[at]==='\n');
-    if(inside(before,a)||inside(after,a))a--;
-    if(inside(before,b)||inside(after,c)){b++;c++;}
-    // Keep accepted source as the editor document and ghosts as decorations.
-    const from=toUnits(before,Array.from(before.slice(0,a)).length),to=toUnits(before,Array.from(before.slice(0,b)).length);
-    view.dispatch({changes:{from,to,insert:after.slice(a,c)},effects:[remoteReview.of(true),reviewEffect.of(draft.segments)],annotations:[isolateHistory.of('full'),Transaction.addToHistory.of(false)]});
+    view.dispatch({changes:replacementFor(before,draft.content),effects:[remoteReview.of(true),reviewEffect.of(draft.segments)],annotations:[isolateHistory.of('full'),Transaction.addToHistory.of(false)]});
     e.state=view.state;
   }else{e.content=draft.content;e.state=null;if(e.path===appStore.state.displayedDocument){cleanup();cleanup=()=>{};mountDocument(e);}}
   e.content=draft.content;e.dirty=false;if(e.path===appStore.state.displayedDocument)await refreshThreads();
@@ -742,7 +734,7 @@ function filterThreads(){
   });
 }
 appStore.subscribe((state,previous)=>{
-  threadSpotlight.render();filterThreads();
+  threadSpotlight.capture();filterThreads();threadSpotlight.render();
   if(state.focusedThread!==previous.focusedThread){zenCollapsed=false;previewThreads();refreshMarkdownHighlights();if(view)view.dispatch({effects:threadFocusEffect.of(state.focusedThread)});}
 });
 function capturePassagePosition(mark,coords){
@@ -783,6 +775,7 @@ function passageIds(node){
   return [...ids];
 }
 function showPassage(ids){
+  threadNavigator.invalidate();navigation.invalidate();
   const threads=ids.map(id=>appStore.state.threads.find(t=>t.id===id&&t.path===appStore.state.displayedDocument)).filter(Boolean);
   if(!threads.length)return;
   const selected=threads.find(t=>t.id===appStore.state.focusedThread)||threads.reduce((a,b)=>b.anchor_kind==='source'&&b.end-b.start<(a.anchor_kind==='source'?a.end-a.start:Infinity)?b:a);
@@ -809,7 +802,7 @@ function spotlightSidebarThread(id,thread){
 const threadNavigator=createThreadNavigator({
   paths:{historyPath:HISTORY,originalPath:id=>ORIGINAL+id+'/original'},
   find:id=>appStore.state.threads.find(t=>t.id===id),session:path=>tabs.get(path),displayed:()=>appStore.state.displayedDocument,
-  read:id=>api('threads/'+id),open:openFile,
+  read:id=>api('threads/'+id),open:path=>navigation.open(path),
   focus:(id,spotlight,thread)=>{if(appStore.state.focusedThread===id&&!!appStore.state.spotlight===spotlight)return;spotlight?spotlightSidebarThread(id,thread):showThread(id);},
   selectGit:async target=>{cleanup.selectTarget?.(target);await refreshThreads();},
   originalNotice:()=>notify('Showing original reviewed content.'),

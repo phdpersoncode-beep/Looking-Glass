@@ -1,4 +1,4 @@
-import {codePointsToEditorUnits} from './coordinates.mjs';
+import {sourceCoordinates} from './coordinates.mjs';
 
 export function passageGroup(threads, passage) {
   if (!passage) return [];
@@ -12,7 +12,7 @@ export function passageGroup(threads, passage) {
   )).map(t => t.id);
 }
 
-export function resolveSourcePassage(thread, {path, content, version = null, dirty = false, localRanges = []}) {
+export function resolveSourcePassage(thread, {path, content, version = null, dirty = false, localRanges = [], coordinates = null}) {
   const documentRef = {path, version};
   const result = (status, range, reason) => ({status, documentRef, range, reason});
   if (thread.path !== path || thread.anchor_kind !== 'source') return result('unavailable', null, 'different_document_or_surface');
@@ -23,18 +23,20 @@ export function resolveSourcePassage(thread, {path, content, version = null, dir
       ? result('attached', {from: range.from, to: range.to, coordinates: 'editor-utf16'}, 'mapped_local_edits')
       : result('unavailable', null, 'local_anchor_unavailable');
   }
-  const points = Array.from(content);
-  if (!Number.isInteger(thread.start) || !Number.isInteger(thread.end) || thread.start < 0 || thread.start >= thread.end || thread.end > points.length)
+  coordinates ??= sourceCoordinates(content, [thread.start, thread.end]);
+  if (!Number.isInteger(thread.start) || !Number.isInteger(thread.end) || thread.start < 0 || thread.start >= thread.end || thread.end > coordinates.length)
     return result('needs_reattachment', null, 'invalid_source_range');
-  if (typeof thread.quote === 'string' && points.slice(thread.start, thread.end).join('') !== thread.quote)
+  if (typeof thread.quote === 'string' && content.slice(coordinates.raw.get(thread.start),coordinates.raw.get(thread.end)) !== thread.quote)
     return result('unavailable', null, 'source_revision_changed');
-  return result('attached', {from: codePointsToEditorUnits(content, thread.start), to: codePointsToEditorUnits(content, thread.end), coordinates: 'editor-utf16'}, 'saved_source_anchor');
+  return result('attached', {from: coordinates.editor.get(thread.start), to: coordinates.editor.get(thread.end), coordinates: 'editor-utf16'}, 'saved_source_anchor');
 }
 
 export function sourceSpans(threads, content, path, version) {
-  return threads.flatMap(thread => {
-    const result = resolveSourcePassage(thread, {path, content, version});
-    return result.status === 'attached' ? [{id: thread.id, resolved: thread.resolved, from: result.range.from, to: result.range.to}] : [];
+  const local=threads.filter(thread=>thread.path===path&&thread.anchor_kind==='source'&&thread.anchor_status==='attached');
+  const coordinates=sourceCoordinates(content,local.flatMap(thread=>[thread.start,thread.end]));
+  return local.flatMap(thread => {
+    const result = resolveSourcePassage(thread, {path, content, version,coordinates});
+    return result.status === 'attached' && result.range.from < result.range.to ? [{id: thread.id, resolved: thread.resolved, from: result.range.from, to: result.range.to}] : [];
   });
 }
 

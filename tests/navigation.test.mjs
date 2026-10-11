@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createNavigationController,createRequestGate,threadDestination} from '../frontend/navigation.mjs';
 import {createSurfaceSession} from '../frontend/document-session.mjs';
+import {createThreadNavigator} from '../frontend/thread-navigation.mjs';
 const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};};
 
 test('queued navigation resolves for its own target and supersedes old reads',async()=>{
@@ -40,4 +41,24 @@ test('navigation policy retains distinct source, rendered, removed and Git desti
  assert.deepEqual(threadDestination({id:1,path:'a',anchor_kind:'source',anchor_status:'needs_reattachment'},null,options),{path:'original/1',surface:'original'});
  assert.deepEqual(threadDestination({id:2,path:'a',anchor_kind:'rendered',anchor_status:'needs_reattachment'},null,options),{path:'a',surface:'rendered'});
  assert.equal(threadDestination({id:3,anchor_kind:'commit'},null,options).path,'history');
+});
+
+test('a newer reading intention cancels a pending thread reveal',async()=>{
+ const opening=deferred(),effects=[],thread={id:1,path:'a',anchor_kind:'source',anchor_status:'attached'};
+ const navigator=createThreadNavigator({find:()=>thread,session:()=>null,displayed:()=>null,
+  paths:{historyPath:'history',originalPath:id=>'original/'+id},open:()=>opening.promise,
+  focus:()=>effects.push('focus'),revealSource:()=>effects.push('reveal')});
+ const activation=navigator.activate(1);navigator.invalidate();opening.resolve({status:'ready'});await activation;
+ assert.deepEqual(effects,[]);
+});
+
+test('a missing current file reveals immutable context after it becomes ready',async()=>{
+ const original=deferred(),effects=[],thread={id:1,path:'missing',anchor_kind:'source',anchor_status:'attached'};
+ const navigator=createThreadNavigator({find:()=>thread,session:()=>null,displayed:()=>null,
+  paths:{historyPath:'history',originalPath:id=>'original/'+id},
+  open:async path=>{effects.push('open:'+path);if(path==='missing')throw Object.assign(Error('missing'),{status:404});return original.promise;},
+  focus:id=>effects.push('focus:'+id)});
+ const activation=navigator.activate(1);await new Promise(resolve=>setImmediate(resolve));
+ assert.deepEqual(effects,['open:missing','open:original/1']);
+ original.resolve({status:'ready'});await activation;assert.equal(effects.at(-1),'focus:1');
 });

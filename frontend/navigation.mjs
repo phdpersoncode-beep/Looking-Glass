@@ -1,6 +1,6 @@
 // Serial transitions finish writes; newer reads supersede older presentation.
 // Every caller receives completion for its own request, including queued calls.
-export function createNavigationController({load, onRequest = () => {}, onFailure = () => {}}) {
+export function createNavigationController({load, onRequest = () => {}, onFailure = () => {}, onInvalidate = () => {}}) {
   let serial = 0, tail = Promise.resolve(), busy = 0;
   function open(path) {
     const id = ++serial, current = () => id === serial;
@@ -19,7 +19,7 @@ export function createNavigationController({load, onRequest = () => {}, onFailur
     return result;
   }
   return {open, get busy() {return busy > 0;}, get requestId() {return serial;},
-    isCurrent: request => request.id === serial, invalidate() {serial++;}};
+    isCurrent: request => request.id === serial, invalidate() {serial++; onInvalidate();}};
 }
 
 // A consistent request identity for discussion/baseline/index completions.

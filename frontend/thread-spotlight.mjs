@@ -4,10 +4,12 @@ export function createThreadSpotlight(sidebar, getState) {
   const heading = sidebar.querySelector('#passage-spotlight');
   const label = heading.querySelector('[role=status]');
   let showing = false, signature = '', listScroll = 0;
+  function capture() {
+    if (getState().spotlightIds.length && !showing) listScroll = scroller.scrollTop;
+  }
   function render() {
     const ids = getState().spotlightIds, active = ids.length > 0;
     const next = ids.join(',');
-    if (active && !showing) listScroll = scroller.scrollTop;
     const focus = heading.contains(document.activeElement);
     sidebar.classList.toggle('passage-focused', active); heading.hidden = !active;
     if (active) label.textContent = `This passage · ${ids.length} ${ids.length === 1 ? 'thread' : 'threads'}`;
@@ -24,6 +26,6 @@ export function createThreadSpotlight(sidebar, getState) {
     if (rect.top < bounds.top || rect.height > scroller.clientHeight) scroller.scrollTop += rect.top - bounds.top;
     else if (rect.bottom > bounds.bottom) scroller.scrollTop += rect.bottom - bounds.bottom;
   }
-  return {render, reveal, get active() { return getState().spotlightIds.length > 0; },
+  return {capture, render, reveal, get active() { return getState().spotlightIds.length > 0; },
     get ids() { return getState().spotlightIds; }, includes: id => getState().spotlightIds.includes(id)};
 }

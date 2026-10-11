@@ -44,6 +44,9 @@ test('document and review preferences have separate authoritative facts', () => 
   store.dispatch({type: 'DOCUMENT_DISPLAYED', path: 'report.html'});
   assert.equal(store.state.reviewPreference, true);
   store.dispatch({type: 'DOCUMENT_REQUESTED', path: 'other.txt'});
+  store.dispatch({type: 'DOCUMENT_CANCELLED'});
+  assert.equal(store.state.requestedDocument, 'report.html');
+  store.dispatch({type: 'DOCUMENT_REQUESTED', path: 'other.txt'});
   store.dispatch({type: 'DOCUMENT_FAILED'});
   assert.equal(store.state.requestedDocument, 'report.html');
 });

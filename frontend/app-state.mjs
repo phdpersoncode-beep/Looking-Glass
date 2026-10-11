@@ -50,6 +50,7 @@ export function transition(state, event) {
     case 'REVIEW_PREFERENCE_CHANGED': next = {...state, reviewPreference: event.value}; break;
     case 'DOCUMENT_REQUESTED': next = {...state, requestedDocument: event.path}; break;
     case 'DOCUMENT_DISPLAYED': next = {...state, displayedDocument: event.path, requestedDocument: event.path, threads: [], focusedThread: event.focusedThread ?? null, spotlight: null, spotlightIds: []}; break;
+    case 'DOCUMENT_CANCELLED':
     case 'DOCUMENT_FAILED': next = {...state, requestedDocument: state.displayedDocument}; break;
     default: throw new Error('Unknown application transition: ' + event.type);
   }

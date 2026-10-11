@@ -37,3 +37,11 @@ test('Markdown visible mapping is pure and preserves entity, escape and continua
  assert.equal(visibleMap('wrong',0,'missing'),null);
  assert.match(mappedMarkdownHTML('**bold**\r\n\r\n| a |\r\n| --- |\r\n| x |'),/data-md-from="2" data-md-to="6"/);
 });
+
+test('batch coordinates agree at every Unicode and newline boundary',async()=>{
+ const {sourceCoordinates,replacementFor}=await import('../frontend/coordinates.mjs');
+ const text='A🧠\r\nB\rC\nD',points=Array.from({length:Array.from(text).length+1},(_,i)=>i),coordinates=sourceCoordinates(text,points);
+ for(const point of points)assert.equal(coordinates.editor.get(point),codePointsToEditorUnits(text,point));
+ assert.deepEqual(replacementFor('A🧠\r\nB','A🪞\r\nB'),{from:1,to:3,insert:'🪞'});
+ assert.deepEqual(replacementFor('A\r\nB','A\nB'),{from:1,to:2,insert:'\n'});
+});

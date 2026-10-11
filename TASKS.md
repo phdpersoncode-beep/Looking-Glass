@@ -28,5 +28,7 @@ Change the REFACTOR_PLAN.md only if you hit blockers or contradictions, a change
 ## Verification in progress
 - Baseline: 20 JavaScript and 108 non-browser Python tests passed.
 - New controller/passage tests and shared Python/JavaScript operation fixtures added.
-- Chromium architecture, review lifecycle, and interaction-polish journeys passed (23 cases); full gates next.
+- Latest fast gates: 45 JavaScript and 112 Python tests passed.
+- Chromium architecture/review/interaction journeys passed (26 cases); spotlight scroll regressions fixed and checked.
+- Wheel/source builds, packaged shared fixtures, and complete/disjoint browser shards verified; full Chromium/Firefox CI pending.
 - Protected instruction and plan bytes verified unchanged before publication.

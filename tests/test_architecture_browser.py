@@ -41,6 +41,7 @@ def test_mode_switch_preserves_each_modes_undo(workspace_page):
     page.locator('.cm-content').click(); page.keyboard.press('Control+End')
     page.keyboard.insert_text(' proposal')
     expect(page.locator('#review-status')).to_have_text('Review saved')
+    expect(page.locator('#work-mode')).to_be_enabled()
     page.locator('#work-mode').click()
     expect(page.locator('#work-mode')).to_have_attribute('aria-checked', 'false')
     page.locator('.cm-content').click(); page.keyboard.press('Control+z')
@@ -104,3 +105,59 @@ def test_poll_updates_keep_cards_messages_composers_and_selection(workspace_page
     expect(page.locator(f'.thread[data-thread="{second["id"]}"] .comment-markdown').last).to_have_text('Unrelated update')
     assert page.evaluate('getSelection().toString()') == selected
     assert page.evaluate('window.heldDiscussionNodes.every(node=>node.isConnected)')
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_highlight_intent_supersedes_pending_file_navigation(workspace_page):
+    from playwright.sync_api import expect
+    root, page, url, ws = workspace_page
+    (root / 'reading.txt').write_text('Reading passage')
+    (root / 'other.txt').write_text('Other document')
+    thread = ws.create_thread('reading.txt', 0, 7, 'Inspect reading', 'Reviewer', ws.read('reading.txt')['version'])
+    page.goto(url); open_file(page, 'reading.txt')
+    held = []
+    page.route('**/api/file?*', lambda route: held.append(route)
+               if 'path=other.txt' in route.request.url else route.continue_())
+    page.locator('.file-entry[data-path="other.txt"]').click()
+    page.wait_for_function('()=>true')
+    assert held
+    page.locator('#surface .passage-highlight').click()
+    with page.expect_response(lambda response: '/api/file?path=other.txt' in response.url) as response:
+        held[0].continue_()
+    response.value.finished(); settle(page)
+    expect(page.locator('#document-name')).to_have_text('reading.txt')
+    expect(page.locator('.thread.active')).to_have_attribute('data-thread', str(thread['id']))
+    # A subsequent navigation waits behind the obsolete read and can still reveal.
+    page.locator('.thread blockquote').click()
+    expect(page.locator('#document-name')).to_have_text('reading.txt')
+    page.locator('#annotate').click()
+    expect(page.locator('#selected-quote')).to_have_text('Reading')
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_highlight_intent_during_save_finishes_write_without_navigation(workspace_page):
+    from playwright.sync_api import expect
+    root, page, url, ws = workspace_page
+    (root / 'reading.txt').write_text('Reading passage')
+    (root / 'other.txt').write_text('Other document')
+    thread = ws.create_thread('reading.txt', 0, 7, 'Inspect reading', 'Reviewer', ws.read('reading.txt')['version'])
+    page.goto(url); open_file(page, 'reading.txt'); page.locator('#work-mode').click()
+    expect(page.locator('#review-status')).to_have_text('Review saved')
+    held = []
+    page.route('**/api/reviews/*', lambda route: held.append(route)
+               if route.request.method == 'PATCH' else route.continue_())
+    page.locator('.cm-content').click(); page.keyboard.press('Control+End')
+    with page.expect_request(lambda request: request.method == 'PATCH' and '/api/reviews/' in request.url):
+        page.keyboard.insert_text(' saved proposal')
+    page.locator('.file-entry[data-path="other.txt"]').click()
+    assert held
+    page.locator('#surface .passage-highlight').click()
+    with page.expect_response(lambda response: response.request.method == 'PATCH' and '/api/reviews/' in response.url) as response:
+        held[0].continue_()
+    response.value.finished()
+    expect(page.locator('#review-status')).to_have_text('Review saved'); settle(page)
+    expect(page.locator('#document-name')).to_have_text('reading.txt')
+    expect(page.locator('#passage-spotlight')).to_be_visible()
+    expect(page.locator('.thread.active')).to_have_attribute('data-thread', str(thread['id']))
+    assert ws.reviews.read(ws.reviews.list()[0]['id'])['content'] == 'Reading passage saved proposal'
+    assert (root / 'reading.txt').read_text() == 'Reading passage'
