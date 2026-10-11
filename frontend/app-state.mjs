@@ -1,3 +1,5 @@
+import {passageGroup} from './passages.mjs';
+export {passageGroup} from './passages.mjs';
 import {createThreadSearch} from './thread-search.mjs';
 
 const searchIndexes = new WeakMap();
@@ -9,18 +11,6 @@ export function selectVisibleThreads(state) {
   if (!search) { search = createThreadSearch(state.threads); searchIndexes.set(state.threads, search); }
   const byId = new Map(eligible.map(t => [t.id, t]));
   return search(state.searchQuery).map(result => byId.get(result.id)).filter(Boolean);
-}
-
-export function passageGroup(threads, passage) {
-  if (!passage) return [];
-  const seeds = passage.seeds.map(seed => threads.find(t => t.id === seed.id) || seed);
-  const source = seeds.filter(t => t.anchor_kind === 'source' && t.anchor_status === 'attached');
-  const from = Math.max(...source.map(t => t.start)), to = Math.min(...source.map(t => t.end));
-  return threads.filter(t => t.path === passage.path && (
-    seeds.some(seed => seed.id === t.id) ||
-    t.anchor_kind === 'source' && t.anchor_status === 'attached' && from < to && t.start < to && t.end > from ||
-    t.anchor_kind === 'rendered' && seeds.some(seed => seed.anchor_kind === 'rendered' && JSON.stringify(seed.render_anchor) === JSON.stringify(t.render_anchor))
-  )).map(t => t.id);
 }
 
 export function initialAppState(preferences = {}) {
@@ -54,7 +44,7 @@ export function transition(state, event) {
     }
     case 'FOCUS_CLEARED': next = {...state, focusedThread: null}; break;
     case 'SPOTLIGHT_CLEARED': next = reconcileFocus({...state, spotlight: null, spotlightIds: []}); break;
-    case 'THREADS_RECEIVED': next = reconcileFocus({...state, threads: event.threads}); break;
+    case 'THREADS_RECEIVED': next = reconcileFocus({...state, threads: event.threads}); if(event.availableIds&&!event.availableIds.includes(next.focusedThread))next.focusedThread=null; break;
     case 'FILTERS_CHANGED': next = reconcileFocus({...state, ...event.filters}); break;
     case 'ZEN_CHANGED': next = reconcileFocus({...state, zen: event.value}); break;
     case 'REVIEW_PREFERENCE_CHANGED': next = {...state, reviewPreference: event.value}; break;

@@ -1,11 +1,11 @@
-# First milestone
+# Application architecture
 
 One Flask process serves a loopback-only application and a small JSON HTTP API.
 Files under the chosen project root are authoritative; SQLite stores threads,
 messages, anchor positions and the last observed file text used for reconciliation.
 CodeMirror 6 owns document editing and undo history. HTMX refreshes the file tree
-and discussion sidebar. A locally bundled JavaScript module owns tabs, editor
-decorations and Three.js viewers; Tailwind is compiled locally.
+and discussion sidebar. The application store owns navigation intent, focus and preferences; document
+sessions own content/undo; surface adapters own decorations and Three.js viewers; Tailwind is compiled locally.
 
 ```
 looking_glass/
@@ -30,7 +30,7 @@ has its own token and database. A user-level SQLite registry records known roots
 and server addresses without tokens. CLI requests verify the server's root.
 
 Thread search, filters, pagination, summaries, and source context live in
-`workspace.py` and are exposed through the HTTP API. Existing unpaginated calls
+`discussion_queries.py` behind the `Workspace` facade and are exposed through the HTTP API. Existing unpaginated calls
 remain available for the browser. The CLI uses the shared query implementation.
 
 Discussion bodies remain Markdown in SQLite and API responses. The client uses
@@ -95,3 +95,41 @@ are rejected. Unrelated staged files, unstaged files and untracked files stay in
 Verification focuses on data preservation: edits, stale saves, deleted/ambiguous
 anchors, SQLite restarts, token isolation, path traversal, selected checkpoints,
 and the browser workflow. No models are called and no files are executed.
+
+## State and controller boundaries
+
+See [STATE_CONTRACTS.md](STATE_CONTRACTS.md) for ownership and interaction rules.
+
+| Module | Responsibility |
+| --- | --- |
+| `frontend/app-state.mjs` | Pure transitions, focus/spotlight/search/scope/preferences and visible-thread selectors |
+| `frontend/navigation.mjs`, `thread-navigation.mjs` | Request completion, supersession, destination policy and explicit reveal effects |
+| `frontend/document-session.mjs` | Compatible per-mode editor snapshots; suspended reading-surface lifetimes |
+| `frontend/coordinates.mjs`, `passages.mjs`, `markdown-source.mjs` | Named Unicode/CRLF boundaries, conservative resolution, passage groups and source mapping without browser objects |
+| `frontend/review-sync.mjs` | Per-document operations, frozen save batches, remote revision guards, conflicts and confirmed approval targets |
+| `frontend/discussion-view.mjs`, `composer.mjs` | Keyed cards/messages; one owner for reply body, attachments and sending state |
+| `looking_glass/discussion_store.py` | Existing SQLite schema and connection lifetime |
+| `looking_glass/discussion_reconciliation.py` | Conservative ordinary-file reconciliation and refresh |
+| `looking_glass/discussion_queries.py` | Shared review visibility plus specialized lean navigation/search queries |
+
+`app.js` composes these owners and contains surface adapters and browser event
+bindings. It does not choose focus while filtering or rendering. Navigation
+resolves as ready or superseded, rejects load failures, and never cancels a write.
+Discussion, index and review requests reject obsolete session/revision results.
+An HTML surface becomes ready after its isolated bridge handshake.
+
+Mode changes prepare all affected sessions before committing any visible mode or
+preference change. Compatible Edit and Review snapshots retain independent
+CodeMirror selections and undo histories. Review preference remains separate from
+the effective session mode, so JSON and HTML still open in Edit.
+
+Review synchronization uses `clean`, `pending`, `saving`, `conflicted`, and
+`approving` statuses. Operations sent to the backend are frozen; later edits form
+a separate batch. User editing is locked during mode preparation/approval.
+Approval validates the confirmed session, draft ID, revision and local epoch.
+
+Discussion polling reconciles nodes by thread/message/attachment identity.
+Unchanged cards and messages keep their native nodes; composers are retained even
+when their own thread receives a reply. Scoped views reuse cached cards, and only
+actual deletion prunes drafts/attachments. Existing API payloads, SQLite layouts,
+CLI contracts and review approval/recovery checks remain compatible.

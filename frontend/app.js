@@ -1,3 +1,7 @@
+import {createDiscussionView} from './discussion-view.mjs';
+import {createReviewSync,prepareWorkMode} from './review-sync.mjs';
+import {codePointsToEditorUnits as toUnits,editorUnitsToRawUnits as toRawUnits,rawUnitsToCodePoints} from './coordinates.mjs';
+import {sourceSpans,resolveSourcePassage} from './passages.mjs';
 import {createThreadNavigator} from './thread-navigation.mjs';
 import {createNavigationController,createRequestGate} from './navigation.mjs';
 import {createDocumentSession,createSurfaceSession} from './document-session.mjs';
@@ -51,6 +55,7 @@ let changingWorkMode=false;
 let approvalTarget=null;
 const HISTORY='looking-glass://history',ORIGINAL='looking-glass://thread/';
 let contextVisit=null;
+let restoreReady=Promise.resolve();
 async function readTab(path){
   if(path===HISTORY)return {content:'',version:null,kind:'history'};
   if(path.startsWith(ORIGINAL)){
@@ -89,7 +94,7 @@ function markdownSelection(){for(const rendered of markdownViews){if(rendered.ho
 function markdownSpans(){const e=entry();return view?view.state.field(spanField):e?(e.dirty&&e.state?e.state.field(spanField):spansFor(appStore.state.threads,e.content)).map(span=>({...span,from:toRawUnits(e.content,span.from),to:toRawUnits(e.content,span.to)})):[];}
 function currentReviewRanges(normalized=false){const e=entry();return e?.review&&e.workMode==='review'?reviewRanges(e.reviewSegments||e.review.segments,normalized):[];}
 function refreshMarkdownHighlights(){if(entry()?.kind==='original')return;const spans=markdownSpans();for(const rendered of markdownViews){if(rendered.host.isConnected)rendered.highlight(spans,appStore.state.focusedThread);else markdownViews.delete(rendered);}}
-function toRawUnits(text,units){let at=0;for(let i=0;i<text.length;i++){if(at===units)return i;if(text[i]==='\r'&&text[i+1]==='\n')i++;at++;}return text.length;}
+
 
 function previewMessage(type,data={}){const preview=renderedPreview;if(preview?.ready)preview.frame.contentWindow.postMessage({lookingGlass:preview.channel,type,...data},'*');}
 function previewThreads(){
@@ -119,11 +124,11 @@ async function suspendHTMLPreview(){
 function htmlSelection(){
   const source=renderedSelection?.source,text=entry()?.content;
   if(!source||typeof text!=='string'||!Number.isInteger(source.from)||!Number.isInteger(source.to)||source.from<0||source.to<=source.from||source.to>text.length)return null;
-  return {start:Array.from(text.slice(0,source.from)).length,end:Array.from(text.slice(0,source.to)).length};
+  return {start:rawUnitsToCodePoints(text,source.from),end:rawUnitsToCodePoints(text,source.to)};
 }
 let fontStep = Math.max(-4,Math.min(12,Number(localStorage.getItem('looking-glass-font-step'))||0));
 function applyFontSize(){document.documentElement.style.setProperty('--document-font-size',(14+fontStep)+'px');document.documentElement.style.setProperty('--prose-font-size',(18+fontStep)+'px');document.documentElement.style.setProperty('--document-font-step',fontStep+'px');view?.requestMeasure();}
-const themeSlot = new Compartment(), liveSlot = new Compartment(), gitSlot=new Compartment();
+const themeSlot = new Compartment(), liveSlot = new Compartment(), gitSlot=new Compartment(),workLockSlot=new Compartment();
 const selectionSettled = StateEffect.define();
 const baselineEffect=StateEffect.define();
 const diffConfig={scanLimit:1000,timeout:50};
@@ -311,14 +316,13 @@ async function api(route,method='GET',data) {
 }
 async function binary(path){const r=await fetch('/api/binary?'+new URLSearchParams({path}),{headers:{'X-Looking-Glass-Token':token}});if(!r.ok)throw new Error((await r.json()).error);return r.arrayBuffer();}
 function guard(fn){return (...args)=>Promise.resolve().then(()=>fn(...args)).catch(e=>notify(e.message,true));}
-const toUnits=(text,points)=>Array.from(text).slice(0,points).join('').replace(/\r\n/g,'\n').length;
 const selectionPoints=(state,units)=>Array.from(state.sliceDoc(0,units)).length;
 const ext=path=>path.split('.').pop().toLowerCase();
 const isImage=path=>['png','jpg','jpeg','svg'].includes(ext(path));
 function entry(){return appStore.state.displayedDocument?tabs.get(appStore.state.displayedDocument):null;}
 function remember(){localStorage.setItem('looking-glass-tabs:'+root,JSON.stringify({active:entry()?.kind==='original'?contextVisit?.path:appStore.state.displayedDocument,tabs:[...tabs.values()].filter(e=>e.kind!=='original').map(e=>({path:e.path,pinned:e.pinned,mode:e.mode,kind:e.kind,...(e.kind==='history'?{history:{target:e.history?.target,selection:e.history?.selection}}:{})}))}));}
 function syncState(){const e=entry();if(e&&view){e.state=view.state;e.content=view.state.sliceDoc();}}
-function spansFor(threads,text){return threads.filter(t=>t.path===appStore.state.displayedDocument&&t.anchor_kind==='source'&&t.anchor_status==='attached').map(t=>({id:t.id,resolved:t.resolved,from:toUnits(text,t.start),to:toUnits(text,t.end)})).filter(s=>s.from<s.to&&s.to<=text.length);}
+function spansFor(threads,text){return sourceSpans(threads,text,appStore.state.displayedDocument,entry()?.version);}
 
 function removedSelection(){
   if(entry()?.workMode!=='review')return null;
@@ -390,9 +394,9 @@ async function closeTab(path,returning=false){
   if(contextVisit?.path===path){contextVisit.surface.dispose();contextVisit=null;}
   if(returning)contextVisit=null;
   if(path===appStore.state.displayedDocument){clearSpotlight();closeComment();syncState();view?.destroy();view=null;cleanup();cleanup=()=>{};appStore.dispatch({type:'DOCUMENT_DISPLAYED',path:null});}
-  tabs.delete(path);remember();renderTabs();
+  e.reviewSync?.dispose();tabs.delete(path);remember();renderTabs();
   if(!appStore.state.displayedDocument&&tabs.size)await openFile([...tabs.keys()].at(-1));
-  else if(!appStore.state.displayedDocument){lastThreadHTML='';lastThreadKey='';$('#surface').innerHTML='<div class="welcome"><h1>Open a file to begin.</h1></div>';$('#threads').replaceChildren();appStore.dispatch({type:'THREADS_RECEIVED',threads:[]});$('#thread-count').textContent='0';updateToolbar();await refreshThreads();}
+  else if(!appStore.state.displayedDocument){lastThreadHTML='';lastThreadKey='';$('#surface').innerHTML='<div class="welcome"><h1>Open a file to begin.</h1></div>';$('#threads').replaceChildren();discussionView.reset();appStore.dispatch({type:'THREADS_RECEIVED',threads:[]});$('#thread-count').textContent='0';updateToolbar();await refreshThreads();}
 }
 
 const shellLanguage=StreamLanguage.define(shell);
@@ -427,12 +431,12 @@ function makeState(e){
   const tracked=e.workMode==='review'&&e.review;
   if(tracked)e.reviewField=reviewTracking({...e.review,segments:e.reviewSegments||e.review.segments},()=>({author:$('#author').value||'Altay',role:'human',at:new Date().toISOString()}));
   const docPath=e.sourcePath||e.path,prose=['md','markdown','txt'].includes(ext(docPath));
-  return EditorState.create({doc:e.content,extensions:[EditorState.lineSeparator.of(e.diskContent.includes('\r\n')?'\r\n':'\n'),basicSetup,language(docPath),...(tracked?[e.reviewField]:[]),...(e.kind==='original'?[EditorState.readOnly.of(true),EditorView.editable.of(false)]:[]),syntaxHighlighting(colors),spanField,threadFocusField,gitField,gitSlot.of([]),
+  return EditorState.create({doc:e.content,extensions:[EditorState.lineSeparator.of(e.diskContent.includes('\r\n')?'\r\n':'\n'),basicSetup,language(docPath),workLockSlot.of(EditorState.readOnly.of(changingWorkMode)),...(tracked?[e.reviewField]:[]),...(e.kind==='original'?[EditorState.readOnly.of(true),EditorView.editable.of(false)]:[]),syntaxHighlighting(colors),spanField,threadFocusField,gitField,gitSlot.of([]),
     themeSlot.of(theme()),liveSlot.of(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables,textSelection]:[]),
     ...(prose?[EditorView.lineWrapping,EditorView.theme({'.cm-scroller':{fontFamily:'var(--prose)',fontSize:'var(--prose-font-size)'},'.cm-content':{maxWidth:'850px',margin:'0 auto',width:'100%'},'.cm-lineNumbers, .cm-foldGutter':{display:'none'}})]:[]),
     EditorView.scrollHandler.of(editor=>passagePosition?.editor===editor),
     keymap.of([{key:'Mod-s',run:()=>{guard(saveActive)();return true;}},{key:'Mod-Enter',run:()=>{guard(startComment)();return true;}},{key:'Mod-f',run:openSearchPanel},{key:'Mod-h',run:openSearchPanel},indentWithTab]),
-    EditorView.updateListener.of(u=>{if(u.docChanged){if(tracked){e.reviewSegments=u.state.field(e.reviewField).segments;if(!u.transactions.some(t=>t.effects.some(effect=>effect.is(remoteReview)))){for(const tr of u.transactions)if(tr.docChanged)queueReviewOperations(e,operationsFor(tr));scheduleReviewSave(e);}}e.content=u.state.sliceDoc();e.dirty=e.content!==e.diskContent;e.state=u.state;contentsController?.update();updateToolbar();renderTabs();}if(u.selectionSet)updateToolbar();if(u.selectionSet||u.docChanged||u.viewportChanged||u.geometryChanged)scheduleSelectionTools();})
+    EditorView.updateListener.of(u=>{if(u.docChanged){if(tracked){if(!u.transactions.some(t=>t.effects.some(effect=>effect.is(remoteReview)))){for(const tr of u.transactions)if(tr.docChanged)queueReviewOperations(e,operationsFor(tr),u.state.field(e.reviewField).segments);scheduleReviewSave(e);}}e.content=u.state.sliceDoc();e.dirty=e.content!==e.diskContent;e.state=u.state;contentsController?.update();updateToolbar();renderTabs();}if(u.selectionSet)updateToolbar();if(u.selectionSet||u.docChanged||u.viewportChanged||u.geometryChanged)scheduleSelectionTools();})
   ]});
 }
 
@@ -440,6 +444,8 @@ const navigation=createNavigationController({load:loadFile,onRequest:({path})=>a
 const discussionRequests=createRequestGate(),indexRequests=createRequestGate();
 function openFile(path){return navigation.open(path);}
 async function loadFile(path,request){
+    await restoreReady;
+    if(!request.current())return;
     if(appStore.state.displayedDocument===path){await entry()?.ready;return;}
     if(entry()?.workMode==='review')await flushReview(entry());
     clearSpotlight();
@@ -551,6 +557,8 @@ function mountDocument(e){
 async function refreshBaseline(){const editor=view,path=appStore.state.displayedDocument;if(!editor||entry()?.kind||entry()?.workMode==='review')return;const baseline=await api('git/baseline?'+new URLSearchParams({path}));if(view===editor&&appStore.state.displayedDocument===path)editor.dispatch({effects:[baselineEffect.of(baseline.content),gitSlot.reconfigure(baseline.content===null?[]:gitGutter)]});}
 function supportsReview(e){return !!e&&!e.kind&&!['stl','jsonl','json','html','htm'].includes(ext(e.path))&&!isImage(e.path);}
 function updateToolbar(){
+  const locked=!!changingWorkMode||entry()?.reviewSync?.status==='approving'||entry()?.kind==='original';
+  if(view&&view.state.readOnly!==locked)view.dispatch({effects:workLockSlot.reconfigure(EditorState.readOnly.of(locked))});
   const e=entry(), type=e?ext(e.path):'', viewer=!!e?.kind||['stl','jsonl'].includes(type)||isImage(e?.path||'');
   $('#markdown-contents').hidden=!!e?.kind||!['md','markdown'].includes(type)||e?.mode!=='live';
   $('.font-controls').hidden=e?.kind==='history';$('#annotate').hidden=!!e?.kind;$('#save').hidden=!!e?.kind;
@@ -569,7 +577,7 @@ function updateToolbar(){
   if(e?.conflict)$('#conflict span').textContent=e.conflict.deleted?'This file was deleted or became unavailable on disk. Copy your draft before closing it.':'Changed on disk. Your unsaved edits are preserved. Compare and merge before saving.';
   $('#work-mode').hidden=!supportsReview(e);$('#work-mode').disabled=changingWorkMode||saving;$('#work-mode').setAttribute('aria-checked',String(e?.workMode==='review'));$('#work-mode').querySelectorAll('span').forEach(s=>s.classList.toggle('active',s.dataset.mode===(e?.workMode==='review'?'review':'edit')));
   $('#approve-review').hidden=e?.workMode!=='review';$('#approve-review').disabled=saving||changingWorkMode||!!e?.reviewError;
-  $('#review-status').hidden=e?.workMode!=='review';$('#review-status').textContent=e?.reviewError?'Draft needs attention':e?.pendingOps?.length?'Saving review…':'Review saved';
+  $('#review-status').hidden=e?.workMode!=='review';$('#review-status').textContent=e?.reviewError?'Draft needs attention':['pending','saving'].includes(e?.reviewSync?.status)?'Saving review…':'Review saved';
   $('#review-history').hidden=e?.workMode!=='review';
   $('#review-conflict').hidden=!(e?.workMode==='review'&&e.reviewError);
   if(e?.reviewError)$('#review-conflict-message').textContent=e.reviewError.message;
@@ -585,76 +593,35 @@ async function saveActive(){
   finally{saving=false;updateToolbar();}
 }
 
-function queueReviewOperations(e,operations){
-  for(const op of operations){const last=e.pendingOps.at(-1);
-    if(last&&last.start===last.end&&op.start===op.end&&op.start===last.start+pointLength(last.insert))last.insert+=op.insert;
-    else if(last&&!last.insert&&!op.insert&&op.end===last.start)last.start=op.start;
-    else if(last&&!last.insert&&!op.insert&&op.start===last.start)last.end+=op.end-op.start;
-    else e.pendingOps.push(op);
-  }
+function reviewSync(e){
+  return e.reviewSync??=createReviewSync(e,{api,metadata:()=>({author:$('#author').value||'Altay',role:'human',at:new Date().toISOString()}),changed:()=>{updateToolbar();renderTabs();},error:error=>notify('Review draft preserved locally: '+error.message,true),
+    saved:async segments=>{if(e.path===appStore.state.displayedDocument&&view&&e.reviewField){view.dispatch({effects:reviewEffect.of(segments)});e.state=view.state;}else if(e.state&&e.reviewField)e.state=e.state.update({effects:reviewEffect.of(segments)}).state;if(e.path===appStore.state.displayedDocument){refreshMarkdownHighlights();await refreshThreads();}},
+    remote:(draft,before)=>applyRemoteReview(e,draft,before),concluded:()=>setWorkMode('edit')});
 }
+function queueReviewOperations(e,operations,segments){reviewSync(e).enqueue(operations,segments);}
 function differenceOperations(before,after){return diff(before,after,{scanLimit:10000,timeout:100}).map(c=>({start:pointLength(before.slice(0,c.fromA)),end:pointLength(before.slice(0,c.toA)),insert:after.slice(c.fromB,c.toB)})).reverse();}
-function scheduleReviewSave(e){clearTimeout(e.reviewTimer);e.reviewTimer=setTimeout(()=>guard(()=>flushReview(e))(),450);}
-async function flushReview(e){
-  if(!e?.review||e.workMode!=='review')return;
-  clearTimeout(e.reviewTimer);
-  if(e.reviewSaving){await e.reviewSaving;if(e.reviewError)throw e.reviewError;return flushReview(e);}
-  if(e.reviewError)throw e.reviewError;
-  if(!e.pendingOps.length)return;
-  const operations=e.pendingOps.slice(0,1000),count=operations.length,metadata={author:$('#author').value||'Altay',role:'human',at:new Date().toISOString()};
-  e.reviewSaving=(async()=>{
-    try{
-      const saved=await api('reviews/'+e.review.id,'PATCH',{version:e.review.version,operations,author:metadata.author,role:'human',minimal:true});
-      const segments=saved.segments||applyReview(e.review.segments,operations,saved.edit||metadata,e.review.base);const content=saved.content??acceptedReview(segments);
-      e.pendingOps.splice(0,count);e.review={...e.review,...saved,segments,content};e.version=saved.version;e.diskContent=content;
-      e.reviewSegments=applyReview(segments,e.pendingOps,metadata,e.review.base);e.dirty=!!e.pendingOps.length;
-      if(e.path===appStore.state.displayedDocument&&view&&e.reviewField){view.dispatch({effects:reviewEffect.of(e.reviewSegments)});e.state=view.state;}
-      else if(e.state&&e.reviewField)e.state=e.state.update({effects:reviewEffect.of(e.reviewSegments)}).state;
-      if(e.path===appStore.state.displayedDocument){refreshMarkdownHighlights();await refreshThreads();}
-    }catch(error){e.reviewError=error;notify('Review draft preserved locally: '+error.message,true);throw error;}
-    finally{e.reviewSaving=null;updateToolbar();renderTabs();}
-  })();
-  await e.reviewSaving;if(e.pendingOps.length)return flushReview(e);
-}
-async function ensureWorkMode(e){
-  if(!supportsReview(e))return;
-  const desired=appStore.state.reviewPreference?'review':'edit';if(e.workMode===desired)return;
-  if(!e.workMode&&desired==='edit'){e.workMode='edit';return;}
-  if(desired==='review'){
-    if(e.dirty)throw new Error('Save or undo edit-mode changes before starting review.');
-    e.original={content:e.content,diskContent:e.diskContent,version:e.version,state:e.state};
-    const draft=await api('reviews','POST',{path:e.path,version:e.version});
-    e.review=draft;e.reviewSegments=draft.segments;e.pendingOps=[];e.reviewError=null;
-    e.content=draft.content;e.diskContent=draft.content;e.version=draft.version;e.state=null;e.conflict=null;e.dirty=false;
-  }else{
-    await flushReview(e);
-    const file=await api('file?'+new URLSearchParams({path:e.path}));
-    e.content=file.content;e.diskContent=file.content;e.version=file.version;e.state=null;e.conflict=null;e.dirty=false;e.review=null;e.reviewSegments=null;
-  }
-  e.workMode=desired;
-}
+function scheduleReviewSave(e){reviewSync(e).schedule();}
+function flushReview(e){return e?reviewSync(e).flush():Promise.resolve();}
+const modePorts={api,sync:reviewSync,supports:supportsReview};
+async function ensureWorkMode(e){const prepared=await prepareWorkMode(e,appStore.state.reviewPreference?'review':'edit',modePorts);prepared.commit();}
 async function setWorkMode(value){
   if(changingWorkMode)return;changingWorkMode=true;syncState();updateToolbar();
-  const previous=appStore.state.reviewPreference;
+  const activeSession=entry();
   try{
-    if(entry()?.workMode==='review')await flushReview(entry());
-    appStore.dispatch({type:'REVIEW_PREFERENCE_CHANGED',value:value==='review'});await ensureWorkMode(entry());
-    if(!appStore.state.reviewPreference)for(const e of tabs.values())if(e!==entry()&&e.workMode==='review')await ensureWorkMode(e);
+    const targets=value==='edit'?[activeSession,...[...tabs.values()].filter(e=>e!==activeSession&&e.workMode==='review')]:[activeSession];
+    const prepared=[];for(const e of targets)if(e)prepared.push(await prepareWorkMode(e,value,modePorts));
+    if(entry()!==activeSession)throw new Error('The active document changed while switching modes. Try again.');
+    for(const change of prepared)change.validate();for(const change of prepared)change.commit();
+    appStore.dispatch({type:'REVIEW_PREFERENCE_CHANGED',value:value==='review'});
     localStorage.setItem('looking-glass-review-mode:'+root,String(appStore.state.reviewPreference));
-    view?.destroy();view=null;cleanup();cleanup=()=>{};mountDocument(entry());
+    view?.destroy();view=null;cleanup();cleanup=()=>{};mountDocument(activeSession);await activeSession.ready;
     lastThreadKey='';indexTime=0;clearSpotlight();await refreshThreads();renderTabs();
-  }catch(error){appStore.dispatch({type:'REVIEW_PREFERENCE_CHANGED',value:previous});throw error;}
-  finally{changingWorkMode=false;updateToolbar();}
+  }finally{changingWorkMode=false;updateToolbar();}
 }
-async function pollReview(e){
-  if(e.pendingOps.length||e.reviewSaving||e.reviewError)return;
-  const version=e.review.version;
-  const draft=await api('reviews/'+e.review.id+'?'+new URLSearchParams({version}));
-  if(!draft||e.review.version!==version||e.pendingOps.length||e.workMode!=='review')return;
-  if(draft.status!=='pending'){await setWorkMode('edit');return;}
-  e.review=draft;e.version=draft.version;e.diskContent=draft.content;e.reviewSegments=draft.segments;
+function pollReview(e){return reviewSync(e).poll();}
+async function applyRemoteReview(e,draft,before){
   if(e.path===appStore.state.displayedDocument&&view&&e.reviewField){
-    const before=e.content,after=draft.content;let a=0,b=before.length,c=after.length;
+    const after=draft.content;let a=0,b=before.length,c=after.length;
     while(a<b&&a<c&&before[a]===after[a])a++;
     while(b>a&&c>a&&before[b-1]===after[c-1]){b--;c--;}
     // Keep boundaries outside UTF-16 surrogate pairs and CRLF sequences.
@@ -672,7 +639,7 @@ async function requestReviewApproval(){
   const e=entry();if(e?.workMode!=='review')return;
   await flushReview(e);
   if(entry()!==e||e.workMode!=='review')return;
-  approvalTarget={entry:e,id:e.review.id,version:e.review.version};
+  approvalTarget=reviewSync(e).approvalTarget();
   $('#review-approve-path').textContent=e.path;
   $('#review-approve-dialog').showModal();
 }
@@ -680,12 +647,13 @@ async function approveReview(event){
   event.preventDefault();
   const target=approvalTarget,e=entry();
   $('#review-approve-dialog').close();
-  if(!target||e!==target.entry||e.workMode!=='review'||e.review.id!==target.id||e.review.version!==target.version||e.pendingOps.length||e.reviewError)throw new Error('The review changed while confirmation was open. Inspect the latest draft and approve again.');
+  if(!target||e!==target.entry)throw new Error('The active review changed while confirmation was open. Inspect the latest draft and approve again.');
+  reviewSync(e).assertApproval(target);
   saving=true;updateToolbar();
   try{
-    await api('reviews/'+target.id+'/approve','POST',{version:target.version});
+    await reviewSync(e).approve(target);
     // Approval concludes the active file; other drafts stay stored for resuming.
-    e.pendingOps=[];await setWorkMode('edit');notify('Reviewed version approved and saved');
+    await setWorkMode('edit');notify('Reviewed version approved and saved');
   }catch(error){notify(error.message,true);throw error;}
   finally{saving=false;updateToolbar();}
 }
@@ -696,12 +664,12 @@ async function showReviewHistory(){
   if(!data.edits.length)host.textContent='No edits yet.';$('#review-history-dialog').showModal();
 }
 
-function threadScope(){return $('#thread-scope').checked?'all':'file';}
+function threadScope(){return appStore.state.scope;}
 const discussionCache=new Map();let lastThreadHTML='',lastThreadKey='',navigationIndex=[],indexTime=0;
-const replyDrafts=new Map();
-function renderDiscussions(data,key){
+const discussionView=createDiscussionView($('#threads'),{composers,renderBody:(host,source)=>{renderMarkdown(host,source,highlightMarkdown);markdownDiagrams(host);}});
+function receiveDiscussions(data,key){
   const previous=appStore.state.threads,e=entry();
-  appStore.dispatch({type:'THREADS_RECEIVED',threads:data.threads});navigationIndex=data.index;indexTime=Date.now();
+  appStore.dispatch({type:'THREADS_RECEIVED',threads:data.threads,availableIds:data.index.map(t=>t.id)});navigationIndex=data.index;indexTime=Date.now();
   if(e?.kind==='original'){
     const thread=data.threads.find(t=>t.id===e.threadId);
     const resolved=e.contextResolved??e.resolvedAtOpen;
@@ -719,7 +687,7 @@ function renderDiscussions(data,key){
     const newlyResolved=spans.filter(s=>s.resolved&&(old.some(o=>o.id===s.id&&!o.resolved)||previous.some(t=>t.id===s.id&&!t.resolved)));
     const selected=view.state.selection.main;
     if(newlyResolved.some(s=>s.from<selected.to&&s.to>selected.from))view.dispatch({selection:{anchor:selected.head}});
-    view.dispatch({effects:spansEffect.of(spans)});
+    if(JSON.stringify(old)!==JSON.stringify(spans))view.dispatch({effects:spansEffect.of(spans)});
     e.state=view.state;
   }
   if(!view&&e?.dirty&&e.state&&e.kind!=='original'){
@@ -729,26 +697,16 @@ function renderDiscussions(data,key){
   const native=markdownSelection(),resolved=appStore.state.threads.filter(t=>t.resolved&&previous.some(p=>p.id===t.id&&!p.resolved));
   if(native&&markdownSpans().some(s=>resolved.some(t=>t.id===s.id)&&s.from<native.to&&s.to>native.from)){window.getSelection()?.removeAllRanges();updateNativeTextSelection();}
   previewThreads();
-  if(data.html!==lastThreadHTML||key!==lastThreadKey){
-    if(key!==lastThreadKey)clearSpotlight();
-    const scroll=$('.discussion-content').scrollTop,focusedView=threadSpotlight.active;
-    for(const form of $$('.reply-form'))replyDrafts.set(form.closest('.thread').dataset.thread,form.querySelector('textarea').value);
-    const focused=document.activeElement,focusId=focused?.id,start=focused?.selectionStart,end=focused?.selectionEnd;
-    $('#threads').innerHTML=data.html;lastThreadHTML=data.html;lastThreadKey=key;
-    for(const body of $$('.comment-markdown')){const source=body.textContent;renderMarkdown(body,source,highlightMarkdown);markdownDiagrams(body);}
-    for(const form of $$('.reply-form')){const draft=replyDrafts.get(form.closest('.thread').dataset.thread);if(draft)form.querySelector('textarea').value=draft;}
-    filterThreads();if(!focusedView||threadSpotlight.active)$('.discussion-content').scrollTop=scroll;
-    if(focusId){const field=document.getElementById(focusId);if(field?.closest('.thread')){field.focus({preventScroll:true});field.setSelectionRange?.(start,end);}}
-  }
+  discussionView.prune(new Set(data.index.map(thread=>thread.id)));
+  discussionView.render(data.html);lastThreadHTML=data.html;lastThreadKey=key;
   for(const form of $$('.reply-form'))composers.render(form);
-  for(const id of replyDrafts.keys())if(!data.index.some(t=>String(t.id)===id))replyDrafts.delete(id);
   filterThreads();if(e?.kind!=='original')refreshMarkdownHighlights();if(entry()?.kind==='history')cleanup.updateCounts?.(data.index);
 }
 async function refreshThreads(useCache=false){
   const current=appStore.state.displayedDocument,path=discussionPath(),scope=threadScope(),review=discussionReview(),generation=++refreshNumber,key=scope+':'+(path||'')+':'+(review||'');
   const request=discussionRequests.begin(key),session=entry();
   const cached=discussionCache.get(key);
-  if(useCache&&cached)renderDiscussions(cached.data,key);
+  if(useCache&&cached)receiveDiscussions(cached.data,key);
   // Showing the in-flow loading row on every poll moves all existing cards.
   // Keep displayed discussions stable; only new views need loading feedback.
   $('#threads-loading').hidden=key===lastThreadKey;$('#threads').setAttribute('aria-busy','true');
@@ -758,7 +716,7 @@ async function refreshThreads(useCache=false){
   const data=response.status===304?cached.data:await response.json();
   if(response.status!==304){discussionCache.set(key,{data,etag:response.headers.get('ETag')});if(discussionCache.size>8)discussionCache.delete(discussionCache.keys().next().value);}
   if(appStore.state.displayedDocument!==current||entry()!==session||review!==discussionReview()||scope!==threadScope()||!discussionRequests.accepts(request,key))return;
-  renderDiscussions(data,key);
+  receiveDiscussions(data,key);
   }finally{
     if(generation===refreshNumber){$('#threads-loading').hidden=true;$('#threads').setAttribute('aria-busy','false');}
   }
@@ -852,23 +810,30 @@ const threadNavigator=createThreadNavigator({
   paths:{historyPath:HISTORY,originalPath:id=>ORIGINAL+id+'/original'},
   find:id=>appStore.state.threads.find(t=>t.id===id),session:path=>tabs.get(path),displayed:()=>appStore.state.displayedDocument,
   read:id=>api('threads/'+id),open:openFile,
-  focus:(id,spotlight,thread)=>spotlight?spotlightSidebarThread(id,thread):showThread(id),
+  focus:(id,spotlight,thread)=>{if(appStore.state.focusedThread===id&&!!appStore.state.spotlight===spotlight)return;spotlight?spotlightSidebarThread(id,thread):showThread(id);},
   selectGit:async target=>{cleanup.selectTarget?.(target);await refreshThreads();},
   originalNotice:()=>notify('Showing original reviewed content.'),
   revealRemoved:thread=>{if(entry()?.workMode!=='review'||entry()?.path!==thread.path)return false;const ghost=$$('.review-deletion').find(el=>Number(el.dataset.reviewDeletion)===thread.render_anchor?.edit_id&&el.textContent===thread.render_anchor?.text);if(!ghost)return false;ghost.scrollIntoView({block:'center'});return true;},
   revealRendered:async(thread,current)=>{if(entry().mode!=='rendered'){await setMode('rendered');if(!current())return;}renderedJump=thread.id;previewMessage('jump',{id:thread.id});},
   revealSource:revealSourcePassage
 });
-function jump(...args){return threadNavigator.activate(...args);}
+function jump(id,target=null,spotlight=false,focusEditor=true){
+  const thread=target||appStore.state.threads.find(t=>t.id===id);if(!thread)return Promise.resolve();
+  zenCollapsed=false;if(!appStore.state.zen){collapsedThreads.delete(id);rememberCollapsed();}
+  if(discussionsHidden)setDiscussionsHidden(false);
+  const effects=appStore.dispatch({type:'THREAD_ACTIVATED',threadId:id,thread,spotlight,ids:spotlight&&threadSpotlight.includes(id)?threadSpotlight.ids:[id],origin:'sidebar-navigation'});
+  return effects.some(effect=>effect.type==='REVEAL_THREAD')?threadNavigator.activate(id,thread,spotlight,focusEditor):Promise.resolve();
+}
 function revealSourcePassage(t,focusEditor){
   const id=t.id;
   if(t.anchor_status!=='attached'){notify('This passage needs reattachment. Select the new passage and click “Attach to selection”.');return;}
   if(entry().mode==='preview'&&[...markdownViews].some(rendered=>rendered.host.isConnected&&rendered.jump(toRawUnits(entry().content,toUnits(entry().content,t.start)),toRawUnits(entry().content,toUnits(entry().content,t.end)))))return;
   if(!view){entry().mode='source';mountDocument(entry());view.dispatch({effects:spansEffect.of(spansFor(appStore.state.threads,entry().content))});}
-  const span=view.state.field(spanField).find(s=>s.id===id);
-  if(entry().dirty&&!span){notify('Save your draft before navigating to this passage. Its local anchor is unavailable.');return;}
-  const from=span?.from??toUnits(entry().content,t.start),to=span?.to??toUnits(entry().content,t.end);
+  const resolved=resolveSourcePassage(t,{path:entry().path,content:entry().content,version:entry().version,dirty:entry().dirty,localRanges:view.state.field(spanField)});
+  if(resolved.status!=='attached'){notify(resolved.reason==='local_anchor_unavailable'?'Save your draft before navigating to this passage. Its local anchor is unavailable.':'This passage is unavailable in the current revision. Read its original context or reattach it.');return;}
+  const {from,to}=resolved.range;
   if(to<=view.state.doc.length){view.dispatch({selection:{anchor:from,head:to},effects:EditorView.scrollIntoView(from,{y:'center'})});if(focusEditor)view.focus();}
+
 }
 async function focusSidebarThread(id){
   // A sidebar icon is deliberate navigation; a passage click only inspects.
@@ -877,7 +842,7 @@ async function focusSidebarThread(id){
 let navigationQueue=Promise.resolve();
 function navigate(direction){
   navigationQueue=navigationQueue.catch(()=>{}).then(async()=>{
-    const threads=threadSearch.query?threadSearch.results.map(r=>appStore.state.threads.find(t=>t.id===r.id)).filter(Boolean):(await getNavigationIndex()).filter(t=>!t.resolved||$('#show-resolved').checked).sort((a,b)=>(a.path>b.path)-(a.path<b.path)||a.start-b.start||a.id-b.id);
+    const threads=appStore.state.searchQuery?threadSearch.results.map(r=>appStore.state.threads.find(t=>t.id===r.id)).filter(Boolean):(await getNavigationIndex()).filter(t=>!t.resolved||$('#show-resolved').checked).sort((a,b)=>(a.path>b.path)-(a.path<b.path)||a.start-b.start||a.id-b.id);
     if(!threads.length)return;
     let at=threads.findIndex(t=>t.id===appStore.state.focusedThread);
     if(at<0){const local=threads.map((t,i)=>t.path===appStore.state.displayedDocument?i:-1).filter(i=>i>=0);at=local.length?(direction>0?local[0]:local.at(-1)):(direction>0?0:threads.length-1);}
@@ -1153,7 +1118,7 @@ window.addEventListener('message',guard(async event=>{
     for(const status of message.statuses){const thread=appStore.state.threads.find(t=>t.id===status.id&&t.anchor_kind==='rendered');if(!thread||typeof status.attached!=='boolean')continue;
       if(renderedPreview!==preview||!tabs.has(preview.path))return;
       const next=status.attached?'attached':'needs_reattachment';if(thread.anchor_status===next)continue;
-      await api('threads/'+thread.id,'PATCH',{render_attached:status.attached,version:tabs.get(preview.path).version,...(entry()?.workMode==='review'?{review_id:entry().review.id}: {})});thread.anchor_status=next;changed=true;
+      await api('threads/'+thread.id,'PATCH',{render_attached:status.attached,version:tabs.get(preview.path).version,...(entry()?.workMode==='review'?{review_id:entry().review.id}: {})});changed=true;
     }
     if(changed&&renderedPreview===preview)await refreshThreads();
   }
@@ -1311,9 +1276,7 @@ document.addEventListener('submit',event=>{
     composers.setSending(form,true);composers.status(form,'Sending…');
     try{
       await composers.post('threads/'+id+'/replies',{author:$('#author').value,body,...(discussionReview()?{review_id:discussionReview()}: {})},form);
-      composers.clear(form);
-      // Keep text entered while a reply was being sent.
-      const current=document.getElementById('reply-'+id);if(current?.value===body)current.value='';
+      composers.complete(form,body);
       await refreshThreads();filterThreads();notify('Reply added');
     }catch(error){composers.status(form,error.message,true);throw error;}
     finally{composers.setSending(form,false);}
@@ -1338,14 +1301,14 @@ $('#download-file').onclick=guard(()=>{
   setTimeout(()=>URL.revokeObjectURL(url),1000);
 });
 $('#review-copy').onclick=guard(async()=>{await navigator.clipboard.writeText(entry().content);notify('Draft copied');});
-$('#review-retry').onclick=guard(async()=>{const e=entry();e.reviewError=null;await flushReview(e);});
+$('#review-retry').onclick=guard(()=>reviewSync(entry()).retry());
 $('#review-compare').onclick=guard(async()=>{const e=entry();const latest=await api('reviews/'+e.review.id);$('#latest-review').textContent=latest.content;$('#merged-review').value=e.content;$('#review-merge-form')._draft=latest;$('#review-merge-dialog').showModal();});
 $('#review-merge-form').onsubmit=event=>{
   event.preventDefault();const form=event.currentTarget;guard(async()=>{const e=entry(),latest=form._draft;
   if(latest.id!==e.review?.id)throw new Error('Open the reviewed file before finishing this comparison.');
   const content=$('#merged-review').value,operations=differenceOperations(latest.content,content);
   const saved=operations.length?await api('reviews/'+latest.id,'PATCH',{version:latest.version,operations,author:$('#author').value||'Altay',role:'human'}):latest;
-  e.review=saved;e.version=saved.version;e.content=saved.content;e.diskContent=saved.content;e.reviewSegments=saved.segments;e.pendingOps=[];e.reviewError=null;e.dirty=false;e.state=null;
+  reviewSync(e).adopt(saved);e.state=null;
   view?.destroy();view=null;cleanup();cleanup=()=>{};mountDocument(e);$('#review-merge-dialog').close();await refreshThreads();updateToolbar();renderTabs();
 })();};
 $('#work-mode').onclick=guard(()=>setWorkMode(entry()?.workMode==='review'?'edit':'review'));
@@ -1357,7 +1320,7 @@ $('#collapse-threads').onclick=guard(async()=>{if(contextVisit)await returnFromO
 $('#expand-threads').onclick=()=>{for(const id of visibleThreadIds())collapsedThreads.delete(id);rememberCollapsed();filterThreads();};
 $('#previous').onclick=guard(()=>navigate(-1));$('#next').onclick=guard(()=>navigate(1));$('#show-resolved').onchange=()=>appStore.dispatch({type:'FILTERS_CHANGED',filters:{showResolved:$('#show-resolved').checked}});
 $('#thread-scope').checked=localStorage.getItem('looking-glass-thread-scope:'+root)==='all';
-$('#thread-scope').onchange=guard(async()=>{appStore.dispatch({type:'FILTERS_CHANGED',filters:{scope:threadScope()}});clearSpotlight();localStorage.setItem('looking-glass-thread-scope:'+root,threadScope());await refreshThreads(true);});
+$('#thread-scope').onchange=guard(async()=>{appStore.dispatch({type:'FILTERS_CHANGED',filters:{scope:$('#thread-scope').checked?'all':'file'}});clearSpotlight();localStorage.setItem('looking-glass-thread-scope:'+root,threadScope());await refreshThreads(true);});
 async function setMode(value){const e=entry();syncState();e.mode=value;view?.destroy();view=null;cleanup();cleanup=()=>{};mountDocument(e);await e.ready;await refreshThreads();remember();}
 $('#mode').onchange=guard(()=>setMode($('#mode').value));
 $('#html-toggle').onclick=guard(()=>setMode(entry().mode==='rendered'?'source':'rendered'));
@@ -1460,19 +1423,17 @@ window.addEventListener('beforeunload',event=>{if([...tabs.values()].some(e=>e.d
 document.documentElement.dataset.theme=localStorage.getItem('looking-glass-theme')||'light';$('#theme').textContent=document.documentElement.dataset.theme==='dark'?'Light mode':'Dark mode';
 // Restore tab metadata only; unsaved text is never silently persisted over disk.
 let restored={tabs:[]};try{restored=JSON.parse(localStorage.getItem('looking-glass-tabs:'+root)||'{"tabs":[]}');if(Array.isArray(restored))restored={tabs:restored};}catch{}
+restoreReady=(async()=>{
+  const results=await Promise.allSettled((restored.tabs||[]).filter(item=>!item.path.startsWith(ORIGINAL)).map(async item=>{
+    const file=await readTab(item.path),session=createDocumentSession(item.path,file,item.mode||'source');
+    session.pinned=!!item.pinned;session.history=item.history;return session;
+  }));
+  for(const result of results)if(result.status==='fulfilled'&&!tabs.has(result.value.path))tabs.set(result.value.path,result.value);
+})();
 guard(async()=>{
-  navigation.busy=true;
-  try{
-    const results=await Promise.allSettled((restored.tabs||[]).filter(item=>!item.path.startsWith(ORIGINAL)).map(async item=>{
-      const file=await readTab(item.path);
-      return {path:item.path,...file,diskContent:file.content,dirty:false,conflict:null,pinned:!!item.pinned,state:null,history:item.history,mode:item.mode||'source'};
-    }));
-    for(const result of results)if(result.status==='fulfilled')tabs.set(result.value.path,result.value);
-  }finally{navigation.busy=false;}
-  const requested=queuedFile;queuedFile=null;
-  if(requested)await openFile(requested);
-  else if(tabs.size)await openFile(tabs.has(restored.active)?restored.active:[...tabs.keys()].at(-1));
-  renderTabs();if(!appStore.state.displayedDocument)await refreshThreads();
+  await restoreReady;
+  if(!navigation.requestId&&tabs.size)await openFile(tabs.has(restored.active)?restored.active:[...tabs.keys()].at(-1));
+  renderTabs();if(!appStore.state.displayedDocument&&!navigation.busy)await refreshThreads();
 })();
 setInterval(poll,2200);setInterval(()=>{if(!document.hidden)window.htmx.trigger('#file-tree','refresh');},12000);
 

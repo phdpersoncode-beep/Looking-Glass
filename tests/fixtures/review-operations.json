@@ -1,0 +1,6 @@
+[
+  {"name":"Unicode replacement and CRLF insertion","base":"a🧠b\r\nc","operations":[{"start":1,"end":2,"insert":"X"},{"start":6,"end":6,"insert":"!"}],"content":"aXb\r\nc!","removed":["🧠"]},
+  {"name":"undo a base deletion","base":"abc","operations":[{"start":1,"end":2,"insert":""},{"start":1,"end":1,"insert":"b"}],"content":"abc","removed":[]},
+  {"name":"remove a local addition","base":"abc","operations":[{"start":0,"end":0,"insert":"x"},{"start":0,"end":1,"insert":""}],"content":"abc","removed":[]},
+  {"name":"adjacent removals retain original provenance","base":"A🧠BC","operations":[{"start":1,"end":2,"insert":""},{"start":1,"end":2,"insert":""}],"content":"AC","removed":["🧠B"]}
+]

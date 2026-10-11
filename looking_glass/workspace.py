@@ -2,14 +2,11 @@ import hashlib
 import json
 import os
 import secrets
-import sqlite3
 import stat
 import tempfile
 import threading
-from contextlib import contextmanager
 from pathlib import Path
 
-from .anchors import AnchorMapper
 
 MAX_TEXT = 8 * 1024 * 1024
 MAX_BINARY = 64 * 1024 * 1024
@@ -58,27 +55,12 @@ class Workspace:
                 pass
         self.token = token_file.read_text().strip()
         self.db = self.meta / 'state.sqlite3'
-        with self.connection() as db:
-            db.executescript('''
-                PRAGMA journal_mode=WAL;
-                CREATE TABLE IF NOT EXISTS snapshots(path TEXT PRIMARY KEY, content TEXT NOT NULL);
-                CREATE TABLE IF NOT EXISTS threads(
-                    id INTEGER PRIMARY KEY, path TEXT NOT NULL, start INTEGER NOT NULL,
-                    end INTEGER NOT NULL, quote TEXT NOT NULL, anchor_status TEXT NOT NULL DEFAULT 'attached',
-                    resolved INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
-                CREATE INDEX IF NOT EXISTS threads_path ON threads(path);
-                CREATE TABLE IF NOT EXISTS messages(
-                    id INTEGER PRIMARY KEY, thread_id INTEGER NOT NULL REFERENCES threads(id),
-                    author TEXT NOT NULL, body TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
-            ''')
-            db.execute('CREATE INDEX IF NOT EXISTS messages_thread ON messages(thread_id)')
-            columns = {row['name'] for row in db.execute('PRAGMA table_info(threads)')}
-            if 'anchor_kind' not in columns:
-                db.execute("ALTER TABLE threads ADD COLUMN anchor_kind TEXT NOT NULL DEFAULT 'source'")
-            if 'render_anchor' not in columns:
-                db.execute('ALTER TABLE threads ADD COLUMN render_anchor TEXT')
-            if 'target_ref' not in columns:
-                db.execute('ALTER TABLE threads ADD COLUMN target_ref TEXT')
+        from .discussion_store import DiscussionStore
+        from .discussion_reconciliation import DiscussionReconciler
+        from .discussion_queries import DiscussionQueries
+        self.store = DiscussionStore(self.db)
+        self.reconciler = DiscussionReconciler(self)
+        self.discussions = DiscussionQueries(self)
 
         from .attachments import Attachments
         self.attachments = Attachments(self)
@@ -87,12 +69,8 @@ class Workspace:
         from .reviews import Reviews
         self.reviews = Reviews(self)
 
-    @contextmanager
     def connection(self):
-        with sqlite3.connect(self.db, timeout=10) as db:
-            db.row_factory = sqlite3.Row
-            db.execute('PRAGMA foreign_keys=ON')
-            yield db
+        return self.store.connection()
 
     def path(self, name):
         if not isinstance(name, str) or not name or '\\' in name:
@@ -170,22 +148,7 @@ class Workspace:
             raise Problem('Text editing supports UTF-8 files only.', 415)
 
     def reconcile(self, db, path, content):
-        row = db.execute('SELECT content FROM snapshots WHERE path=?', (path,)).fetchone()
-        if row and row['content'] == content:
-            return
-        if row:
-            threads = db.execute("SELECT * FROM threads WHERE path=? AND review_id IS NULL AND anchor_status='attached' AND anchor_kind='source' ORDER BY id", (path,)).fetchall()
-            mapper = AnchorMapper(row['content'], content) if threads else None
-            for t in threads:
-                # Never reinterpret stale/corrupt offsets as a different quote.
-                mapped = mapper.relocate(t['start'], t['end']) if row['content'][t['start']:t['end']] == t['quote'] else None
-                if mapped:
-                    start, end = mapped
-                    db.execute('UPDATE threads SET start=?, end=?, quote=? WHERE id=?',
-                               (start, end, content[start:end], t['id']))
-                else:
-                    db.execute("UPDATE threads SET anchor_status='needs_reattachment' WHERE id=?", (t['id'],))
-        db.execute('INSERT INTO snapshots VALUES(?,?) ON CONFLICT(path) DO UPDATE SET content=excluded.content', (path, content))
+        return self.reconciler.reconcile(db, path, content)
 
     def read(self, path):
         with self.lock, self.connection() as db:
@@ -233,78 +196,13 @@ class Workspace:
             return dict(path=path, content=content, version=digest(content.encode('utf-8')))
 
     def threads(self, path=None, reconcile=True, review=None):
-        with self.lock, self.connection() as db:
-            paths = ([path] if path else [r[0] for r in db.execute('SELECT DISTINCT path FROM threads')]) if reconcile else []
-            for name in paths if reconcile else []:
-                if name.startswith('looking-glass://git/'):
-                    continue
-                try:
-                    content, _ = self.text(name)
-                    self.reconcile(db, name, content)
-                except Problem as e:
-                    if e.status in (404, 415):
-                        db.execute("UPDATE threads SET anchor_status='needs_reattachment' WHERE path=?", (name,))
-                    else:
-                        raise
-            across_reviews=bool(review and path is None)
-            conditions = ["(review_id IS NULL OR review_id IN (SELECT id FROM review_drafts WHERE status='pending'))"] if across_reviews else ['(review_id IS NULL OR review_id=?)']
-            parameters = [] if across_reviews else [review]
-            if path:
-                conditions.append('path=?'); parameters.append(path)
-            rows = db.execute('SELECT * FROM threads WHERE ' + ' AND '.join(conditions) + ' ORDER BY start,id', parameters).fetchall()
-            anchors = {r['thread_id']:dict(r) for r in db.execute("SELECT a.* FROM review_anchors a JOIN review_drafts d ON d.id=a.review_id WHERE d.status='pending'" if across_reviews else 'SELECT * FROM review_anchors WHERE review_id=?',() if across_reviews else (review,))} if review else {}
-            messages, attachments = {}, {}
-            origins = self.origins.public(db,path)
-            suffix = ' WHERE thread_id IN (SELECT id FROM threads WHERE path=?)' if path else ''
-            for message in db.execute('SELECT * FROM messages'+suffix+' ORDER BY id',(path,) if path else ()):
-                messages.setdefault(message['thread_id'],[]).append({**dict(message), 'origin':origins.get(message['origin_id']), 'commit_hash':origins.get(message['origin_id'],{}).get('commit_hash')})
-            for item in db.execute('SELECT * FROM attachments'+suffix+' ORDER BY id',(path,) if path else ()):
-                attachments.setdefault(item['thread_id'],[]).append(self.attachments.public(item))
-            result = []
-            for row in rows:
-                t = dict(row)
-                if t['id'] in anchors:
-                    t.update({k:anchors[t['id']][k] for k in ('start','end','quote','anchor_status')})
-                    if anchors[t['id']]['render_anchor'] is not None: t['render_anchor']=anchors[t['id']]['render_anchor']
-                    t['review_context'] = anchors[t['id']]['review_id']
-                t['origin'] = origins.get(t['origin_id'])
-                t['commit_hash'] = (t['origin'] or {}).get('commit_hash')
-                t['git_target'] = (dict(kind=t['anchor_kind'],ref=t['target_ref'],commit_hash=t['commit_hash'],
-                                        label=t['quote'],path=t['path'])
-                                   if t['anchor_kind'] in ('commit','branch') else None)
-                t['render_anchor'] = json.loads(t['render_anchor']) if t['render_anchor'] else None
-                t['resolved'] = bool(t['resolved'])
-                t['messages'] = messages.get(t['id'],[])
-                t['attachments'] = attachments.get(t['id'],[])
-                result.append(t)
-            return result
+        return self.discussions.threads(path, reconcile, review)
 
     def thread_index(self, review=None):
-        with self.connection() as db:
-            if review:
-                return [dict(row) for row in db.execute("""SELECT t.id,t.path,COALESCE(a.start,t.start) AS start,t.resolved,
-                    COALESCE(a.anchor_status,t.anchor_status) AS anchor_status,t.anchor_kind,t.target_ref,t.review_id
-                    FROM threads t LEFT JOIN review_anchors a ON a.thread_id=t.id AND a.review_id IN (SELECT id FROM review_drafts WHERE status='pending')
-                    WHERE t.review_id IS NULL OR t.review_id IN (SELECT id FROM review_drafts WHERE status='pending') ORDER BY t.path,start,t.id""")]
-            return [dict(row) for row in db.execute('SELECT id,path,start,resolved,anchor_status,anchor_kind,target_ref,review_id FROM threads WHERE review_id IS NULL ORDER BY path,start,id')]
+        return self.discussions.thread_index(review)
 
     def thread_search_index(self, review=None):
-        """Search text only: no file reads, reconciliation, origins or attachments."""
-        with self.lock, self.connection() as db:
-            if review:
-                rows = db.execute("""SELECT t.id,t.path,COALESCE(a.quote,t.quote) AS quote,t.resolved
-                    FROM threads t LEFT JOIN review_anchors a ON a.thread_id=t.id
-                    AND a.review_id IN (SELECT id FROM review_drafts WHERE status='pending')
-                    WHERE t.review_id IS NULL OR t.review_id IN
-                    (SELECT id FROM review_drafts WHERE status='pending') ORDER BY t.id""")
-            else:
-                rows = db.execute('SELECT id,path,quote,resolved FROM threads WHERE review_id IS NULL ORDER BY id')
-            threads = {row['id']: {**dict(row), 'resolved': bool(row['resolved']), 'messages': []}
-                       for row in rows}
-            for row in db.execute('SELECT thread_id,body FROM messages ORDER BY id'):
-                if row['thread_id'] in threads:
-                    threads[row['thread_id']]['messages'].append(dict(body=row['body']))
-            return list(threads.values())
+        return self.discussions.thread_search_index(review)
 
     @staticmethod
     def message(author, body, allow_empty=False):
@@ -316,38 +214,7 @@ class Workspace:
 
     def query_threads(self, path=None, status='all', q=None, author=None,
                       anchor_status=None, limit=50, offset=0, summary='true', review=None):
-        """Shared literal, case-insensitive search with stable ID pagination."""
-        if status not in ('all', 'open', 'resolved'):
-            raise Problem('Status must be all, open, or resolved.')
-        if anchor_status not in (None, 'attached', 'needs_reattachment'):
-            raise Problem('Anchor status must be attached or needs_reattachment.')
-        if summary not in ('true', 'false'):
-            raise Problem('Summary must be true or false.')
-        limit = self.query_integer(limit, 'Limit', 1, 1000)
-        offset = self.query_integer(offset, 'Offset', 0)
-        items = []
-        for t in sorted(self.threads(path,review=review), key=lambda t: t['id']):
-            if status != 'all' and t['resolved'] != (status == 'resolved'):
-                continue
-            if anchor_status and t['anchor_status'] != anchor_status:
-                continue
-            if author and not any(m['author'].casefold() == author.casefold() for m in t['messages']):
-                continue
-            if q and not any(q.casefold() in text.casefold() for text in
-                             [t['quote'], *[m['body'] for m in t['messages']]]):
-                continue
-            items.append(t)
-        total = len(items)
-        page = items[offset:offset+limit]
-        if summary == 'true':
-            page = [dict(id=t['id'], path=t['path'], quote=t['quote'], resolved=t['resolved'],
-                         anchor_status=t['anchor_status'], anchor_kind=t['anchor_kind'],
-                         git_target=t['git_target'],
-                         commit_hash=t['commit_hash'], origin=t['origin'], created_at=t['created_at'], message_count=len(t['messages']),
-                         last_message={**t['messages'][-1], 'body':t['messages'][-1]['body'][:240]})
-                    for t in page]
-        return dict(threads=page, total=total, limit=limit, offset=offset,
-                    next_offset=offset+limit if offset+limit < total else None)
+        return self.discussions.query_threads(path, status, q, author, anchor_status, limit, offset, summary, review)
 
     @staticmethod
     def query_integer(value, name, minimum, maximum=None):

@@ -183,7 +183,7 @@ def test_failed_anchors_keep_history_and_are_not_retried_on_every_poll(tmp_path,
     assert ws.origins.read(thread['id'])['content'] == old
     def forbidden(*args, **kwargs):
         pytest.fail('Retrying an unchanged failed anchor')
-    monkeypatch.setattr('looking_glass.workspace.AnchorMapper', forbidden)
+    monkeypatch.setattr('looking_glass.discussion_reconciliation.AnchorMapper', forbidden)
     assert ws.get_thread(thread['id']) == detached
     assert Workspace(tmp_path).get_thread(thread['id']) == detached
 
