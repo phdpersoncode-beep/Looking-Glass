@@ -3,7 +3,6 @@ export function createThreadSpotlight(sidebar, getState) {
   const scroller = sidebar.querySelector('.discussion-content');
   const heading = sidebar.querySelector('#passage-spotlight');
   const label = heading.querySelector('[role=status]');
-  heading.title = '← → Previous/next thread · ↑ Search · ↓ Reply';
   let showing = false, signature = '', listScroll = 0;
   function capture() {
     if (getState().spotlightIds.length && !showing) listScroll = scroller.scrollTop;
@@ -13,7 +12,8 @@ export function createThreadSpotlight(sidebar, getState) {
     const next = ids.join(',');
     const focus = heading.contains(document.activeElement);
     sidebar.classList.toggle('passage-focused', active); heading.hidden = !active;
-    if (active) label.textContent = `This passage · ${ids.length} ${ids.length === 1 ? 'thread' : 'threads'}`;
+    const text = `This passage · ${ids.length} ${ids.length === 1 ? 'thread' : 'threads'}`;
+    if (active && label.textContent !== text) label.textContent = text;
     if (active && next !== signature) scroller.scrollTop = 0;
     if (!active && showing) {
       scroller.scrollTop = listScroll;

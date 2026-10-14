@@ -94,3 +94,24 @@ test('a poll completing the mutation first does not change the queued successor'
   const result = transition(state, {type: 'THREAD_COMPLETED', threadId: 2, order: [1, 2, 3]});
   assert.equal(result.state.focusedThread, 3);
 });
+
+test('pending thread navigation keeps displayed spotlight until the destination snapshot is ready',()=>{
+ const first=thread(1),second=thread(2,0,6,{path:'other.txt'}),store=createAppStore();
+ store.dispatch({type:'DOCUMENT_DISPLAYED',path:'note.txt'});
+ store.dispatch({type:'THREADS_RECEIVED',threads:[first]});
+ store.dispatch({type:'THREAD_ACTIVATED',threadId:1,spotlight:true});
+ store.dispatch({type:'THREAD_NAVIGATION_REQUESTED',threadId:2});
+ assert.equal(store.state.requestedThread,2);assert.equal(store.state.focusedThread,1);
+ store.dispatch({type:'DOCUMENT_DISPLAYED',path:'other.txt',retainDiscussions:true});
+ assert.deepEqual(store.state.spotlightIds,[1]);assert.deepEqual(selectVisibleThreads(store.state).map(t=>t.id),[1]);
+ store.dispatch({type:'THREADS_RECEIVED',threads:[second],activation:{threadId:2,spotlight:true}});
+ assert.equal(store.state.requestedThread,null);assert.equal(store.state.focusedThread,2);
+ assert.deepEqual(store.state.spotlightIds,[2]);assert.deepEqual(selectVisibleThreads(store.state).map(t=>t.id),[2]);
+});
+
+test('explicit document navigation and cancellation retire the requested thread cursor',()=>{
+ let state={...initialAppState(),focusedThread:1};
+ state=transition(state,{type:'THREAD_NAVIGATION_REQUESTED',threadId:2}).state;
+ assert.equal(transition(state,{type:'THREAD_NAVIGATION_CANCELLED'}).state.requestedThread,null);
+ assert.equal(transition(state,{type:'DOCUMENT_DISPLAYED',path:'manual.txt'}).state.requestedThread,null);
+});

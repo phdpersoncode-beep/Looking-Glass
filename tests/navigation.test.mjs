@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createNavigationController,createRequestGate,threadDestination} from '../frontend/navigation.mjs';
+import {createNavigationController,createRequestGate,createFrameNavigator,threadDestination} from '../frontend/navigation.mjs';
 import {createSurfaceSession} from '../frontend/document-session.mjs';
 import {createThreadNavigator} from '../frontend/thread-navigation.mjs';
 const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};};
@@ -61,4 +61,25 @@ test('a missing current file reveals immutable context after it becomes ready',a
  const activation=navigator.activate(1);await new Promise(resolve=>setImmediate(resolve));
  assert.deepEqual(effects,['open:missing','open:original/1']);
  original.resolve({status:'ready'});await activation;assert.equal(effects.at(-1),'focus:1');
+});
+
+test('a burst of arrow intentions reveals only the latest destination in one frame',async()=>{
+ const frames=new Map(),shown=[];let serial=0;
+ const navigator=createFrameNavigator({schedule:callback=>{frames.set(++serial,callback);return serial;},cancel:id=>frames.delete(id),activate:target=>shown.push(target)});
+ const a=navigator.request('a'),b=navigator.request('b'),c=navigator.request('c');
+ assert.equal(frames.size,1);assert.deepEqual(shown,[]);
+ const render=[...frames.values()][0];frames.clear();render();
+ assert.equal((await a).status,'superseded');assert.equal((await b).status,'superseded');assert.equal((await c).status,'ready');
+ assert.deepEqual(shown,['c']);
+});
+
+test('new arrows supersede a pending reveal and cancellation leaves reading untouched',async()=>{
+ const frames=new Map(),old=deferred(),shown=[];let serial=0;
+ const navigator=createFrameNavigator({schedule:callback=>{frames.set(++serial,callback);return serial;},cancel:id=>frames.delete(id),activate:async(target,{current})=>{if(target==='a')await old.promise;if(current())shown.push(target);}});
+ const flush=()=>{const callbacks=[...frames.values()];frames.clear();callbacks.forEach(callback=>callback());};
+ const a=navigator.request('a');flush();await Promise.resolve();
+ const b=navigator.request('b');flush();await b;old.resolve();
+ assert.equal((await a).status,'superseded');assert.deepEqual(shown,['b']);
+ const cancelled=navigator.request('c');navigator.invalidate();flush();
+ assert.equal((await cancelled).status,'superseded');assert.deepEqual(shown,['b']);
 });

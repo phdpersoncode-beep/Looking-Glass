@@ -199,7 +199,7 @@ window.addEventListener('message',event=>{
   if(message.type==='jump'){
     readingPosition=null;readingGesture=null;
     active=message.id;paint();const range=ranges.get(active)?.[0];if(!range){send('unmapped',{id:active});return;}
-    const element=range.startContainer.parentElement;element?.scrollIntoView({block:'center',behavior:'smooth'});
+    const element=range.startContainer.parentElement;element?.scrollIntoView({block:'center',behavior:message.behavior==='instant'?'instant':'smooth'});
   }
 });
 document.addEventListener('selectionchange',()=>capture());

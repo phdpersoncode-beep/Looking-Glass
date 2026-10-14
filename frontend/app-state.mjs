@@ -14,7 +14,7 @@ export function selectVisibleThreads(state) {
 }
 
 export function initialAppState(preferences = {}) {
-  return {displayedDocument: null, requestedDocument: null, focusedThread: null,
+  return {displayedDocument: null, requestedDocument: null, focusedThread: null, requestedThread: null,
     spotlight: null, spotlightIds: [], threads: [], searchQuery: '', scope: 'file',
     showResolved: false, zen: false, reviewPreference: false, ...preferences};
 }
@@ -52,7 +52,7 @@ export function transition(state, event) {
       const seeds = event.ids?.map(id => state.threads.find(t => t.id === id)).filter(Boolean);
       const thread = event.thread || state.threads.find(t => t.id === event.threadId);
       const spotlight = event.spotlight ? {path: thread?.path || state.displayedDocument, seeds: seeds?.length ? seeds : thread ? [thread] : []} : null;
-      next = {...state, focusedThread: event.threadId, spotlight};
+      next = {...state, focusedThread: event.threadId, requestedThread: null, spotlight};
       next.spotlightIds = event.spotlight ? passageGroup(state.threads, spotlight) : [];
       if (event.origin && event.origin !== 'document-highlight') effects.push({type: 'REVEAL_THREAD', threadId: event.threadId, origin: event.origin});
       break;
@@ -66,14 +66,25 @@ export function transition(state, event) {
       if (thread) effects.push({type: 'REVEAL_THREAD', threadId: thread.id, origin: 'zen-completion'});
       break;
     }
-    case 'FOCUS_CLEARED': next = {...state, focusedThread: null}; break;
-    case 'SPOTLIGHT_CLEARED': next = reconcileFocus({...state, spotlight: null, spotlightIds: []}); break;
-    case 'THREADS_RECEIVED': next = reconcileFocus({...state, threads: event.threads}); if(event.availableIds&&!event.availableIds.includes(next.focusedThread))next.focusedThread=null; break;
+    case 'THREAD_NAVIGATION_REQUESTED': next = {...state, requestedThread: event.threadId}; break;
+    case 'THREAD_NAVIGATION_CANCELLED': next = {...state, requestedThread: null}; break;
+    case 'FOCUS_CLEARED': next = {...state, focusedThread: null, requestedThread: null}; break;
+    case 'SPOTLIGHT_CLEARED': next = reconcileFocus({...state, spotlight: null, spotlightIds: [], requestedThread: null}); break;
+    case 'THREADS_RECEIVED': {
+      next = {...state, threads: event.threads};
+      if (event.activation && event.threads.some(t => t.id === event.activation.threadId)) {
+        next = transition(next, {type: 'THREAD_ACTIVATED', ...event.activation}).state;
+      } else next = reconcileFocus(next);
+      if(event.availableIds&&!event.availableIds.includes(next.focusedThread))next.focusedThread=null;
+      break;
+    }
     case 'FILTERS_CHANGED': next = reconcileFocus({...state, ...event.filters}); break;
     case 'ZEN_CHANGED': next = reconcileFocus({...state, zen: event.value}); break;
     case 'REVIEW_PREFERENCE_CHANGED': next = {...state, reviewPreference: event.value}; break;
     case 'DOCUMENT_REQUESTED': next = {...state, requestedDocument: event.path}; break;
-    case 'DOCUMENT_DISPLAYED': next = {...state, displayedDocument: event.path, requestedDocument: event.path, threads: [], focusedThread: event.focusedThread ?? null, spotlight: null, spotlightIds: []}; break;
+    case 'DOCUMENT_DISPLAYED': next = event.retainDiscussions
+      ? {...state, displayedDocument: event.path, requestedDocument: event.path}
+      : {...state, displayedDocument: event.path, requestedDocument: event.path, threads: [], focusedThread: event.focusedThread ?? null, requestedThread: null, spotlight: null, spotlightIds: []}; break;
     case 'DOCUMENT_CANCELLED':
     case 'DOCUMENT_FAILED': next = {...state, requestedDocument: state.displayedDocument}; break;
     default: throw new Error('Unknown application transition: ' + event.type);

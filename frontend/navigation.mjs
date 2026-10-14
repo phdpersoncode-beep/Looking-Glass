@@ -2,13 +2,13 @@
 // Every caller receives completion for its own request, including queued calls.
 export function createNavigationController({load, onRequest = () => {}, onFailure = () => {}, onInvalidate = () => {}}) {
   let serial = 0, tail = Promise.resolve(), busy = 0;
-  function open(path) {
+  function open(path, context = null) {
     const id = ++serial, current = () => id === serial;
-    onRequest({path, id}); busy++;
+    onRequest({path, id, context}); busy++;
     const result = tail.catch(() => {}).then(async () => {
       if (!current()) return {status: 'superseded', path, id};
       try {
-        await load(path, {id, current});
+        await load(path, {id, current, context});
         return {status: current() ? 'ready' : 'superseded', path, id};
       } catch (error) {
         if (current()) onFailure({path, id, error});
@@ -20,6 +20,33 @@ export function createNavigationController({load, onRequest = () => {}, onFailur
   }
   return {open, get busy() {return busy > 0;}, get requestId() {return serial;},
     isCurrent: request => request.id === serial, invalidate() {serial++; onInvalidate();}};
+}
+
+// Repeated keys choose a destination immediately, but paint at most once per
+// frame. A newer intention supersedes an in-flight reveal rather than queuing it.
+export function createFrameNavigator({activate, onRequest = () => {}, schedule, cancel}) {
+  let serial = 0, frame = null, pending = null;
+  function invalidate() {
+    serial++;
+    if (frame !== null) cancel(frame);
+    frame = null;
+    pending?.resolve({status: 'superseded'}); pending = null;
+  }
+  function request(target) {
+    const id = ++serial;
+    pending?.resolve({status: 'superseded'});
+    onRequest(target);
+    const result = new Promise((resolve, reject) => {pending = {id, target, resolve, reject};});
+    if (frame === null) frame = schedule(() => {
+      frame = null;
+      const task = pending; pending = null;
+      const current = () => task.id === serial;
+      Promise.resolve().then(() => current() && activate(task.target, {current})).then(
+        () => task.resolve({status: current() ? 'ready' : 'superseded'}), task.reject);
+    });
+    return result;
+  }
+  return {request, invalidate};
 }
 
 // A consistent request identity for discussion/baseline/index completions.

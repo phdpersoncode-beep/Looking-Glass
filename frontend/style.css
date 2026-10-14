@@ -144,8 +144,11 @@ dialog:modal{margin:auto}.directory-list{height:260px;overflow:auto;margin-top:8
 .discussion-content{overflow-anchor:none;overscroll-behavior:contain}
 .discussion-summary{flex-shrink:0;padding:0 12px 10px;font-size:10px;color:var(--muted)}
 #thread-total{display:block;margin-bottom:4px}
-#passage-spotlight{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:10px;color:var(--muted)}
-#passage-spotlight>span{min-width:0}#all-discussions{border:0;padding:3px 0;color:var(--purple);font-size:10px}
+#passage-spotlight{font-size:10px;color:var(--muted)}
+.spotlight-heading{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.spotlight-heading>span{min-width:0}#all-discussions{border:0;padding:3px 0;color:var(--purple);font-size:10px}
+#spotlight-shortcuts{display:flex;flex-wrap:wrap;gap:4px 10px;padding-top:5px;font-size:9px}
+#spotlight-shortcuts>span{white-space:nowrap}#spotlight-shortcuts kbd{margin:0 2px 0 0;padding:1px 3px;font-size:9px}
 #all-discussions kbd{font-size:8px;margin-left:3px;padding:1px 3px;letter-spacing:0}
 .passage-focused .discussion-content>:is(.author-label,.thread-scope,.resolved-toggle){display:none}
 

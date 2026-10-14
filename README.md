@@ -102,6 +102,11 @@ above the spotlight header, with a total thread count for the selected file scop
 While spotlight is open and the sidebar or a thread has focus, **←/→** moves through
 the scoped, filtered thread list, **↑** focuses search, and **↓** focuses the current
 reply. Text fields keep their native arrow keys. Navigation preserves reply drafts.
+These shortcuts are shown below the spotlight heading. Thread numbers, quotes,
+comment icons, and general card clicks all enter spotlight and retain sidebar
+keyboard focus. Repeated arrows choose the latest requested thread without flashing
+the full list or queuing unfinished document reveals; the current spotlight stays
+visible until its destination is ready.
 
 Use **×** beside a comment to delete that comment. **Delete thread** removes the
 whole discussion and its highlight. Deleting the last comment also removes its thread.
