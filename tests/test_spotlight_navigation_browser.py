@@ -8,7 +8,7 @@ pytestmark=[pytest.mark.browser,pytest.mark.skipif(not os.environ.get('LOOKING_G
 
 
 def settle(page):
-    page.evaluate('''()=>new Promise(resolve=>{let n=8;function frame(){if(--n)requestAnimationFrame(frame);else resolve()}requestAnimationFrame(frame)})''')
+    page.evaluate('''async()=>{await document.fonts.ready;await new Promise(resolve=>{let n=8;function frame(){if(--n)requestAnimationFrame(frame);else resolve()}requestAnimationFrame(frame)})}''')
 
 
 def align_bottom(target,pane):
@@ -36,7 +36,7 @@ def test_low_formatted_highlight_holds_clicked_text(workspace_page,mode,hidden):
     expect(target).to_be_visible();settle(page)
     if hidden:page.locator('#discussions-toggle').click();settle(page)
     pane_selector='#surface' if mode=='preview' else '.cm-scroller';pane=page.locator(pane_selector)
-    target.scroll_into_view_if_needed();align_bottom(target,pane_selector);settle(page)
+    target.scroll_into_view_if_needed();settle(page);align_bottom(target,pane_selector);settle(page)
     point=endpoint(target,2);before=pane.evaluate('el=>el.scrollTop')
     page.mouse.click(**point);expect(page.locator('#passage-spotlight')).to_be_visible();settle(page)
     expect(page.locator('.thread.active')).to_have_attribute('data-thread',str(thread['id']))
