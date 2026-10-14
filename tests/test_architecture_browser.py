@@ -8,6 +8,19 @@ pytestmark = [pytest.mark.browser, pytest.mark.skipif(
     not os.environ.get('LOOKING_GLASS_BROWSER'), reason='Set LOOKING_GLASS_BROWSER')]
 
 
+def hold_file_read(page, path):
+    held = []
+    page.evaluate('window.testFileReadHeld = false')
+    def intercept(route):
+        if 'path=' + path in route.request.url:
+            held.append(route)
+            page.evaluate('window.testFileReadHeld = true')
+        else:
+            route.continue_()
+    page.route('**/api/file?*', intercept)
+    return held
+
+
 @pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
 def test_repeated_card_activation_reveals_same_passage(workspace_page):
     from playwright.sync_api import expect
@@ -64,11 +77,9 @@ def test_queued_navigation_waits_for_target_before_reveal(workspace_page):
     thread = ws.create_thread('b.txt', 5, 12, 'Target in B', 'Reviewer', ws.read('b.txt')['version'])
     page.goto(url); page.locator('#thread-scope').check()
     expect(page.locator('.thread')).to_have_count(1)
-    held = []
-    page.route('**/api/file?*', lambda route: held.append(route)
-               if 'path=a.txt' in route.request.url else route.continue_())
+    held = hold_file_read(page, 'a.txt')
     page.locator('.file-entry[data-path="a.txt"]').click()
-    page.wait_for_function('()=>true')
+    page.wait_for_function('()=>window.testFileReadHeld === true')
     page.locator(f'.thread[data-thread="{thread["id"]}"] blockquote').click()
     assert held
     held[0].continue_()
@@ -115,11 +126,9 @@ def test_highlight_intent_supersedes_pending_file_navigation(workspace_page):
     (root / 'other.txt').write_text('Other document')
     thread = ws.create_thread('reading.txt', 0, 7, 'Inspect reading', 'Reviewer', ws.read('reading.txt')['version'])
     page.goto(url); open_file(page, 'reading.txt')
-    held = []
-    page.route('**/api/file?*', lambda route: held.append(route)
-               if 'path=other.txt' in route.request.url else route.continue_())
+    held = hold_file_read(page, 'other.txt')
     page.locator('.file-entry[data-path="other.txt"]').click()
-    page.wait_for_function('()=>true')
+    page.wait_for_function('()=>window.testFileReadHeld === true')
     assert held
     page.locator('#surface .passage-highlight').click()
     with page.expect_response(lambda response: '/api/file?path=other.txt' in response.url) as response:
