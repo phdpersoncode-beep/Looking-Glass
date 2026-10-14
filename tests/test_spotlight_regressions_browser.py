@@ -123,3 +123,34 @@ def test_arrow_key_burst_keeps_one_spotlight_and_no_document_selection_popup(wor
     page.keyboard.press('Escape')
     page.locator(f'.thread[data-thread="{threads[0]["id"]}"] .thread-heading [data-action=jump]').click()
     expect(page.locator('.thread.active textarea')).to_have_value('Keep this draft')
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_thread_click_cancels_an_unfinished_arrow_document_load(workspace_page):
+    from playwright.sync_api import expect
+    root, page, url, ws = workspace_page
+    threads = []
+    for name in ['a.txt', 'b.txt']:
+        (root/name).write_text('Target passage in ' + name)
+        threads.append(ws.create_thread(name, 0, 6, 'Review ' + name, 'Reviewer', ws.read(name)['version']))
+    page.goto(url); open_file(page, 'a.txt'); page.locator('#thread-scope').check()
+    first = page.locator(f'.thread[data-thread="{threads[0]["id"]}"]')
+    first.locator('.thread-heading [data-action=jump]').click()
+    held = []
+    def hold(route):
+        if 'path=b.txt' in route.request.url:
+            held.append(route); page.evaluate('window.blockedClickRead = true')
+        else:
+            route.continue_()
+    page.route('**/api/file?*', hold)
+    page.keyboard.press('ArrowRight')
+    page.wait_for_function('()=>window.blockedClickRead === true')
+    first.locator('.comment-markdown p').click()
+    expect(first).to_be_focused()
+    with page.expect_response(lambda response: '/api/file?' in response.url and 'path=b.txt' in response.url) as response:
+        held[0].continue_()
+    response.value.finished(); settle(page)
+    expect(page.locator('#document-name')).to_have_text('a.txt')
+    expect(first).to_have_class('thread active')
+    expect(first).to_be_focused()
+    expect(page.locator('#passage-spotlight')).to_be_visible()

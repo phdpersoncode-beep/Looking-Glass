@@ -98,6 +98,8 @@ def test_html_source_selection_navigation_and_persistence(workspace_page):
     thread=page.locator(f'.thread[data-thread="{second["id"]}"]');thread.locator('.jump').click()
     thread.locator('.reply-form textarea').fill('Same source thread')
     thread.locator('.reply-form button[type=submit]').click();expect(page.get_by_text('Same source thread',exact=True)).to_be_visible()
+    expect(page.locator('#passage-spotlight')).to_be_visible()
+    page.locator('#all-discussions').click()
     expect(page.locator('#passage-spotlight')).not_to_be_visible()
     thread.get_by_role('button',name='Resolve thread',exact=True).click()
     page.locator('#show-resolved').check();thread.get_by_role('button',name='Reopen thread',exact=True).click()

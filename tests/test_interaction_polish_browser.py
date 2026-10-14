@@ -109,7 +109,12 @@ def test_thread_card_focus_preserves_selection_and_controls(workspace_page):
     a.locator('blockquote').dblclick(position={'x':18,'y':12})
     assert page.evaluate('window.getSelection().toString()')
     page.evaluate('window.getSelection().removeAllRanges()')
+    # The quote's first click opens spotlight; leave it before focusing another
+    # card, while retaining the native double-click selection above.
+    expect(page.locator('#passage-spotlight')).to_be_visible()
+    page.keyboard.press('Escape')
     b.focus(); page.keyboard.press('Enter')
+    expect(b).to_have_class('thread active')
     page.keyboard.press('Escape')
     with page.expect_popup() as popup:
         a.get_by_role('link', name='Reference').click()

@@ -183,7 +183,7 @@ def test_spotlight_keeps_reading_and_restores_list_positions(workspace_page,mode
     assert abs(pane.evaluate('el=>el.scrollTop')-before)<2
     target.click();expect(heading).to_be_visible()
     # Explicit navigation is allowed to move the document.
-    card.locator('[data-action=jump]').first.click();expect(heading).not_to_be_visible()
+    card.locator('[data-action=jump]').first.click();expect(heading).to_be_visible()
     expect(page.locator('.thread.active')).to_have_attribute('data-thread',str(threads[12]['id']))
     page.locator('#collapse-threads').click();page.locator('#discussions-toggle').click();target.click()
     expect(page.locator('#discussions-toggle')).to_have_attribute('aria-label','Hide discussions')

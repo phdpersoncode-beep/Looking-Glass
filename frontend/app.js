@@ -830,7 +830,7 @@ const threadNavigator=createThreadNavigator({
   revealSource:revealSourcePassage
 });
 function jump(id,target=null,spotlight=false,focusEditor=true){
-  arrowNavigation.invalidate();
+  cancelSidebarNavigation();
   return activateThread(id,target,spotlight,focusEditor);
 }
 function activateThread(id,target=null,spotlight=false,focusEditor=true){
