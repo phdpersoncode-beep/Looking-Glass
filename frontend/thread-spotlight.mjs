@@ -3,6 +3,7 @@ export function createThreadSpotlight(sidebar, getState) {
   const scroller = sidebar.querySelector('.discussion-content');
   const heading = sidebar.querySelector('#passage-spotlight');
   const label = heading.querySelector('[role=status]');
+  heading.title = '← → Previous/next thread · ↑ Search · ↓ Reply';
   let showing = false, signature = '', listScroll = 0;
   function capture() {
     if (getState().spotlightIds.length && !showing) listScroll = scroller.scrollTop;

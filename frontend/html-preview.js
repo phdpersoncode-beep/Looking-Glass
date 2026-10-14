@@ -177,6 +177,10 @@ function rangesOverlap(selected,passage){
 window.addEventListener('message',event=>{
   if(event.source!==parent||event.origin!==config.parentOrigin||event.data?.lookingGlass!==config.channel)return;
   const message=event.data;
+  if(message.type==='scroll-top'){
+    readingPosition=null;readingGesture=null;
+    window.scrollTo({top:0,behavior:'instant'});
+  }
   if(message.type==='suspend'){suspendedPosition={x:window.scrollX,y:window.scrollY};send('suspended',{requestId:message.requestId});}
   if(message.type==='resume'&&suspendedPosition){
     const position=suspendedPosition;let remaining=3;

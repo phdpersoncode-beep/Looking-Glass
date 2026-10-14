@@ -270,6 +270,15 @@ def create_app(root):
         limit = MAX_BINARY if p.suffix.lower() in ('.stl','.png','.jpg','.jpeg','.svg') else MAX_TEXT
         return jsonify(version=f'{info.st_mtime_ns}:{info.st_size}',size=info.st_size,limit=limit,too_large=info.st_size > limit)
 
+    @app.get('/api/download')
+    def download_file():
+        # Download the bytes on disk without parsing or applying viewer limits.
+        p = ws.path(request.args.get('path'))
+        if p.suffix.lower() not in ('.html', '.htm', '.jsonl'):
+            raise Problem('Choose an HTML or JSONL file.')
+        return send_file(p, mimetype='application/octet-stream', as_attachment=True,
+                         download_name=p.name)
+
     @app.post('/api/preview')
     def make_preview():
         data = body()

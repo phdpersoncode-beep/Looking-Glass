@@ -6,7 +6,7 @@ import {sourceSpans,resolveSourcePassage} from './passages.mjs';
 import {createThreadNavigator} from './thread-navigation.mjs';
 import {createNavigationController,createRequestGate} from './navigation.mjs';
 import {createDocumentSession,createSurfaceSession} from './document-session.mjs';
-import {createAppStore,selectVisibleThreads} from './app-state.mjs';
+import {createAppStore,selectVisibleThreads,selectThreadSequence} from './app-state.mjs';
 import {apply as applyReview,accepted as acceptedReview,ranges as reviewRanges,label as reviewLabel,pointLength} from './review-model.mjs';
 import {reviewTracking,reviewEffect,remoteReview,operationsFor} from './review-editor.mjs';
 import {prepareHTMLPreview,sourceOffsets} from './html-source.mjs';
@@ -565,7 +565,9 @@ function updateToolbar(){
   $('#markdown-contents').hidden=!!e?.kind||!['md','markdown'].includes(type)||e?.mode!=='live';
   $('.font-controls').hidden=e?.kind==='history';$('#annotate').hidden=!!e?.kind;$('#save').hidden=!!e?.kind;
   $('#json-fold-controls').hidden=type!=='json';
-  $('#download-file').hidden=e?.kind==='oversized'||!['html','htm','jsonl'].includes(type);
+  $('#download-file').hidden=!['html','htm','jsonl'].includes(type);
+  $('#copy-filepath').hidden=!e||e.kind==='history';
+  $('#go-to-top').hidden=!e||['history','oversized'].includes(e.kind)||type==='stl'||isImage(e.path);
   $('#document-name').textContent=e?.kind==='history'?'Commit history':e?.kind==='original'?'Original · '+e.sourcePath:e?.path||'Open a file';$('#dirty').textContent=e?.dirty&&e.workMode!=='review'?' · Unsaved':'';
   $('#save').disabled=!e||viewer||!e.dirty||saving;$('#annotate').disabled=!e||viewer||!(renderedPreview?renderedSelection:removedSelection()||markdownSelection()||view&&!view.state.selection.main.empty);
   const mode=$('#mode');const modes=type==='md'||type==='markdown'?[['live','Live Markdown'],['source','Raw source'],['preview','Reading preview']]:type==='html'||type==='htm'?[['rendered','Rendered HTML'],['source','HTML source']]:[['source',viewer?'Viewer':'Source']];
@@ -676,6 +678,8 @@ function receiveDiscussions(data,key,authoritative=true){
   const retained=authoritative?discussionRetention.accept(discussionReview()?'pending-reviews':'ordinary',data.index.map(thread=>thread.id)):null;
   if(retained)composers.prune(retained);
   $('#thread-count').textContent=appStore.state.threads.filter(t=>!t.resolved).length;
+  const total=appStore.state.threads.length;
+  $('#thread-total').textContent=`${total} ${total===1?'thread':'threads'} total`;
   if(view&&e&&e.kind!=='original'){
     const old=view.state.field(spanField),byId=new Map(appStore.state.threads.map(t=>[t.id,t]));
     const spans=e.dirty?old.filter(s=>byId.has(s.id)).map(s=>({...s,resolved:byId.get(s.id).resolved})):spansFor(appStore.state.threads,e.content);
@@ -737,6 +741,7 @@ function filterThreads(){
   });
 }
 appStore.subscribe((state,previous)=>{
+  if(state.focusedThread!==previous.focusedThread)zenCollapsed=false;
   threadSpotlight.capture();filterThreads();threadSpotlight.render();
   if(state.focusedThread!==previous.focusedThread){zenCollapsed=false;previewThreads();refreshMarkdownHighlights();if(view)view.dispatch({effects:threadFocusEffect.of(state.focusedThread)});}
 });
@@ -796,7 +801,7 @@ function showThread(id,focused=false,ids=[id],reveal=true){
 }
 async function focusThreadCard(id){
   // Keep text focus in the card so double-clicking and copying remain native.
-  await jump(id,null,threadSpotlight.includes(id),false);
+  await jump(id,null,true,false);
 }
 function spotlightSidebarThread(id,thread){
   if(threadSpotlight.includes(id)){showThread(id,true,threadSpotlight.ids);return;}
@@ -833,18 +838,32 @@ function revealSourcePassage(t,focusEditor){
 }
 async function focusSidebarThread(id){
   // A sidebar icon is deliberate navigation; a passage click only inspects.
-  await jump(id,null,true);
+  await jump(id,null,true,false);
 }
 let navigationQueue=Promise.resolve();
-function navigate(direction){
+function navigate(direction,{spotlight=false,sidebarFocus=false}={}){
   navigationQueue=navigationQueue.catch(()=>{}).then(async()=>{
-    const threads=appStore.state.searchQuery?threadSearch.results.map(r=>appStore.state.threads.find(t=>t.id===r.id)).filter(Boolean):(await getNavigationIndex()).filter(t=>!t.resolved||$('#show-resolved').checked).sort((a,b)=>(a.path>b.path)-(a.path<b.path)||a.start-b.start||a.id-b.id);
+    const threads=spotlight?selectThreadSequence(appStore.state):appStore.state.searchQuery?threadSearch.results.map(r=>appStore.state.threads.find(t=>t.id===r.id)).filter(Boolean):(await getNavigationIndex()).filter(t=>!t.resolved||$('#show-resolved').checked).sort((a,b)=>(a.path>b.path)-(a.path<b.path)||a.start-b.start||a.id-b.id);
     if(!threads.length)return;
     let at=threads.findIndex(t=>t.id===appStore.state.focusedThread);
     if(at<0){const local=threads.map((t,i)=>t.path===appStore.state.displayedDocument?i:-1).filter(i=>i>=0);at=local.length?(direction>0?local[0]:local.at(-1)):(direction>0?0:threads.length-1);}
     else at=(at+direction+threads.length)%threads.length;
-    await jump(threads[at].id,threads[at]);
+    await jump(threads[at].id,threads[at],spotlight,!sidebarFocus);
+    if(sidebarFocus&&appStore.state.focusedThread===threads[at].id)$(`.thread[data-thread="${threads[at].id}"]`)?.focus({preventScroll:true});
   });return navigationQueue;
+}
+
+async function completeThread(id,operation,completes=true){
+  const path=appStore.state.displayedDocument,scope=threadScope(),review=discussionReview(),session=entry();
+  const current=()=>appStore.state.displayedDocument===path&&threadScope()===scope&&discussionReview()===review&&entry()===session;
+  await operation();
+  const effects=completes&&current()?appStore.dispatch({type:'THREAD_COMPLETED',threadId:id}):[];
+  const reveal=effects.find(effect=>effect.type==='REVEAL_THREAD'),spotlight=threadSpotlight.active;
+  await refreshThreads();
+  if(reveal&&current()&&appStore.state.zen&&appStore.state.focusedThread===reveal.threadId){
+    const target=appStore.state.threads.find(thread=>thread.id===reveal.threadId&&!thread.resolved);
+    if(target){await jump(target.id,target,spotlight,false);if(appStore.state.focusedThread===target.id)$(`.thread[data-thread="${target.id}"]`)?.focus({preventScroll:true});}
+  }
 }
 function startGitComment(target){
   if(entry()?.kind!=='history'||!target)return;
@@ -1199,6 +1218,16 @@ document.addEventListener('pointercancel',()=>{passageActivation++;pressedPassag
 document.addEventListener('wheel',()=>{passagePosition=null;}, {capture:true,passive:true});
 document.addEventListener('touchmove',()=>{passagePosition=null;}, {capture:true,passive:true});
 document.addEventListener('keydown',event=>{
+  const sidebar=event.target.closest?.('#discussion-sidebar');
+  if(sidebar&&threadSpotlight.active&&!event.defaultPrevented&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&!event.shiftKey&&!event.target.closest('input,textarea,select,[contenteditable],[role=textbox],[role=separator]')&&!document.querySelector('dialog:modal')){
+    if(['ArrowLeft','ArrowRight'].includes(event.key)){event.preventDefault();guard(()=>navigate(event.key==='ArrowRight'?1:-1,{spotlight:true,sidebarFocus:true}))();return;}
+    if(event.key==='ArrowUp'){event.preventDefault();$('#thread-search').focus({preventScroll:true});return;}
+    if(event.key==='ArrowDown'){
+      const card=$(`.thread[data-thread="${appStore.state.focusedThread}"]`);
+      if(card&&!card.hidden){event.preventDefault();zenCollapsed=false;collapsedThreads.delete(appStore.state.focusedThread);rememberCollapsed();filterThreads();card.querySelector('.reply-form textarea')?.focus({preventScroll:true});threadSpotlight.reveal(card);}
+      return;
+    }
+  }
   if(event.target.matches('.thread')&&(event.key==='Enter'||event.key===' ')){
     event.preventDefault();guard(()=>focusThreadCard(Number(event.target.dataset.thread)))();
   }
@@ -1236,23 +1265,14 @@ document.addEventListener('click',guard(async event=>{
   }
   if(action.dataset.action==='jump')await jump(id,null,false,action.tagName!=='BLOCKQUOTE');
   if(action.dataset.action==='resolve'){
-    const path=appStore.state.displayedDocument,scope=threadScope(),advance=appStore.state.zen&&!threadSpotlight.active&&!t.resolved&&appStore.state.focusedThread===id;
-    const open=appStore.state.threads.filter(thread=>!thread.resolved).sort((a,b)=>(a.path>b.path)-(a.path<b.path)||a.start-b.start||a.id-b.id);
-    const at=open.findIndex(thread=>thread.id===id),next=advance&&open.length>1?open[(at+1)%open.length]:null;
     action.disabled=true;
     try{
-      await api('threads/'+id,'PATCH',{resolved:!t.resolved});await refreshThreads();
-      // Use passage navigation for both panes, including reading/HTML previews
-      // and cross-file threads. Reopening and the last open thread stay put.
-      if(next&&appStore.state.zen&&appStore.state.displayedDocument===path&&threadScope()===scope){
-        const target=appStore.state.threads.find(thread=>thread.id===next.id&&!thread.resolved);
-        if(target)await jump(target.id,target);
-      }
+      await completeThread(id,()=>api('threads/'+id,'PATCH',{resolved:!t.resolved}),!t.resolved);
     }finally{action.disabled=false;}
   }
   if(action.dataset.action==='delete-thread'||action.dataset.action==='delete-message'){
     const whole=action.dataset.action==='delete-thread';if(!confirm(whole?'Delete this thread and all its comments?':'Delete this comment?'))return;
-    await api('threads/'+id+(whole?'':'/messages/'+action.dataset.message),'DELETE');await refreshThreads();
+    await completeThread(id,()=>api('threads/'+id+(whole?'':'/messages/'+action.dataset.message),'DELETE'));
     if(!appStore.state.threads.some(t=>t.id===appStore.state.focusedThread))clearThreadFocus();
     if(view)view.dispatch({effects:spansEffect.of(view.state.field(spanField).filter(span=>appStore.state.threads.some(t=>t.id===span.id)))});
     notify(whole?'Thread deleted':'Comment deleted');
@@ -1289,10 +1309,23 @@ $('#selection-comment').onclick=guard(startComment);
 $('#selection-thread').onclick=()=>showPassage([Number($('#selection-thread').dataset.thread)]);
 $('#json-format').onclick=guard(()=>{if(!view||ext(appStore.state.displayedDocument)!=='json')return;const content=formatJSON(view.state.sliceDoc(),view.state.lineBreak);view.dispatch({changes:{from:0,to:view.state.doc.length,insert:content},annotations:isolateHistory.of('full'),userEvent:'input.format'});view.focus();});
 $('#json-collapse').onclick=()=>collapseJSON(view);$('#json-expand').onclick=()=>{if(view)unfoldAll(view);};
-$('#download-file').onclick=guard(()=>{
-  syncState();const e=entry();if(!e||e.kind==='oversized'||!['html','htm','jsonl'].includes(ext(e.path)))return;
+$('#copy-filepath').onclick=guard(async()=>{const e=entry();if(!e||e.kind==='history')return;await navigator.clipboard.writeText(e.sourcePath||e.path);notify('File path copied');});
+$('#go-to-top').onclick=()=>{
+  passagePosition=null;renderedJump=null;
+  if(renderedPreview){previewMessage('scroll-top');return;}
+  if(view)view.dispatch({effects:EditorView.scrollIntoView(0,{y:'start'})});
+  for(const scroller of [$('#surface'),...$$('#surface .original-reading, #surface .jsonl-raw')])scroller.scrollTo({top:0,behavior:'instant'});
+};
+$('#download-file').onclick=guard(async()=>{
+  syncState();const e=entry();if(!e||!['html','htm','jsonl'].includes(ext(e.path)))return;
   const type=ext(e.path)==='jsonl'?'application/x-ndjson;charset=utf-8':'text/html;charset=utf-8';
-  const url=URL.createObjectURL(new Blob([e.content],{type})),link=document.createElement('a');
+  let blob;
+  if(e.kind==='oversized'){
+    const response=await fetch('/api/download?'+new URLSearchParams({path:e.path}),{headers:{'X-Looking-Glass-Token':token}});
+    if(!response.ok)throw new Error((await response.json()).error);
+    blob=await response.blob();
+  }else blob=new Blob([e.content],{type});
+  const url=URL.createObjectURL(blob),link=document.createElement('a');
   link.href=url;link.download=e.path.split('/').pop();document.body.append(link);link.click();link.remove();
   setTimeout(()=>URL.revokeObjectURL(url),1000);
 });

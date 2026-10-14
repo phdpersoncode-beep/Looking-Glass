@@ -19,11 +19,26 @@ export function initialAppState(preferences = {}) {
     showResolved: false, zen: false, reviewPreference: false, ...preferences};
 }
 
+export function selectThreadSequence(state) {
+  const threads = selectVisibleThreads({...state, spotlight: null, spotlightIds: []});
+  return state.searchQuery.trim() ? threads : threads.sort((a, b) =>
+    (a.path > b.path) - (a.path < b.path) || a.start - b.start || a.id - b.id);
+}
+
+export function nextOpenThread(state, id) {
+  const threads = selectThreadSequence(state), at = threads.findIndex(t => t.id === id);
+  for (let step = 1; step <= threads.length; step++) {
+    const candidate = threads[(at + step + threads.length) % threads.length];
+    if (candidate.id !== id && !candidate.resolved) return candidate;
+  }
+  return null;
+}
+
 function reconcileFocus(state) {
   const spotlightIds = passageGroup(state.threads, state.spotlight);
   let next = {...state, spotlightIds, spotlight: spotlightIds.length ? state.spotlight : null};
   if (next.zen && !next.spotlight) {
-    const visible = selectVisibleThreads(next);
+    const visible = selectVisibleThreads(next).filter(t => !t.resolved);
     if (!visible.some(t => t.id === next.focusedThread)) next.focusedThread = visible[0]?.id ?? null;
   }
   return next;
@@ -40,6 +55,15 @@ export function transition(state, event) {
       next = {...state, focusedThread: event.threadId, spotlight};
       next.spotlightIds = event.spotlight ? passageGroup(state.threads, spotlight) : [];
       if (event.origin && event.origin !== 'document-highlight') effects.push({type: 'REVEAL_THREAD', threadId: event.threadId, origin: event.origin});
+      break;
+    }
+    case 'THREAD_COMPLETED': {
+      if (!state.zen || state.focusedThread !== event.threadId) break;
+      const thread = nextOpenThread(state, event.threadId);
+      const spotlight = thread && state.spotlight ? {path: thread.path, seeds: [thread]} : null;
+      next = {...state, focusedThread: thread?.id ?? null, spotlight,
+        spotlightIds: passageGroup(state.threads, spotlight)};
+      if (thread) effects.push({type: 'REVEAL_THREAD', threadId: thread.id, origin: 'zen-completion'});
       break;
     }
     case 'FOCUS_CLEARED': next = {...state, focusedThread: null}; break;
