@@ -17,11 +17,14 @@ even when the focused thread does not change.
 | Event | Decision | Reading effect |
 | --- | --- | --- |
 | Document highlight | Focus thread and overlapping passage group | Preserve reading position |
-| Sidebar card | Focus thread; retain native sidebar focus/selection | Reveal passage |
+| Sidebar card | Focus and spotlight thread; retain native sidebar focus/selection | Reveal passage |
 | Sidebar comment icon | Focus and spotlight thread | Reveal passage |
 | Repeat activation | Same focus | Reveal passage again |
 | Unchanged poll | Same state | No navigation or node replacement |
 | Search/scope/zen change | Pure visible-thread selector and explicit fallback transition | No incidental navigation |
+| Spotlight arrows | Traverse the full scoped/search-filtered queue; retain sidebar focus | Reveal passage |
+| Zen resolve/delete | Advance to next open thread in the pre-mutation queue; retain spotlight if active | Reveal next passage; final completion stays put |
+| Go to top | Preserve selection and document state | Scroll the displayed document surface to its beginning |
 | Original context visit/return | Suspend/resume existing surface | Restore selection, undo, report state and scroll |
 | Mode switch | Save pending writes; switch compatible session | Restore that mode's selection and undo |
 

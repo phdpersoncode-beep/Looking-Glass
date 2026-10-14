@@ -25,11 +25,11 @@ export function selectThreadSequence(state) {
     (a.path > b.path) - (a.path < b.path) || a.start - b.start || a.id - b.id);
 }
 
-export function nextOpenThread(state, id) {
-  const threads = selectThreadSequence(state), at = threads.findIndex(t => t.id === id);
-  for (let step = 1; step <= threads.length; step++) {
-    const candidate = threads[(at + step + threads.length) % threads.length];
-    if (candidate.id !== id && !candidate.resolved) return candidate;
+export function nextOpenThread(state, id, order = selectThreadSequence(state).map(t => t.id)) {
+  const at = order.indexOf(id), byId = new Map(state.threads.map(t => [t.id, t]));
+  for (let step = 1; step <= order.length; step++) {
+    const candidate = byId.get(order[(at + step + order.length) % order.length]);
+    if (candidate && candidate.id !== id && !candidate.resolved) return candidate;
   }
   return null;
 }
@@ -59,7 +59,7 @@ export function transition(state, event) {
     }
     case 'THREAD_COMPLETED': {
       if (!state.zen || state.focusedThread !== event.threadId) break;
-      const thread = nextOpenThread(state, event.threadId);
+      const thread = nextOpenThread(state, event.threadId, event.order);
       const spotlight = thread && state.spotlight ? {path: thread.path, seeds: [thread]} : null;
       next = {...state, focusedThread: thread?.id ?? null, spotlight,
         spotlightIds: passageGroup(state.threads, spotlight)};

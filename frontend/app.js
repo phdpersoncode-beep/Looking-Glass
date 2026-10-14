@@ -855,9 +855,10 @@ function navigate(direction,{spotlight=false,sidebarFocus=false}={}){
 
 async function completeThread(id,operation,completes=true){
   const path=appStore.state.displayedDocument,scope=threadScope(),review=discussionReview(),session=entry();
+  const order=selectThreadSequence(appStore.state).map(thread=>thread.id);
   const current=()=>appStore.state.displayedDocument===path&&threadScope()===scope&&discussionReview()===review&&entry()===session;
   await operation();
-  const effects=completes&&current()?appStore.dispatch({type:'THREAD_COMPLETED',threadId:id}):[];
+  const effects=completes&&current()?appStore.dispatch({type:'THREAD_COMPLETED',threadId:id,order}):[];
   const reveal=effects.find(effect=>effect.type==='REVEAL_THREAD'),spotlight=threadSpotlight.active;
   await refreshThreads();
   if(reveal&&current()&&appStore.state.zen&&appStore.state.focusedThread===reveal.threadId){

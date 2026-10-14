@@ -55,10 +55,13 @@ return or Escape; incidental focus changes do not dismiss the view. Markdown
 marks and the HTML bridge carry overlapping thread IDs. Refreshes include new
 threads on the passage and preserve reply drafts, focus/cursor positions, and
 sidebar scroll. Only explicit passage navigation moves the reading pane;
-opening, collapsing, or resolving a focused discussion does not scroll it,
-including in zen mode. A collapsed sidebar icon explicitly navigates and opens
+opening a document highlight or collapsing a focused discussion does not scroll it.
+Resolving outside zen mode also preserves reading position. A collapsed sidebar icon or general card click explicitly navigates and opens
 spotlight without first revealing its card in the full list, so Escape restores
-the saved list position. Ordinary zen-mode resolve navigation is unchanged.
+the saved list position. Spotlight keyboard navigation derives the full scoped
+queue rather than the currently highlighted group. Zen resolve/delete captures that
+queue before the write and advances through open threads after success, including
+in spotlight. Search stays above the heading and total-count row.
 
 During a highlight inspection click, live Markdown retains its current syntax
 visibility and CodeMirror defers caret scrolling. A short measurement sequence

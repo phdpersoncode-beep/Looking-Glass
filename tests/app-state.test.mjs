@@ -87,3 +87,10 @@ test('completion cannot steal focus outside zen or after the user chooses anothe
   const zen = {...state, zen: true, focusedThread: 2};
   assert.equal(transition(zen, {type: 'THREAD_COMPLETED', threadId: 1}).state, zen);
 });
+
+test('a poll completing the mutation first does not change the queued successor', () => {
+  const state = {...initialAppState({zen: true}), focusedThread: 2,
+    threads: [thread(1), thread(2, 20, 25, {resolved: true}), thread(3, 30, 40)]};
+  const result = transition(state, {type: 'THREAD_COMPLETED', threadId: 2, order: [1, 2, 3]});
+  assert.equal(result.state.focusedThread, 3);
+});
