@@ -1314,7 +1314,7 @@ $('#copy-filepath').onclick=guard(async()=>{const e=entry();if(!e||e.kind==='his
 $('#go-to-top').onclick=()=>{
   passagePosition=null;renderedJump=null;
   if(renderedPreview){previewMessage('scroll-top');return;}
-  if(view)view.dispatch({effects:EditorView.scrollIntoView(0,{y:'start'})});
+  if(view){view.scrollDOM.scrollTop=0;view.dispatch({effects:view.scrollSnapshot()});}
   for(const scroller of [$('#surface'),...$$('#surface .original-reading, #surface .jsonl-raw')])scroller.scrollTo({top:0,behavior:'instant'});
 };
 $('#download-file').onclick=guard(async()=>{
@@ -1351,7 +1351,7 @@ $('#expand-threads').onclick=()=>{for(const id of visibleThreadIds())collapsedTh
 $('#previous').onclick=guard(()=>navigate(-1));$('#next').onclick=guard(()=>navigate(1));$('#show-resolved').onchange=()=>appStore.dispatch({type:'FILTERS_CHANGED',filters:{showResolved:$('#show-resolved').checked}});
 $('#thread-scope').checked=localStorage.getItem('looking-glass-thread-scope:'+root)==='all';
 $('#thread-scope').onchange=guard(async()=>{appStore.dispatch({type:'FILTERS_CHANGED',filters:{scope:$('#thread-scope').checked?'all':'file'}});clearSpotlight();localStorage.setItem('looking-glass-thread-scope:'+root,threadScope());await refreshThreads(true);});
-async function setMode(value){const e=entry();syncState();e.mode=value;view?.destroy();view=null;cleanup();cleanup=()=>{};mountDocument(e);await e.ready;await refreshThreads();remember();}
+async function setMode(value){const e=entry();if(!e||e.mode===value)return;syncState();e.mode=value;view?.destroy();view=null;cleanup();cleanup=()=>{};mountDocument(e);await e.ready;await refreshThreads();remember();}
 $('#mode').onchange=guard(()=>setMode($('#mode').value));
 $('#html-toggle').onclick=guard(()=>setMode(entry().mode==='rendered'?'source':'rendered'));
 $('#theme').onclick=()=>{const value=document.documentElement.dataset.theme==='light'?'dark':'light';document.documentElement.dataset.theme=value;localStorage.setItem('looking-glass-theme',value);$('#theme').textContent=value==='dark'?'Light mode':'Dark mode';if(view)view.dispatch({effects:themeSlot.reconfigure(theme())});$$('.mermaid-diagram').forEach(host=>{const source=host.dataset.diagramSource;if(source)renderMermaid(host,source);});};
