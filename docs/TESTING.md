@@ -39,7 +39,31 @@ uv run playwright install chromium firefox
 LOOKING_GLASS_BROWSER=installed uv run pytest -m browser -q --durations=10
 ```
 
-CI runs the same collection in four jobs, using zero-based `--browser-shard=0/4`
+Automatic CI runs only fast checks on PR updates and pushes to `main`, avoiding
+duplicate push/PR runs for feature branches. Run relevant tests during iteration;
+start the full browser collection after the final code push, rather than at each
+intermediate push.
+
+To start the final browser run, add the **run-browser-tests** label to the PR,
+or use **Actions → Regression tests → Run workflow** and select the branch.
+With GitHub CLI, the manual equivalent is:
+
+```bash
+gh workflow run tests.yml --ref <branch>
+```
+
+Only adding the label triggers browsers; leaving it present does not rerun them
+on subsequent pushes. To request another run after changes, remove and re-add
+the label. Fast checks and browsers have separate concurrency groups, so a new
+fast-check run does not cancel an explicitly requested browser run.
+
+After starting a remote run, confirm that it is queued/running, record its URL
+and tested commit, and hand it back to the user without waiting or polling.
+Ask the user to return in about 5–10 minutes. On return, inspect that run's jobs
+and compare its tested commit to the latest PR head; an older run does not
+validate newer edits.
+
+The full browser run uses the same collection in four jobs, with zero-based `--browser-shard=0/4`
 through `--browser-shard=3/4`. Each job includes Chromium and Firefox cases. Cases
 are sorted by their full pytest IDs and distributed round-robin, so added tests
 automatically enter a shard. `uv run python scripts/verify_browser_shards.py 4`
