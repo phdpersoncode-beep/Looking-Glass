@@ -1,0 +1,2 @@
+Temporary publishing diagnostic requested by the repository owner on 2026-10-15.
+This file tests a plain-text commit through the connected GitHub service.
