@@ -82,8 +82,8 @@ export function transition(state, event) {
     case 'ZEN_CHANGED': next = reconcileFocus({...state, zen: event.value}); break;
     case 'REVIEW_PREFERENCE_CHANGED': next = {...state, reviewPreference: event.value}; break;
     case 'DOCUMENT_REQUESTED': next = {...state, requestedDocument: event.path}; break;
-    case 'DOCUMENT_DISPLAYED': next = event.retainDiscussions
-      ? {...state, displayedDocument: event.path, requestedDocument: event.path}
+    case 'DOCUMENT_DISPLAYED': next = event.discussions
+      ? transition({...state, displayedDocument:event.path, requestedDocument:event.path}, {type:'THREADS_RECEIVED', ...event.discussions, activation:event.activation}).state
       : {...state, displayedDocument: event.path, requestedDocument: event.path, threads: [], focusedThread: event.focusedThread ?? null, requestedThread: null, spotlight: null, spotlightIds: []}; break;
     case 'DOCUMENT_CANCELLED':
     case 'DOCUMENT_FAILED': next = {...state, requestedDocument: state.displayedDocument}; break;

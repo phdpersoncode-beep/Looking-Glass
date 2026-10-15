@@ -59,11 +59,11 @@ export function createRequestGate() {
   };
 }
 
-export function threadDestination(thread, session, {historyPath, originalPath}) {
+export function threadDestination(thread, session, {historyPath}) {
   if (['commit', 'branch'].includes(thread.anchor_kind)) return {path: historyPath, surface: 'history'};
   if (thread.anchor_kind === 'review_removed') return session?.path === thread.path && session.workMode === 'review'
-    ? {path: thread.path, surface: 'removed'} : {path: originalPath(thread.id), surface: 'original'};
-  if (thread.anchor_kind !== 'rendered' && thread.anchor_status === 'needs_reattachment' || session?.conflict?.deleted)
-    return {path: originalPath(thread.id), surface: 'original'};
+    ? {path: thread.path, surface: 'removed'} : {path: thread.path, surface: 'unavailable'};
+  if (thread.anchor_status === 'needs_reattachment' || session?.conflict?.deleted)
+    return {path: thread.path, surface: 'unavailable'};
   return {path: thread.path, surface: thread.anchor_kind === 'rendered' ? 'rendered' : 'source'};
 }

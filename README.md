@@ -107,6 +107,11 @@ comment icons, and general card clicks all enter spotlight and retain sidebar
 keyboard focus. Repeated arrows choose the latest requested thread without flashing
 the full list or queuing unfinished document reveals; the current spotlight stays
 visible until its destination is ready.
+Unanchored or unavailable threads focus in the sidebar without opening another
+document or changing reading position. **Original context** opens the saved passage
+only when clicked. Main reading surfaces hide native scrollbar rails while keeping
+wheel, touch, keyboard, and go-to-top scrolling; wide tables keep their compact
+horizontal scroll controls.
 
 Use **×** beside a comment to delete that comment. **Delete thread** removes the
 whole discussion and its highlight. Deleting the last comment also removes its thread.

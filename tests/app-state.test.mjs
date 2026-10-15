@@ -102,9 +102,12 @@ test('pending thread navigation keeps displayed spotlight until the destination 
  store.dispatch({type:'THREAD_ACTIVATED',threadId:1,spotlight:true});
  store.dispatch({type:'THREAD_NAVIGATION_REQUESTED',threadId:2});
  assert.equal(store.state.requestedThread,2);assert.equal(store.state.focusedThread,1);
- store.dispatch({type:'DOCUMENT_DISPLAYED',path:'other.txt',retainDiscussions:true});
+ store.dispatch({type:'DOCUMENT_REQUESTED',path:'other.txt'});
+ assert.equal(store.state.displayedDocument,'note.txt');
  assert.deepEqual(store.state.spotlightIds,[1]);assert.deepEqual(selectVisibleThreads(store.state).map(t=>t.id),[1]);
- store.dispatch({type:'THREADS_RECEIVED',threads:[second],activation:{threadId:2,spotlight:true}});
+ const snapshots=[];store.subscribe(state=>snapshots.push({path:state.displayedDocument,thread:state.focusedThread,ids:state.spotlightIds}));
+ store.dispatch({type:'DOCUMENT_DISPLAYED',path:'other.txt',discussions:{threads:[second]},activation:{threadId:2,spotlight:true}});
+ assert.deepEqual(snapshots,[{path:'other.txt',thread:2,ids:[2]}]);
  assert.equal(store.state.requestedThread,null);assert.equal(store.state.focusedThread,2);
  assert.deepEqual(store.state.spotlightIds,[2]);assert.deepEqual(selectVisibleThreads(store.state).map(t=>t.id),[2]);
 });

@@ -7,7 +7,7 @@ export function createThreadNavigator(ports) {
     let thread = target || ports.find(id);
     if (!thread) return;
     const key = String(id), request = requests.begin(key), current = () => requests.accepts(request, key);
-    const show = () => ports.focus(id, spotlight, thread);
+    const show = (reveal = true) => ports.focus(id, spotlight, thread, reveal);
     const open = path => ports.open(path, {threadId: id, spotlight, current});
     const destination = threadDestination(thread, ports.session(thread.path), ports.paths);
     if (destination.surface === 'history') {
@@ -20,11 +20,7 @@ export function createThreadNavigator(ports) {
       return;
     }
     if (destination.surface === 'removed' && ports.revealRemoved(thread)) {show(); return;}
-    if (['original', 'removed'].includes(destination.surface)) {
-      const opened = await open(ports.paths.originalPath(id));
-      if (opened.status === 'ready' && current()) {show(); ports.originalNotice();}
-      return;
-    }
+    if (['unavailable', 'removed'].includes(destination.surface)) {show(false); return;}
     if (thread.path !== ports.displayed()) {
       try {
         const opened = await open(thread.path);
@@ -32,8 +28,7 @@ export function createThreadNavigator(ports) {
       } catch (error) {
         if (!current()) return;
         if (error.status !== 404) throw error;
-        const opened = await open(ports.paths.originalPath(id));
-        if (opened.status === 'ready' && current()) show();
+        show(false);
         return;
       }
     }

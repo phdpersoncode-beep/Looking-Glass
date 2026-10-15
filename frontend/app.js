@@ -75,8 +75,8 @@ async function returnFromOriginal(){
   if(contextVisit.path)await openFile(contextVisit.path);
   else await closeTab(appStore.state.displayedDocument,true);
 }
-function discussionPath(){const e=entry();return e?.kind==='original'?e.sourcePath:e?.kind==='history'?e.history?.target?.path||null:e?.kind==='oversized'?null:appStore.state.displayedDocument;}
-function discussionReview(){const e=entry();return e?.kind==='original'?e.contextReview:e?.workMode==='review'?e.review?.id:null;}
+function discussionPath(e=entry(),path=appStore.state.displayedDocument){return e?.kind==='original'?e.sourcePath:e?.kind==='history'?e.history?.target?.path||null:e?.kind==='oversized'?null:path;}
+function discussionReview(e=entry()){return e?.kind==='original'?e.contextReview:e?.workMode==='review'?e.review?.id:null;}
 let expandedFolders=new Set();try{expandedFolders=new Set(JSON.parse(localStorage.getItem('looking-glass-folders:'+root)||'[]'));}catch{}
 let zenCollapsed=false;
 let collapsedThreads=new Set();try{collapsedThreads=new Set(JSON.parse(localStorage.getItem('looking-glass-collapsed-threads:'+root)||'[]'));}catch{}
@@ -469,6 +469,10 @@ async function loadFile(path,request){
     if(!request.current())return;
     await ensureWorkMode(e);
     if(!request.current())return;
+    // Prepare the destination discussions before replacing the displayed file.
+    // Cancellation while this read is pending leaves the current pair intact.
+    const discussions=activation?await readDiscussions(discussionPath(e,path),threadScope(),discussionReview(e)):null;
+    if(!request.current()||activation&&!activation.current())return;
     // Keep the reading surface mounted during this temporary visit. This
     // preserves the editor history, native table layout and HTML browsing
     // context, rather than reconstructing the document on return.
@@ -480,7 +484,9 @@ async function loadFile(path,request){
       await held.surface.suspend();if(!request.current()){held.surface.resume();previewMessage('resume');contextVisit=null;return;}view=null;cleanup=()=>{};
     }
     const held=contextVisit;
-    view?.destroy();view=null;cleanup();cleanup=()=>{};appStore.dispatch({type:'DOCUMENT_DISPLAYED',path,retainDiscussions:!!activation});
+    view?.destroy();view=null;cleanup();cleanup=()=>{};
+    if(discussions)receiveDiscussions(discussions.data,discussions.key,true,activation,path);
+    else appStore.dispatch({type:'DOCUMENT_DISPLAYED',path});
     if(held){for(const node of [...$('#surface').children])if(!held.nodes.includes(node))node.remove();}
     else $('#surface').replaceChildren();
     if(e.kind==='original')for(const [name,tab] of tabs)if(tab.kind==='original'&&name!==path)tabs.delete(name);
@@ -509,7 +515,9 @@ async function loadFile(path,request){
     if(held&&!resume&&e.kind!=='original'&&path===held.path){const scroller=view?.scrollDOM||$('#surface');requestAnimationFrame(()=>{if(appStore.state.displayedDocument===path){scroller.scrollTop=held.top;scroller.scrollLeft=held.left;}});}
     await e.ready;
     if(!request.current())return;
-    await refreshThreads(false,activation);notify('');
+    if(discussions){if(activation.current())receiveDiscussions(discussions.data,discussions.key,true,activation);}
+    else await refreshThreads();
+    notify('');
 }
 
 function mountOversized(e){
@@ -669,9 +677,19 @@ function threadScope(){return appStore.state.scope;}
 const discussionCache=new Map();let lastThreadHTML='',lastThreadKey='',navigationIndex=[],indexTime=0;
 const discussionView=createDiscussionView($('#threads'),{composers,renderBody:(host,source)=>{renderMarkdown(host,source,highlightMarkdown);markdownDiagrams(host);}});
 const discussionRetention=createDiscussionRetention();
-function receiveDiscussions(data,key,authoritative=true,activation=null){
-  const previous=appStore.state.threads,e=entry();
-  appStore.dispatch({type:'THREADS_RECEIVED',threads:data.threads,availableIds:data.index.map(t=>t.id),activation});navigationIndex=data.index;indexTime=Date.now();
+async function readDiscussions(path,scope,review){
+  const key=scope+':'+(path||'')+':'+(review||''),cached=discussionCache.get(key);
+  const response=await fetch('/api/discussions?'+new URLSearchParams({path:path||'',scope,...(review?{review}: {})}),{headers:{'X-Looking-Glass-Token':token,...(cached?{'If-None-Match':cached.etag}:{})}});
+  if(!response.ok&&response.status!==304)throw new Error((await response.json()).error);
+  const data=response.status===304?cached.data:await response.json();
+  if(response.status!==304){discussionCache.set(key,{data,etag:response.headers.get('ETag')});if(discussionCache.size>8)discussionCache.delete(discussionCache.keys().next().value);}
+  return {data,key};
+}
+function receiveDiscussions(data,key,authoritative=true,activation=null,displayedPath=undefined){
+  const sidebarFocus=!!document.activeElement?.closest('#discussion-sidebar');
+  const previous=appStore.state.threads,discussions={threads:data.threads,availableIds:data.index.map(t=>t.id)};
+  appStore.dispatch(displayedPath===undefined?{type:'THREADS_RECEIVED',...discussions,activation}:{type:'DOCUMENT_DISPLAYED',path:displayedPath,discussions,activation});navigationIndex=data.index;indexTime=Date.now();
+  const e=entry();
   if(e?.kind==='original'){
     const thread=data.threads.find(t=>t.id===e.threadId);
     const resolved=e.contextResolved??e.resolvedAtOpen;
@@ -706,6 +724,7 @@ function receiveDiscussions(data,key,authoritative=true,activation=null){
   discussionView.render(data.html);lastThreadHTML=data.html;lastThreadKey=key;
   for(const form of $$('.reply-form'))composers.render(form);
   filterThreads();if(e?.kind!=='original')refreshMarkdownHighlights();if(entry()?.kind==='history')cleanup.updateCounts?.(data.index);
+  if(displayedPath!==undefined&&activation&&sidebarFocus)$(`.thread[data-thread="${appStore.state.focusedThread}"]`)?.focus({preventScroll:true});
 }
 async function refreshThreads(useCache=false,activation=null){
   if(appStore.state.requestedThread!==null&&!activation)return;
@@ -717,10 +736,7 @@ async function refreshThreads(useCache=false,activation=null){
   // Keep displayed discussions stable; only new views need loading feedback.
   $('#threads-loading').hidden=key===lastThreadKey||!!$('#threads .thread:not([hidden])');$('#threads').setAttribute('aria-busy','true');
   try{
-  const response=await fetch('/api/discussions?'+new URLSearchParams({path:path||'',scope,...(review?{review}: {})}),{headers:{'X-Looking-Glass-Token':token,...(cached?{'If-None-Match':cached.etag}:{})}});
-  if(!response.ok&&response.status!==304)throw new Error((await response.json()).error);
-  const data=response.status===304?cached.data:await response.json();
-  if(response.status!==304){discussionCache.set(key,{data,etag:response.headers.get('ETag')});if(discussionCache.size>8)discussionCache.delete(discussionCache.keys().next().value);}
+  const {data}=await readDiscussions(path,scope,review);
   if(appStore.state.displayedDocument!==current||entry()!==session||review!==discussionReview()||scope!==threadScope()||!discussionRequests.accepts(request,key))return;
   if(activation?.current&&!activation.current())return;
   if(appStore.state.requestedThread!==null&&!activation)return;
@@ -819,12 +835,11 @@ function spotlightSidebarThread(id,thread){
   showThread(id,true,[id]);
 }
 const threadNavigator=createThreadNavigator({
-  paths:{historyPath:HISTORY,originalPath:id=>ORIGINAL+id+'/original'},
+  paths:{historyPath:HISTORY},
   find:id=>appStore.state.threads.find(t=>t.id===id),session:path=>tabs.get(path),displayed:()=>appStore.state.displayedDocument,
   read:id=>api('threads/'+id),open:(path,activation)=>navigation.open(path,{threadNavigation:activation}),
-  focus:(id,spotlight)=>showThread(id,spotlight,spotlight&&threadSpotlight.includes(id)?threadSpotlight.ids:[id],true,'sidebar-navigation'),
+  focus:(id,spotlight,thread,reveal)=>showThread(id,spotlight,spotlight&&threadSpotlight.includes(id)?threadSpotlight.ids:[id],true,reveal?'sidebar-navigation':'sidebar-focus'),
   selectGit:async target=>{cleanup.selectTarget?.(target);await refreshThreads();},
-  originalNotice:()=>notify('Showing original reviewed content.'),
   revealRemoved:thread=>{if(entry()?.workMode!=='review'||entry()?.path!==thread.path)return false;const ghost=$$('.review-deletion').find(el=>Number(el.dataset.reviewDeletion)===thread.render_anchor?.edit_id&&el.textContent===thread.render_anchor?.text);if(!ghost)return false;ghost.scrollIntoView({block:'center'});return true;},
   revealRendered:async(thread,current,focusEditor)=>{if(entry().mode!=='rendered'){await setMode('rendered');if(!current())return;}renderedJump=thread.id;previewMessage('jump',{id:thread.id,behavior:focusEditor?'smooth':'instant'});},
   revealSource:revealSourcePassage

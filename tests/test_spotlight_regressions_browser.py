@@ -154,3 +154,127 @@ def test_thread_click_cancels_an_unfinished_arrow_document_load(workspace_page):
     expect(first).to_have_class('thread active')
     expect(first).to_be_focused()
     expect(page.locator('#passage-spotlight')).to_be_visible()
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+@pytest.mark.parametrize('mode', ['live', 'source', 'preview'])
+def test_unanchored_spotlight_preserves_reading_and_opens_context_only_on_request(workspace_page, mode):
+    from playwright.sync_api import expect
+    root, page, url, ws = workspace_page
+    original = '# Notes\n\nFirst stable passage.\n\nDetached passage.\n\n' + 'Reading context.\n\n'*70 + 'Last stable passage.\n'
+    (root/'note.md').write_text(original)
+    version = ws.read('note.md')['version']
+    threads = []
+    for quote in ['First stable', 'Detached passage', 'Last stable']:
+        start = original.index(quote)
+        threads.append(ws.create_thread('note.md', start, start+len(quote), 'Review '+quote, 'Reviewer', version))
+    (root/'note.md').write_text(original.replace('Detached passage.', 'Replacement sentence.'))
+    ws.read('note.md')
+    assert ws.get_thread(threads[1]['id'])['anchor_status'] == 'needs_reattachment'
+    page.goto(url); open_file(page, 'note.md'); page.locator('#mode').select_option(mode)
+    first = page.locator(f'.thread[data-thread="{threads[0]["id"]}"]')
+    detached = page.locator(f'.thread[data-thread="{threads[1]["id"]}"]')
+    first.locator('.thread-heading [data-action=jump]').click(); settle(page)
+    first.locator('textarea').fill('Keep my reply draft'); first.focus()
+    page.evaluate('''()=>{window.readingNode=document.querySelector('#surface').firstElementChild;
+      window.readingScroller=document.querySelector('.cm-scroller')||document.querySelector('#surface');
+      window.readingTop=window.readingScroller.scrollTop;}''')
+    context_requests = []
+    page.on('request', lambda request: context_requests.append(request.url) if '/original' in request.url else None)
+    page.keyboard.press('ArrowRight')
+    expect(detached).to_have_class('thread active'); expect(detached).to_be_focused(); settle(page)
+    assert page.evaluate('window.readingNode===document.querySelector("#surface").firstElementChild')
+    assert abs(page.evaluate('window.readingScroller.scrollTop-window.readingTop')) < 2
+    expect(page.locator('#document-name')).to_have_text('note.md')
+    expect(page.locator('.original-banner')).to_have_count(0)
+    for selector in ['.thread-heading [data-action=jump]', 'blockquote', '.comment-markdown p']:
+        detached.locator(selector).click()
+        expect(detached).to_be_focused(); expect(page.locator('#passage-spotlight')).to_be_visible()
+        assert page.evaluate('window.readingNode===document.querySelector("#surface").firstElementChild')
+    # Sample every frame of repeated navigation through the unavailable passage.
+    page.evaluate('''()=>{window.unanchoredFrames=[];window.unanchoredDone=false;let remaining=30;
+      function sample(){window.unanchoredFrames.push({surface:window.readingNode===document.querySelector('#surface').firstElementChild,
+        spotlight:!document.querySelector('#passage-spotlight').hidden,
+        active:document.querySelectorAll('.thread.active:not([hidden])').length,
+        original:document.querySelectorAll('.original-banner').length});
+        if(--remaining)requestAnimationFrame(sample);else window.unanchoredDone=true;
+      }requestAnimationFrame(sample);}''')
+    for key in ['ArrowRight', 'ArrowLeft', 'ArrowLeft', 'ArrowRight', 'ArrowRight', 'ArrowLeft']:
+        page.keyboard.press(key)
+    expect(detached).to_have_class('thread active')
+    page.wait_for_function('()=>window.unanchoredDone')
+    frames = page.evaluate('window.unanchoredFrames')
+    assert all(frame['surface'] and frame['spotlight'] and frame['active']==1 and not frame['original'] for frame in frames), frames
+    assert context_requests == []
+    detached.locator('textarea').fill('Detached draft')
+    detached.locator('[data-action=original]').click()
+    expect(page.locator('.original-banner')).to_be_visible()
+    expect(page.locator('.original-reading,.original-editor')).to_contain_text('Detached passage')
+    assert context_requests
+    page.locator('#context-return').click()
+    expect(page.locator('#document-name')).to_have_text('note.md')
+    assert page.evaluate('window.readingNode===document.querySelector("#surface").firstElementChild')
+    expect(detached.locator('textarea')).to_have_value('Detached draft')
+    detached.focus(); page.keyboard.press('ArrowLeft')
+    expect(first.locator('textarea')).to_have_value('Keep my reply draft')
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_reading_scrollbars_are_hidden_without_disabling_scrolling(workspace_page):
+    from playwright.sync_api import expect
+    root, page, url, ws = workspace_page
+    (root/'long.py').write_text(''.join(f'line_{i} = "'+ 'long_value_'*120 + '"\n' for i in range(160)))
+    (root/'long.md').write_text('# Reading\n\n' + 'A paragraph to scroll through.\n\n'*150)
+    page.goto(url); open_file(page, 'long.py')
+    for theme in ['light', 'dark']:
+        if page.locator('html').get_attribute('data-theme') != theme:
+            page.locator('#theme').click()
+        page.set_viewport_size({'width':900,'height':720})
+        scroller = page.locator('.cm-scroller')
+        assert scroller.evaluate('el=>getComputedStyle(el).scrollbarWidth') == 'none'
+        assert scroller.evaluate('el=>el.scrollHeight>el.clientHeight && el.scrollWidth>el.clientWidth')
+        scroller.hover(); page.mouse.wheel(240, 320)
+        page.wait_for_function('()=>document.querySelector(".cm-scroller").scrollTop>0 && document.querySelector(".cm-scroller").scrollLeft>0')
+        page.locator('.cm-content').click(); page.keyboard.press('Control+Home')
+        page.wait_for_function('()=>document.querySelector(".cm-scroller").scrollTop<50')
+        expect(page.locator('.cm-line').first).to_be_in_viewport()
+    open_file(page, 'long.md'); page.locator('#mode').select_option('preview')
+    pane = page.locator('#surface')
+    assert pane.evaluate('el=>getComputedStyle(el).scrollbarWidth') == 'none'
+    pane.hover(); page.mouse.wheel(0, 500)
+    page.wait_for_function('()=>document.querySelector("#surface").scrollTop>0')
+    page.locator('#go-to-top').click()
+    page.wait_for_function('()=>document.querySelector("#surface").scrollTop===0')
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+@pytest.mark.parametrize('control', ['search', 'reply'])
+def test_cancelling_arrow_navigation_while_discussions_load_keeps_document_and_cards_together(workspace_page, control):
+    from playwright.sync_api import expect
+    root, page, url, ws = workspace_page
+    threads = []
+    for name in ['a.txt', 'b.txt']:
+        (root/name).write_text('Target passage in '+name)
+        threads.append(ws.create_thread(name, 0, 6, 'Review '+name, 'Reviewer', ws.read(name)['version']))
+    page.goto(url); open_file(page, 'a.txt'); page.locator('#thread-scope').check()
+    first = page.locator(f'.thread[data-thread="{threads[0]["id"]}"]')
+    first.locator('.thread-heading [data-action=jump]').click()
+    held = []
+    def hold(route):
+        if 'path=b.txt' in route.request.url:
+            held.append(route); page.evaluate('window.blockedDiscussionRead=true')
+        else:
+            route.continue_()
+    page.route('**/api/discussions?*', hold)
+    page.keyboard.press('ArrowRight')
+    page.wait_for_function('()=>window.blockedDiscussionRead')
+    expect(page.locator('#document-name')).to_have_text('a.txt')
+    expect(first).to_have_class('thread active')
+    field = page.locator('#thread-search') if control=='search' else first.locator('textarea')
+    field.fill('Keep focus here')
+    with page.expect_response(lambda response: '/api/discussions?' in response.url and 'path=b.txt' in response.url) as response:
+        held[0].continue_()
+    response.value.finished(); settle(page)
+    expect(page.locator('#document-name')).to_have_text('a.txt')
+    expect(field).to_be_focused(); expect(field).to_have_value('Keep focus here')
+    assert not page.locator('.thread.active:visible[data-path="b.txt"]').count()

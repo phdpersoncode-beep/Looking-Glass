@@ -19,6 +19,8 @@ even when the focused thread does not change.
 | Document highlight | Focus thread and overlapping passage group | Preserve reading position |
 | Sidebar card | Focus and spotlight thread; retain native sidebar focus/selection | Reveal passage |
 | Sidebar comment icon | Focus and spotlight thread | Reveal passage |
+| Unanchored/unavailable thread | Focus sidebar only; preserve the current surface | No automatic context tab or scroll |
+| Original context button | Explicit context visit | Open immutable passage; return restores the suspended surface |
 | Repeat activation | Same focus | Reveal passage again |
 | Unchanged poll | Same state | No navigation or node replacement |
 | Search/scope/zen change | Pure visible-thread selector and explicit fallback transition | No incidental navigation |
@@ -32,8 +34,9 @@ Navigation promises resolve only after the requested surface is ready, or report
 supersession/failure. Superseding a read never cancels a write. Async completions
 must match their request, document/session identity and revision before applying.
 Failed mode preparation must leave the previous mode and preference coherent.
-Thread-driven document changes retain the current discussion projection until the
-destination snapshot and focus are committed together. Intent updates do not redraw
+Thread-driven document changes prepare destination discussions while retaining the
+current document and cards, then commit the document, snapshot and focus together.
+Cancellation before that commit leaves the previous pair intact. Intent updates do not redraw
 the sidebar. Sidebar numbers/quotes/cards use the same activation, and source
 selection/focus decorations update in one transaction. Focusing search/reply,
 changing filters, Escape, or another explicit navigation cancels pending arrows.

@@ -36,10 +36,13 @@ test('surface lifetimes suspend/resume and dispose resources exactly once',async
  await assert.rejects(surface.suspend(),/mounted/);
 });
 
-test('navigation policy retains distinct source, rendered, removed and Git destinations',()=>{
+test('navigation policy retains readable destinations and leaves unavailable passages in place',()=>{
  const options={historyPath:'history',originalPath:id=>'original/'+id};
- assert.deepEqual(threadDestination({id:1,path:'a',anchor_kind:'source',anchor_status:'needs_reattachment'},null,options),{path:'original/1',surface:'original'});
- assert.deepEqual(threadDestination({id:2,path:'a',anchor_kind:'rendered',anchor_status:'needs_reattachment'},null,options),{path:'a',surface:'rendered'});
+ assert.deepEqual(threadDestination({id:1,path:'a',anchor_kind:'source',anchor_status:'needs_reattachment'},null,options),{path:'a',surface:'unavailable'});
+ assert.deepEqual(threadDestination({id:2,path:'a',anchor_kind:'rendered',anchor_status:'needs_reattachment'},null,options),{path:'a',surface:'unavailable'});
+ assert.equal(threadDestination({id:3,path:'a',anchor_kind:'source',anchor_status:'attached'},null,options).surface,'source');
+ assert.equal(threadDestination({id:4,path:'a',anchor_kind:'rendered',anchor_status:'attached'},null,options).surface,'rendered');
+ assert.equal(threadDestination({id:5,path:'a',anchor_kind:'review_removed'},null,options).surface,'unavailable');
  assert.equal(threadDestination({id:3,anchor_kind:'commit'},null,options).path,'history');
 });
 
@@ -52,15 +55,26 @@ test('a newer reading intention cancels a pending thread reveal',async()=>{
  assert.deepEqual(effects,[]);
 });
 
-test('a missing current file reveals immutable context after it becomes ready',async()=>{
- const original=deferred(),effects=[],thread={id:1,path:'missing',anchor_kind:'source',anchor_status:'attached'};
+test('a missing current file focuses its thread without opening immutable context',async()=>{
+ const effects=[],thread={id:1,path:'missing',anchor_kind:'source',anchor_status:'attached'};
  const navigator=createThreadNavigator({find:()=>thread,session:()=>null,displayed:()=>null,
   paths:{historyPath:'history',originalPath:id=>'original/'+id},
-  open:async path=>{effects.push('open:'+path);if(path==='missing')throw Object.assign(Error('missing'),{status:404});return original.promise;},
-  focus:id=>effects.push('focus:'+id)});
- const activation=navigator.activate(1);await new Promise(resolve=>setImmediate(resolve));
- assert.deepEqual(effects,['open:missing','open:original/1']);
- original.resolve({status:'ready'});await activation;assert.equal(effects.at(-1),'focus:1');
+  open:async path=>{effects.push('open:'+path);throw Object.assign(Error('missing'),{status:404});},
+  focus:(id,spotlight,thread,reveal)=>effects.push('focus:'+id+':'+reveal)});
+ await navigator.activate(1);
+ assert.deepEqual(effects,['open:missing','focus:1:false']);
+});
+
+test('unanchored and unavailable threads focus without any document open or reveal',async()=>{
+ for(const thread of [{id:1,path:'a',anchor_kind:'source',anchor_status:'needs_reattachment'},
+   {id:2,path:'a',anchor_kind:'rendered',anchor_status:'needs_reattachment'},
+   {id:3,path:'a',anchor_kind:'review_removed'}]){
+  const effects=[],navigator=createThreadNavigator({find:()=>thread,session:()=>null,displayed:()=> 'other',paths:{historyPath:'history'},
+   open:path=>effects.push('open:'+path),revealSource:()=>effects.push('source'),revealRendered:()=>effects.push('rendered'),
+   focus:(id,spotlight,thread,reveal)=>effects.push({id,spotlight,reveal})});
+  await navigator.activate(thread.id,null,true,false);
+  assert.deepEqual(effects,[{id:thread.id,spotlight:true,reveal:false}]);
+ }
 });
 
 test('a burst of arrow intentions reveals only the latest destination in one frame',async()=>{

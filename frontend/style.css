@@ -27,6 +27,10 @@ dialog:modal{margin:auto}.directory-list{height:260px;overflow:auto;margin-top:8
 .discussion-sidebar .message p{font-size:12px;line-height:1.5;margin-top:4px}
 .discussion-sidebar .reply-form textarea{min-height:44px;font-size:12px}
 .prose-editor .cm-scroller {font-family:var(--prose);font-size:var(--prose-font-size,18px);}
+/* Main reading surfaces retain native scrolling without exposed scrollbar rails.
+   Table scroll controls keep their compact horizontal affordance. */
+.reading-pane :is(#surface,.cm-scroller,.original-reading,.jsonl-raw,.jsonl-detail,.image-viewport){scrollbar-width:none}
+.reading-pane :is(#surface,.cm-scroller,.original-reading,.jsonl-raw,.jsonl-detail,.image-viewport)::-webkit-scrollbar{display:none;width:0;height:0}
 .font-controls{display:flex;gap:2px;margin-left:auto}.font-controls button{border:0;padding:3px 5px;font-size:11px}
 #surface :is(.markdown-preview,.comment-markdown){font-size:var(--prose-font-size,18px)}.jsonl-row code{font-size:var(--document-font-size,14px)}
 #surface .md-h1,#surface :is(.markdown-preview,.comment-markdown) h1{font-size:calc(30px + var(--document-font-step,0px))}#surface .md-h2,#surface :is(.markdown-preview,.comment-markdown) h2{font-size:calc(24px + var(--document-font-step,0px))}#surface .md-h3{font-size:calc(20px + var(--document-font-step,0px))}#surface .md-h4,#surface .md-h5,#surface .md-h6{font-size:var(--prose-font-size,18px)}#surface .md-code{font-size:calc(12px + var(--document-font-step,0px))}#surface :is(.markdown-preview,.comment-markdown) code{font-size:calc(13px + var(--document-font-step,0px))}
