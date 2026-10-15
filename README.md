@@ -313,7 +313,9 @@ them in your terminal first. Checkpoints do not push. Saving never commits.
    **Download** saves the current HTML draft for opening directly in a browser,
    or the original bytes on disk when the report exceeds the viewer's size limit,
    without saving pending edits to the workspace. Self-contained reports retain
-   their scripts and styling in the downloaded file.
+   their scripts and styling in the downloaded file. Oversized reports stream
+   through the browser's native download manager without loading the whole file
+   into the page's memory.
    Selections from authored HTML anchor to exact raw-source ranges, including
    inline tags, entities, and table cells. The same threads highlight in rendered
    and source views and retain their original reviewed content after edits.

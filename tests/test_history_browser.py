@@ -113,7 +113,7 @@ def test_history_tab_filter_and_draft(workspace_page):
     assert (root/'note.txt').read_text()=='Original passage.\n'
 
 @pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
-def test_deleted_file_discussion_opens_original_context(workspace_page):
+def test_deleted_file_discussion_opens_original_context_only_on_request(workspace_page):
     from playwright.sync_api import expect
     root,page,url,ws=workspace_page
     history_repo.__wrapped__(root);f=ws.read('note.txt')
@@ -130,8 +130,12 @@ def test_deleted_file_discussion_opens_original_context(workspace_page):
     page.reload();expect(page.locator('#document-name')).to_have_text('note.txt')
     (root/'note.txt').unlink();ws.get_thread(t['id'])
     page.locator('#thread-scope').check();page.locator('.jump').click()
-    expect(page.locator('#document-name')).to_have_text('Original · note.txt')
+    expect(page.locator('#threads>.thread.active')).to_have_attribute('data-thread',str(t['id']))
+    expect(page.locator('#passage-spotlight')).to_be_visible()
+    expect(page.locator('#document-name')).to_have_text('note.txt')
+    expect(page.locator('.original-banner')).to_have_count(0)
     page.locator('.message-origin').click();expect(page.locator('.original-editor .cm-content')).to_contain_text('Original passage.')
+    expect(page.locator('#document-name')).to_have_text('Original · note.txt')
     expect(page.locator('#threads>.thread.active')).to_have_attribute('data-thread',str(t['id']))
     expect(page.locator('#passage-spotlight')).to_be_visible()
     page.locator('#reply-'+str(t['id'])).fill('Still discussable');page.locator('.reply-form button[type=submit]').click()

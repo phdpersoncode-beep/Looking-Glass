@@ -10,7 +10,7 @@ pytestmark = [pytest.mark.browser, pytest.mark.skipif(not os.environ.get('LOOKIN
 
 
 @pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
-@pytest.mark.parametrize('suffix', ['html', 'htm'])
+@pytest.mark.parametrize('suffix', ['html', 'htm', 'jsonl'])
 def test_oversized_html_download_does_not_open_or_render(workspace_page, suffix):
     from playwright.sync_api import expect
     from looking_glass.workspace import MAX_TEXT
@@ -23,10 +23,16 @@ def test_oversized_html_download_does_not_open_or_render(workspace_page, suffix)
     page.goto(url); open_file(page, name)
     expect(page.locator('.file-size-warning')).to_be_visible()
     expect(page.locator('#download-file')).to_be_visible()
+    # A native download must work even when renderer-side buffering is disabled.
+    page.evaluate('''()=>{
+      Response.prototype.blob=()=>{throw new Error('Do not buffer oversized downloads');};
+      URL.createObjectURL=()=>{throw new Error('Do not retain oversized downloads');};
+    }''')
     with page.expect_download() as downloaded:
         page.locator('#download-file').click()
     assert downloaded.value.suggested_filename == name
     assert Path(downloaded.value.path()).read_bytes() == raw
+    assert '/download/' in downloaded.value.url and not downloaded.value.url.startswith('blob:')
     assert not any('/api/file?' in request or '/api/preview' in request for request in requests)
     expect(page.locator('#html-preview')).to_have_count(0)
 

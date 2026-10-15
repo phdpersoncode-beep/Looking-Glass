@@ -1363,15 +1363,11 @@ $('#go-to-top').onclick=()=>{
 $('#download-file').onclick=guard(async()=>{
   syncState();const e=entry();if(!e||!['html','htm','jsonl'].includes(ext(e.path)))return;
   const type=ext(e.path)==='jsonl'?'application/x-ndjson;charset=utf-8':'text/html;charset=utf-8';
-  let blob;
-  if(e.kind==='oversized'){
-    const response=await fetch('/api/download?'+new URLSearchParams({path:e.path}),{headers:{'X-Looking-Glass-Token':token}});
-    if(!response.ok)throw new Error((await response.json()).error);
-    blob=await response.blob();
-  }else blob=new Blob([e.content],{type});
-  const url=URL.createObjectURL(blob),link=document.createElement('a');
+  const native=e.kind==='oversized';
+  const url=native?(await api('download','POST',{path:e.path})).url:URL.createObjectURL(new Blob([e.content],{type}));
+  const link=document.createElement('a');
   link.href=url;link.download=e.path.split('/').pop();document.body.append(link);link.click();link.remove();
-  setTimeout(()=>URL.revokeObjectURL(url),1000);
+  if(!native)setTimeout(()=>URL.revokeObjectURL(url),1000);
 });
 $('#review-copy').onclick=guard(async()=>{await navigator.clipboard.writeText(entry().content);notify('Draft copied');});
 $('#review-retry').onclick=guard(()=>reviewSync(entry()).retry());
