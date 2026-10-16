@@ -21,6 +21,7 @@ def create_app(root):
     ws = Workspace(root)
     git = Revisions(ws)
     previews = {}
+    downloads = {}
     app.extensions['workspace'] = ws
 
     @app.before_request
@@ -195,6 +196,7 @@ def create_app(root):
         ws = Workspace(directories(path)['path'])
         git = Revisions(ws)
         previews.clear()
+        downloads.clear()
         app.extensions['workspace'] = ws
         if app.config.get('LOCAL_SERVER_URL'):
             register_project(ws.root, app.config['LOCAL_SERVER_URL'])
@@ -269,6 +271,50 @@ def create_app(root):
         info = p.stat()
         limit = MAX_BINARY if p.suffix.lower() in ('.stl','.png','.jpg','.jpeg','.svg') else MAX_TEXT
         return jsonify(version=f'{info.st_mtime_ns}:{info.st_size}',size=info.st_size,limit=limit,too_large=info.st_size > limit)
+
+    def download_path(path):
+        p = ws.path(path)
+        if p.suffix.lower() not in ('.html', '.htm', '.jsonl'):
+            raise Problem('Choose an HTML or JSONL file.')
+        return p
+
+    def send_download(path):
+        # Let the server and browser stream disk bytes without viewer limits.
+        p = download_path(path)
+        return send_file(p, mimetype='application/octet-stream', as_attachment=True,
+                         download_name=p.name)
+
+    @app.get('/api/download')
+    def download_file():
+        return send_download(request.args.get('path'))
+
+    @app.post('/api/download')
+    def prepare_download():
+        p = download_path(body().get('path'))
+        key, now = secrets.token_urlsafe(24), time.monotonic()
+        # A narrow, short-lived capability lets native downloads authenticate
+        # without putting the workspace API token in a URL or buffering a Blob.
+        with ws.lock:
+            for stale in [k for k, (_, expires) in downloads.items() if expires <= now]:
+                del downloads[stale]
+            if len(downloads) >= 128:
+                del downloads[next(iter(downloads))]
+            downloads[key] = (p.relative_to(ws.root).as_posix(), now + 60)
+        return jsonify(url='/download/' + key)
+
+    @app.get('/download/<key>')
+    def native_download(key):
+        origin = request.headers.get('Origin')
+        if origin and origin != request.host_url.rstrip('/'):
+            raise Problem('Cross-origin requests are not allowed.', 403)
+        with ws.lock:
+            item = downloads.get(key)
+            if not item or item[1] <= time.monotonic():
+                downloads.pop(key, None)
+                raise Problem('Download link expired. Click Download again.', 404)
+            path = item[0]
+        # Recheck workspace boundaries and symlinks at the actual download.
+        return send_download(path)
 
     @app.post('/api/preview')
     def make_preview():

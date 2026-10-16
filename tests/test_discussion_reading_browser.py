@@ -183,7 +183,7 @@ def test_spotlight_keeps_reading_and_restores_list_positions(workspace_page,mode
     assert abs(pane.evaluate('el=>el.scrollTop')-before)<2
     target.click();expect(heading).to_be_visible()
     # Explicit navigation is allowed to move the document.
-    card.locator('[data-action=jump]').first.click();expect(heading).not_to_be_visible()
+    card.locator('[data-action=jump]').first.click();expect(heading).to_be_visible()
     expect(page.locator('.thread.active')).to_have_attribute('data-thread',str(threads[12]['id']))
     page.locator('#collapse-threads').click();page.locator('#discussions-toggle').click();target.click()
     expect(page.locator('#discussions-toggle')).to_have_attribute('aria-label','Hide discussions')
@@ -323,18 +323,20 @@ def test_spotlight_removal_and_tab_change_restore_list(workspace_page):
 
 
 @pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
-def test_resolving_spotlight_in_zen_does_not_navigate(workspace_page):
+def test_resolving_spotlight_in_zen_navigates_to_next_open_thread(workspace_page):
     from playwright.sync_api import expect
     root,page,url,ws=workspace_page
     text='First passage.\n\n'+'Filler text.\n\n'*80+'Final passage.\n'
     (root/'note.md').write_text(text);version=ws.read('note.md')['version']
     first=ws.create_thread('note.md',0,5,'First discussion.','Reviewer',version)
-    at=text.index('Final');ws.create_thread('note.md',at,at+5,'Final discussion.','Reviewer',version)
+    at=text.index('Final');last=ws.create_thread('note.md',at,at+5,'Final discussion.','Reviewer',version)
     page.goto(url);open_file(page,'note.md');page.locator('#zen-toggle').click()
     pane=page.locator('.cm-scroller');before=pane.evaluate('el=>el.scrollTop')
     page.locator('#surface .passage-highlight').filter(has_text='First').first.click()
     page.locator('.thread.active [data-action=resolve]').click()
-    expect(page.locator('.thread.active')).to_have_attribute('data-resolved','true')
+    expect(page.locator('.thread.active')).to_have_attribute('data-resolved','false')
     expect(page.locator('#passage-spotlight')).to_be_visible()
-    expect(page.locator('.thread.active')).to_have_attribute('data-thread',str(first['id']))
-    assert abs(pane.evaluate('el=>el.scrollTop')-before)<2
+    expect(page.locator('.thread.active')).to_have_attribute('data-thread',str(last['id']))
+    expect(page.locator('.focused-highlight')).to_have_text('Final')
+    expect(page.locator('.focused-highlight')).to_be_in_viewport()
+    assert pane.evaluate('el=>el.scrollTop')>before+500

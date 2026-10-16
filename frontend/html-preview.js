@@ -177,6 +177,10 @@ function rangesOverlap(selected,passage){
 window.addEventListener('message',event=>{
   if(event.source!==parent||event.origin!==config.parentOrigin||event.data?.lookingGlass!==config.channel)return;
   const message=event.data;
+  if(message.type==='scroll-top'){
+    readingPosition=null;readingGesture=null;
+    window.scrollTo({top:0,behavior:'instant'});
+  }
   if(message.type==='suspend'){suspendedPosition={x:window.scrollX,y:window.scrollY};send('suspended',{requestId:message.requestId});}
   if(message.type==='resume'&&suspendedPosition){
     const position=suspendedPosition;let remaining=3;
@@ -195,7 +199,7 @@ window.addEventListener('message',event=>{
   if(message.type==='jump'){
     readingPosition=null;readingGesture=null;
     active=message.id;paint();const range=ranges.get(active)?.[0];if(!range){send('unmapped',{id:active});return;}
-    const element=range.startContainer.parentElement;element?.scrollIntoView({block:'center',behavior:'smooth'});
+    const element=range.startContainer.parentElement;element?.scrollIntoView({block:'center',behavior:message.behavior==='instant'?'instant':'smooth'});
   }
 });
 document.addEventListener('selectionchange',()=>capture());

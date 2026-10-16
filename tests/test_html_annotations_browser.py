@@ -37,7 +37,7 @@ def expect_highlights(page,expected,name='looking-glass-active'):
 
 @pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
 @pytest.mark.parametrize('mode',['edit','review_preference'])
-def test_missing_runtime_anchor_reopens_report_for_reattachment(workspace_page,mode):
+def test_missing_runtime_anchor_keeps_source_until_explicit_rendered_reattachment(workspace_page,mode):
     from playwright.sync_api import expect
     root,page,url,ws=workspace_page
     (root/'report.html').write_text('<p id="runtime"></p><script>document.querySelector("#runtime").textContent="Current runtime passage"</script>')
@@ -53,6 +53,9 @@ def test_missing_runtime_anchor_reopens_report_for_reattachment(workspace_page,m
     page.locator('#html-toggle').click();expect(page.locator('#editor')).to_be_visible()
     search=page.locator('#thread-search');search.fill('runtime comment');search.press('Enter')
     expect(page.locator('#document-name')).to_have_text('report.html')
+    expect(page.locator('#editor')).to_be_visible()
+    expect(page.locator('#passage-spotlight')).to_be_visible()
+    page.locator('#html-toggle').click()
     expect(page.frame_locator('#html-preview').locator('#runtime')).to_have_text('Current runtime passage')
     expect(page.locator('.anchor-warning')).to_be_visible()
     select(page,'#runtime');page.locator('[data-action=reattach]').click()
@@ -98,6 +101,8 @@ def test_html_source_selection_navigation_and_persistence(workspace_page):
     thread=page.locator(f'.thread[data-thread="{second["id"]}"]');thread.locator('.jump').click()
     thread.locator('.reply-form textarea').fill('Same source thread')
     thread.locator('.reply-form button[type=submit]').click();expect(page.get_by_text('Same source thread',exact=True)).to_be_visible()
+    expect(page.locator('#passage-spotlight')).to_be_visible()
+    page.locator('#all-discussions').click()
     expect(page.locator('#passage-spotlight')).not_to_be_visible()
     thread.get_by_role('button',name='Resolve thread',exact=True).click()
     page.locator('#show-resolved').check();thread.get_by_role('button',name='Reopen thread',exact=True).click()

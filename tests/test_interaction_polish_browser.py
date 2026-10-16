@@ -89,6 +89,7 @@ def test_thread_card_focus_preserves_selection_and_controls(workspace_page):
     a = page.locator(f'.thread[data-thread="{first["id"]}"]')
     b = page.locator(f'.thread[data-thread="{second["id"]}"]')
     b.click(position={'x':4,'y':4}); expect(b).to_have_class('thread active')
+    page.keyboard.press('Escape')
     a.locator('.comment-markdown p').click(position={'x':15,'y':8}); expect(a).to_have_class('thread active')
     a.locator('textarea').fill('Draft reply')
     expect(a.locator('textarea')).to_be_focused()
@@ -96,7 +97,9 @@ def test_thread_card_focus_preserves_selection_and_controls(workspace_page):
     a.locator('.comment-markdown p').dblclick(position={'x':15,'y':8})
     assert page.evaluate('window.getSelection().toString()')
     page.evaluate('window.getSelection().removeAllRanges()')
+    page.keyboard.press('Escape')
     b.focus(); page.keyboard.press('Enter'); expect(b).to_have_class('thread active')
+    page.keyboard.press('Escape')
     paragraph = a.locator('.comment-markdown p')
     start = endpoint(paragraph, 0); end = endpoint(paragraph, 10)
     page.mouse.move(**start); page.mouse.down(); page.mouse.move(**end, steps=12); page.mouse.up()
@@ -106,7 +109,13 @@ def test_thread_card_focus_preserves_selection_and_controls(workspace_page):
     a.locator('blockquote').dblclick(position={'x':18,'y':12})
     assert page.evaluate('window.getSelection().toString()')
     page.evaluate('window.getSelection().removeAllRanges()')
+    # The quote's first click opens spotlight; leave it before focusing another
+    # card, while retaining the native double-click selection above.
+    expect(page.locator('#passage-spotlight')).to_be_visible()
+    page.keyboard.press('Escape')
     b.focus(); page.keyboard.press('Enter')
+    expect(b).to_have_class('thread active')
+    page.keyboard.press('Escape')
     with page.expect_popup() as popup:
         a.get_by_role('link', name='Reference').click()
     popup.value.close()
@@ -134,9 +143,11 @@ def test_approval_confirmation_cancel_and_layout(workspace_page):
         after = toggle.bounding_box()
         assert abs(before['x'] - after['x']) < 1 and abs(before['y'] - after['y']) < 1
         button = page.locator('#approve-review'); expect(button).to_be_visible()
-        pane = page.locator('.reading-pane').bounding_box(); box = button.bounding_box()
+        pane = page.locator('.reading-pane').bounding_box(); box = page.locator('.reading-actions').bounding_box()
         assert 0 <= pane['x'] + pane['width'] - box['x'] - box['width'] <= 20
         assert 0 <= pane['y'] + pane['height'] - box['y'] - box['height'] <= 15
+        top = page.locator('#go-to-top').bounding_box(); approve = button.bounding_box()
+        assert approve['x'] + approve['width'] < top['x']
         assert button.locator('svg').count() == 1
         assert button.evaluate("el=>getComputedStyle(el).borderTopColor===getComputedStyle(el).color")
         toggle.click(); expect(toggle).to_have_attribute('aria-checked', 'false')

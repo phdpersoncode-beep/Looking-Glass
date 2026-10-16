@@ -27,6 +27,10 @@ dialog:modal{margin:auto}.directory-list{height:260px;overflow:auto;margin-top:8
 .discussion-sidebar .message p{font-size:12px;line-height:1.5;margin-top:4px}
 .discussion-sidebar .reply-form textarea{min-height:44px;font-size:12px}
 .prose-editor .cm-scroller {font-family:var(--prose);font-size:var(--prose-font-size,18px);}
+/* Main reading surfaces retain native scrolling without exposed scrollbar rails.
+   Table scroll controls keep their compact horizontal affordance. */
+.reading-pane :is(#surface,.cm-scroller,.original-reading,.jsonl-raw,.jsonl-detail,.image-viewport){scrollbar-width:none}
+.reading-pane :is(#surface,.cm-scroller,.original-reading,.jsonl-raw,.jsonl-detail,.image-viewport)::-webkit-scrollbar{display:none;width:0;height:0}
 .font-controls{display:flex;gap:2px;margin-left:auto}.font-controls button{border:0;padding:3px 5px;font-size:11px}
 #surface :is(.markdown-preview,.comment-markdown){font-size:var(--prose-font-size,18px)}.jsonl-row code{font-size:var(--document-font-size,14px)}
 #surface .md-h1,#surface :is(.markdown-preview,.comment-markdown) h1{font-size:calc(30px + var(--document-font-step,0px))}#surface .md-h2,#surface :is(.markdown-preview,.comment-markdown) h2{font-size:calc(24px + var(--document-font-step,0px))}#surface .md-h3{font-size:calc(20px + var(--document-font-step,0px))}#surface .md-h4,#surface .md-h5,#surface .md-h6{font-size:var(--prose-font-size,18px)}#surface .md-code{font-size:calc(12px + var(--document-font-step,0px))}#surface :is(.markdown-preview,.comment-markdown) code{font-size:calc(13px + var(--document-font-step,0px))}
@@ -142,8 +146,13 @@ dialog:modal{margin:auto}.directory-list{height:260px;overflow:auto;margin-top:8
 .comment-markdown img{max-width:100%;height:auto}.comment-markdown .mermaid-diagram{padding:8px}
 
 .discussion-content{overflow-anchor:none;overscroll-behavior:contain}
-#passage-spotlight{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-shrink:0;padding:0 12px 12px;font-size:10px;color:var(--muted)}
-#passage-spotlight>span{min-width:0}#all-discussions{border:0;padding:3px 0;color:var(--purple);font-size:10px}
+.discussion-summary{flex-shrink:0;padding:0 12px 10px;font-size:10px;color:var(--muted)}
+#thread-total{display:block;margin-bottom:4px}
+#passage-spotlight{font-size:10px;color:var(--muted)}
+.spotlight-heading{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.spotlight-heading>span{min-width:0}#all-discussions{border:0;padding:3px 0;color:var(--purple);font-size:10px}
+#spotlight-shortcuts{display:flex;flex-wrap:wrap;gap:4px 10px;padding-top:5px;font-size:9px}
+#spotlight-shortcuts>span{white-space:nowrap}#spotlight-shortcuts kbd{margin:0 2px 0 0;padding:1px 3px;font-size:9px}
 #all-discussions kbd{font-size:8px;margin-left:3px;padding:1px 3px;letter-spacing:0}
 .passage-focused .discussion-content>:is(.author-label,.thread-scope,.resolved-toggle){display:none}
 
@@ -156,8 +165,12 @@ html[data-theme="dark"] { --review-human: #78d49a; --review-agent: #84b4ff; --re
 .review-deletion { white-space: pre-wrap; cursor: text; user-select: text; }
 .reading-pane { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; }
 .review-approve { color: var(--review-human); border: 1px solid currentColor; background: var(--paper); font-size: 10px; }
-#approve-review { position: absolute; bottom: 12px; right: 18px; z-index: 3; display: flex; align-items: center; gap: 6px; padding: 6px 9px; }
-.reading-pane:has(#approve-review:not([hidden])) #surface { padding-bottom: 44px; }
+.reading-actions { position: absolute; bottom: 12px; right: 18px; z-index: 3; display: flex; align-items: center; gap: 8px; max-width: calc(100% - 36px); }
+#approve-review { display: flex; align-items: center; gap: 6px; padding: 6px 9px; }
+#go-to-top { display: grid; place-items: center; width: 30px; height: 30px; padding: 5px; background: var(--paper); color: var(--muted); flex-shrink: 0; }
+.reading-pane:has(.reading-actions button:not([hidden])) #surface { padding-bottom: 44px; }
+.document-path { display: flex; align-items: center; gap: 5px; min-width: 0; }
+#copy-filepath { display: grid; place-items: center; border: 0; padding: 4px; color: var(--muted); flex-shrink: 0; }
 #review-approve-path { font: 12px var(--mono); overflow-wrap: anywhere; }
 #review-status { color: var(--muted); font-size: 11px; white-space: nowrap; }
 #review-history { font-size: 11px; padding: 2px 5px; }

@@ -2,6 +2,7 @@
 import os
 import pytest
 from test_requested_features import workspace_page, open_file
+from test_spotlight_navigation_browser import settle
 
 pytestmark=[pytest.mark.browser,pytest.mark.skipif(not os.environ.get('LOOKING_GLASS_BROWSER'),reason='Set LOOKING_GLASS_BROWSER')]
 
@@ -235,7 +236,10 @@ def test_zen_resolve_navigates_and_scrolls_next_open_passage(workspace_page,mode
     assert abs(pane.evaluate('el=>el.scrollTop')-top)<2
     # Reopening is not an advance operation, even with resolved cards visible.
     page.locator('#show-resolved').check()
-    page.locator(f'.thread[data-thread="{threads[0]["id"]}"] [data-action="resolve"]').click()
+    reopened = page.locator(f'.thread[data-thread="{threads[0]["id"]}"]')
+    reopened.locator('.thread-summary').click(); settle(page)
+    top=pane.evaluate('el=>el.scrollTop')
+    reopened.locator('[data-action="resolve"]').click()
     expect(page.locator('#thread-count')).to_have_text('1')
     assert abs(pane.evaluate('el=>el.scrollTop')-top)<2
     assert (root/'note.md').read_text()==text

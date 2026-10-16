@@ -96,6 +96,22 @@ Cards keep their original order, and the focused view stays open while you read,
 collapse threads, or write replies. Click the quoted passage, thread number, or
 navigation arrows when you want to move the document to a discussion. Clicking a
 collapsed comment icon also navigates to its passage and opens sidebar spotlight.
+Clicking a thread card's general area opens spotlight too; text selection, links,
+and embedded controls keep their normal behavior. Search stays in the same position
+above the spotlight header, with a total thread count for the selected file scope.
+While spotlight is open and the sidebar or a thread has focus, **←/→** moves through
+the scoped, filtered thread list, **↑** focuses search, and **↓** focuses the current
+reply. Text fields keep their native arrow keys. Navigation preserves reply drafts.
+These shortcuts are shown below the spotlight heading. Thread numbers, quotes,
+comment icons, and general card clicks all enter spotlight and retain sidebar
+keyboard focus. Repeated arrows choose the latest requested thread without flashing
+the full list or queuing unfinished document reveals; the current spotlight stays
+visible until its destination is ready.
+Unanchored or unavailable threads focus in the sidebar without opening another
+document or changing reading position. **Original context** opens the saved passage
+only when clicked. Main reading surfaces hide native scrollbar rails while keeping
+wheel, touch, keyboard, and go-to-top scrolling; wide tables keep their compact
+horizontal scroll controls.
 
 Use **×** beside a comment to delete that comment. **Delete thread** removes the
 whole discussion and its highlight. Deleting the last comment also removes its thread.
@@ -109,6 +125,15 @@ with its chevron and reopen it with its comment icon. The header also has collap
 and expand-all controls. **Zen mode** (top-bar button or **Ctrl+Alt+Z**, **Cmd+Alt+Z**
 on macOS) hides the file explorer and tabs and expands only the focused thread.
 Leaving zen restores the normal collapse settings. **Ctrl+Z remains undo.**
+Resolving or deleting a thread or comment in zen mode advances to the next open
+thread, wrapping to the first when needed. This also works in spotlight; resolving
+the final open thread clears focus and spotlight. Reopening a resolved thread does
+not advance.
+
+The small copy icon beside the document path copies that file's displayed path in
+one click. The bottom-right **Go to top** arrow scrolls the current document to its
+beginning, including HTML reports, without changing its contents or selection.
+Review approval sits beside it in a separate button and still asks for confirmation.
 
 Use **Attach files** on a thread to upload images, STL, JSON, or other files
 (up to 64 MiB each). Images can be previewed; all attachments can be downloaded,
@@ -286,8 +311,11 @@ them in your terminal first. Checkpoints do not push. Saving never commits.
    rendered HTML. Highlights and passage navigation stay in the report.
    Ctrl/Cmd+P opens the application file picker even when the report has focus.
    **Download** saves the current HTML draft for opening directly in a browser,
+   or the original bytes on disk when the report exceeds the viewer's size limit,
    without saving pending edits to the workspace. Self-contained reports retain
-   their scripts and styling in the downloaded file.
+   their scripts and styling in the downloaded file. Oversized reports stream
+   through the browser's native download manager without loading the whole file
+   into the page's memory.
    Selections from authored HTML anchor to exact raw-source ranges, including
    inline tags, entities, and table cells. The same threads highlight in rendered
    and source views and retain their original reviewed content after edits.

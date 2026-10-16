@@ -127,9 +127,9 @@ export function mountMappedMarkdown(host,source,offset=0,decorate=()=>{}) {
       }
       decorate(host);leaves.forEach(register);
     },
-    jump(from,to) {
+    jump(from,to,behavior='auto') {
       const walker=document.createTreeWalker(host,NodeFilter.SHOW_TEXT);let node;
-      while((node=walker.nextNode())){const map=nodes.get(node);if(map?.some(p=>p.from<to&&p.to>from)){node.parentElement.scrollIntoView({block:'center'});return true;}}
+      while((node=walker.nextNode())){const map=nodes.get(node);if(map?.some(p=>p.from<to&&p.to>from)){node.parentElement.scrollIntoView({block:'center',behavior});return true;}}
       return false;
     }
   };
