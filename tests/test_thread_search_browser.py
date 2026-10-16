@@ -187,7 +187,9 @@ def test_search_review_drafts_filters_navigation_and_approval(workspace_page):
     expect(page.locator('#document-name')).to_have_text('other.txt')
     expect(page.locator('#work-mode')).to_have_attribute('aria-checked','true')
     expect(page.locator('.thread.active')).to_have_attribute('data-thread',str(outside['id']))
-    page.wait_for_function("getSelection().toString()==='Outside'")
+    expect(page.locator('.resolved-passage')).to_have_text('Outside')
+    page.locator('#annotate').click();expect(page.locator('#selected-quote')).to_have_text('Outside')
+    page.locator('#comment-cancel').click()
     page.keyboard.press('Escape');open_file(page,'note.txt')
     assert (root/'note.txt').read_text()==original
     page.locator('#approve-review').click();page.locator('#confirm-review-approve').click();expect(page.locator('#work-mode')).to_have_attribute('aria-checked','false')

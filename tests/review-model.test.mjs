@@ -26,3 +26,11 @@ test('undo of one replacement keeps other changes and cancels restored deletion'
   assert.equal(accepted(segments),'abcxyz!');
   assert.deepEqual(segments.filter(s=>s.kind!=='base').map(s=>s.text),['!']);
 });
+
+const sharedCases=JSON.parse((await import('node:fs')).readFileSync(new URL('./fixtures/review-operations.json',import.meta.url),'utf8'));
+for(const fixture of sharedCases)test('shared operations: '+fixture.name,()=>{
+ let segments=fixture.base?[{kind:'base',text:fixture.base}]:[];
+ for(const operation of fixture.operations)segments=apply(segments,[operation],{author:'Altay',role:'human',at:'2026-10-11',edit_id:1},fixture.base);
+ assert.equal(accepted(segments),fixture.content);
+ assert.deepEqual(segments.filter(segment=>segment.kind==='delete').map(segment=>segment.text),fixture.removed);
+});

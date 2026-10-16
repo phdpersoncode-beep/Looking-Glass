@@ -1,15 +1,18 @@
 name: Regression tests
 on:
   push:
+    branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
   workflow_dispatch:
 permissions:
   contents: read
-concurrency:
-  group: tests-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 jobs:
   fast:
+    if: github.event_name != 'pull_request' || github.event.action != 'labeled'
+    concurrency:
+      group: fast-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -30,6 +33,15 @@ jobs:
       - run: git diff --exit-code -- looking_glass/static
       - run: uv build
   browser:
+    # Only an explicit final-test request starts the full browser collection.
+    # Keeping the label on a PR does not rerun browsers on later pushes.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.event.action == 'labeled' &&
+       github.event.label.name == 'run-browser-tests')
+    concurrency:
+      group: browser-${{ github.workflow }}-${{ github.ref }}-${{ matrix.shard }}
+      cancel-in-progress: true
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false

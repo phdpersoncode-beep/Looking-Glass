@@ -1,0 +1,205 @@
+"""Behavior contracts across architecture boundaries, in both browser engines."""
+import os
+import pytest
+from test_requested_features import workspace_page, open_file
+from test_spotlight_navigation_browser import settle
+
+pytestmark = [pytest.mark.browser, pytest.mark.skipif(
+    not os.environ.get('LOOKING_GLASS_BROWSER'), reason='Set LOOKING_GLASS_BROWSER')]
+
+
+def hold_file_read(page, path):
+    held = []
+    page.evaluate('window.testFileReadHeld = false')
+    def intercept(route):
+        if 'path=' + path in route.request.url:
+            held.append(route)
+            page.evaluate('window.testFileReadHeld = true')
+        else:
+            route.continue_()
+    page.route('**/api/file?*', intercept)
+    return held
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_repeated_card_activation_reveals_same_passage(workspace_page):
+    from playwright.sync_api import expect
+    root, page, url, ws = workspace_page
+    text = ''.join(f'Line {i:03}\n' for i in range(180))
+    (root / 'note.txt').write_text(text)
+    start = text.index('Line 150')
+    thread = ws.create_thread('note.txt', start, start + 8, 'Far passage', 'Reviewer', ws.read('note.txt')['version'])
+    page.goto(url); open_file(page, 'note.txt')
+    card = page.locator(f'.thread[data-thread="{thread["id"]}"]')
+    card.click(position={'x': 4, 'y': 4}); settle(page)
+    first = page.locator('.cm-scroller').evaluate('el=>el.scrollTop')
+    assert first > 500
+    page.locator('.cm-scroller').evaluate('el=>el.scrollTop=0'); settle(page)
+    card.click(position={'x': 4, 'y': 4}); settle(page)
+    expect(card).to_have_class('thread active')
+    assert abs(page.locator('.cm-scroller').evaluate('el=>el.scrollTop') - first) < 3
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_mode_switch_preserves_each_modes_undo(workspace_page):
+    from playwright.sync_api import expect
+    root, page, url, _ = workspace_page
+    (root / 'note.txt').write_text('Original')
+    page.goto(url); open_file(page, 'note.txt')
+    page.locator('.cm-content').click(); page.keyboard.press('Control+End')
+    page.keyboard.insert_text(' edit'); page.locator('#save').click()
+    expect(page.locator('#dirty')).to_have_text('')
+    page.locator('#work-mode').click()
+    expect(page.locator('#work-mode')).to_have_attribute('aria-checked', 'true')
+    page.locator('.cm-content').click(); page.keyboard.press('Control+End')
+    page.keyboard.insert_text(' proposal')
+    expect(page.locator('#review-status')).to_have_text('Review saved')
+    expect(page.locator('#work-mode')).to_be_enabled()
+    page.locator('#work-mode').click()
+    expect(page.locator('#work-mode')).to_have_attribute('aria-checked', 'false')
+    page.locator('.cm-content').click(); page.keyboard.press('Control+z')
+    expect(page.locator('.cm-content')).to_have_text('Original')
+    page.keyboard.press('Control+Shift+z')
+    expect(page.locator('.cm-content')).to_have_text('Original edit')
+    expect(page.locator('#dirty')).to_have_text('')
+    page.locator('#work-mode').click()
+    expect(page.locator('.cm-content')).to_contain_text('proposal')
+    page.locator('.cm-content').click(); page.keyboard.press('Control+z')
+    expect(page.locator('.cm-content')).to_have_text('Original edit')
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_queued_navigation_waits_for_target_before_reveal(workspace_page):
+    from playwright.sync_api import expect
+    root, page, url, ws = workspace_page
+    (root / 'a.txt').write_text('Alpha')
+    (root / 'b.txt').write_text('Beta passage')
+    thread = ws.create_thread('b.txt', 5, 12, 'Target in B', 'Reviewer', ws.read('b.txt')['version'])
+    page.goto(url); page.locator('#thread-scope').check()
+    expect(page.locator('.thread')).to_have_count(1)
+    held = hold_file_read(page, 'a.txt')
+    page.locator('.file-entry[data-path="a.txt"]').click()
+    page.wait_for_function('()=>window.testFileReadHeld === true')
+    page.locator(f'.thread[data-thread="{thread["id"]}"] blockquote').click()
+    assert held
+    held[0].continue_()
+    expect(page.locator('#document-name')).to_have_text('b.txt')
+    expect(page.locator('.thread.active')).to_have_attribute('data-thread', str(thread['id']))
+    page.locator('#annotate').click()
+    expect(page.locator('#selected-quote')).to_have_text('passage')
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_poll_updates_keep_cards_messages_composers_and_selection(workspace_page):
+    from playwright.sync_api import expect
+    root, page, url, ws = workspace_page
+    (root / 'note.txt').write_text('First second')
+    version = ws.read('note.txt')['version']
+    first = ws.create_thread('note.txt', 0, 5, 'Native copying survives replies.', 'Reviewer', version)
+    second = ws.create_thread('note.txt', 6, 12, 'Other discussion', 'Reviewer', version)
+    page.goto(url); open_file(page, 'note.txt')
+    card = page.locator(f'.thread[data-thread="{first["id"]}"]')
+    card.click(position={'x': 4, 'y': 4})
+    field = card.locator('textarea'); field.fill('Unsent reply')
+    field.evaluate('el=>el.setSelectionRange(2,6)')
+    page.evaluate('''id=>{const card=document.querySelector(`[data-thread="${id}"]`);
+      window.heldDiscussionNodes=[card,card.querySelector('.message'),card.querySelector('.comment-markdown p').firstChild,card.querySelector('.reply-form'),card.querySelector('textarea')];
+    }''', first['id'])
+    ws.reply(first['id'], 'Incoming reply', 'Agent')
+    expect(card.locator('.comment-markdown').last).to_have_text('Incoming reply')
+    assert page.evaluate('window.heldDiscussionNodes.every(node=>node.isConnected)')
+    expect(field).to_be_focused(); expect(field).to_have_value('Unsent reply')
+    assert field.evaluate('el=>[el.selectionStart,el.selectionEnd]') == [2, 6]
+    card.locator('.comment-markdown p').first.evaluate('''el=>{const range=document.createRange();range.selectNodeContents(el);const selection=getSelection();selection.removeAllRanges();selection.addRange(range);}''')
+    selected = page.evaluate('getSelection().toString()')
+    ws.reply(second['id'], 'Unrelated update', 'Agent')
+    expect(page.locator(f'.thread[data-thread="{second["id"]}"] .comment-markdown').last).to_have_text('Unrelated update')
+    assert page.evaluate('getSelection().toString()') == selected
+    assert page.evaluate('window.heldDiscussionNodes.every(node=>node.isConnected)')
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_highlight_intent_supersedes_pending_file_navigation(workspace_page):
+    from playwright.sync_api import expect
+    root, page, url, ws = workspace_page
+    (root / 'reading.txt').write_text('Reading passage')
+    (root / 'other.txt').write_text('Other document')
+    thread = ws.create_thread('reading.txt', 0, 7, 'Inspect reading', 'Reviewer', ws.read('reading.txt')['version'])
+    page.goto(url); open_file(page, 'reading.txt')
+    held = hold_file_read(page, 'other.txt')
+    page.locator('.file-entry[data-path="other.txt"]').click()
+    page.wait_for_function('()=>window.testFileReadHeld === true')
+    assert held
+    page.locator('#surface .passage-highlight').click()
+    with page.expect_response(lambda response: '/api/file?path=other.txt' in response.url) as response:
+        held[0].continue_()
+    response.value.finished(); settle(page)
+    expect(page.locator('#document-name')).to_have_text('reading.txt')
+    expect(page.locator('.thread.active')).to_have_attribute('data-thread', str(thread['id']))
+    # A subsequent navigation waits behind the obsolete read and can still reveal.
+    page.locator('.thread blockquote').click()
+    expect(page.locator('#document-name')).to_have_text('reading.txt')
+    page.locator('#annotate').click()
+    expect(page.locator('#selected-quote')).to_have_text('Reading')
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_highlight_intent_during_save_finishes_write_without_navigation(workspace_page):
+    from playwright.sync_api import expect
+    root, page, url, ws = workspace_page
+    (root / 'reading.txt').write_text('Reading passage')
+    (root / 'other.txt').write_text('Other document')
+    thread = ws.create_thread('reading.txt', 0, 7, 'Inspect reading', 'Reviewer', ws.read('reading.txt')['version'])
+    page.goto(url); open_file(page, 'reading.txt'); page.locator('#work-mode').click()
+    expect(page.locator('#review-status')).to_have_text('Review saved')
+    held = []
+    page.route('**/api/reviews/*', lambda route: held.append(route)
+               if route.request.method == 'PATCH' else route.continue_())
+    page.locator('.cm-content').click(); page.keyboard.press('Control+End')
+    with page.expect_request(lambda request: request.method == 'PATCH' and '/api/reviews/' in request.url):
+        page.keyboard.insert_text(' saved proposal')
+    page.locator('.file-entry[data-path="other.txt"]').click()
+    assert held
+    page.locator('#surface .passage-highlight').click()
+    with page.expect_response(lambda response: response.request.method == 'PATCH' and '/api/reviews/' in response.url) as response:
+        held[0].continue_()
+    response.value.finished()
+    expect(page.locator('#review-status')).to_have_text('Review saved'); settle(page)
+    expect(page.locator('#document-name')).to_have_text('reading.txt')
+    expect(page.locator('#passage-spotlight')).to_be_visible()
+    expect(page.locator('.thread.active')).to_have_attribute('data-thread', str(thread['id']))
+    assert ws.reviews.read(ws.reviews.list()[0]['id'])['content'] == 'Reading passage saved proposal'
+    assert (root / 'reading.txt').read_text() == 'Reading passage'
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_review_reply_and_attachment_survive_hidden_mode_scope(workspace_page):
+    import base64
+    from playwright.sync_api import expect
+    root, page, url, ws = workspace_page
+    (root / 'note.txt').write_text('Review passage')
+    page.goto(url); open_file(page, 'note.txt'); page.locator('#work-mode').click()
+    expect(page.locator('#review-status')).to_have_text('Review saved')
+    draft = ws.reviews.read(ws.reviews.list()[0]['id'])
+    thread = ws.reviews.create_thread(draft['id'], draft['version'], 0, 6, 'Review-only discussion', 'Reviewer')
+    card = page.locator(f'.thread[data-thread="{thread["id"]}"]')
+    expect(card).to_be_visible(); card.click(position={'x': 4, 'y': 4})
+    field = card.locator('textarea'); field.fill('Unsent review reply')
+    field.evaluate('el=>{el.setSelectionRange(3,7);window.heldReviewForm=el.closest("form");}')
+    card.locator('.attach-files').set_input_files({'name': 'pending.png', 'mimeType': 'image/png',
+        'buffer': base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=')})
+    expect(card.locator('.pending-file')).to_contain_text('pending.png')
+    preview = card.locator('.pending-file img').get_attribute('src')
+    page.locator('#work-mode').click()
+    expect(page.locator('#work-mode')).to_have_attribute('aria-checked', 'false')
+    expect(card).to_have_count(0)
+    page.locator('#work-mode').click()
+    expect(page.locator('#review-status')).to_have_text('Review saved'); expect(card).to_be_visible()
+    card.click(position={'x': 4, 'y': 4})
+    expect(field).to_have_value('Unsent review reply')
+    assert page.evaluate('window.heldReviewForm===document.querySelector(".thread.active .reply-form")')
+    assert field.evaluate('el=>[el.selectionStart,el.selectionEnd]') == [3, 7]
+    expect(card.locator('.pending-file')).to_contain_text('pending.png')
+    assert card.locator('.pending-file img').get_attribute('src') == preview
+    ws.delete_thread(thread['id']); expect(card).to_have_count(0)
+    assert page.evaluate('async url=>{try{await fetch(url);return false;}catch{return true;}}', preview)

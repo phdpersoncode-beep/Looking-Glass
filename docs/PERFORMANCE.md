@@ -150,3 +150,28 @@ long histories. Saves still serialize/store the accepted draft and segments, so
 their cost grows with document size. Base/draft content, provenance and history
 require additional disk space. The 8 MiB text limit applies to accepted drafts.
 Review mode adds bounded work, not zero overhead.
+
+## Batched passage projection · 2026-10-11
+
+`node scripts/benchmark_passages.mjs` compares the exact source-coordinate
+projection from starting commit `582c3b6` with the extracted resolver. It checks
+identical ranges for 300 attached discussions in 204,816 bytes of Unicode/CRLF
+text, then reports three-sample medians. On Node 24.19.0 in this shared container:
+
+| Projection | Median |
+| --- | ---: |
+| Starting per-boundary conversion | 9,191.21 ms |
+| One shared coordinate scan | 12.88 ms |
+
+The shared scan builds raw and editor boundaries once, rather than rebuilding
+the whole character array and prefixes for every thread. It also validates each
+saved quote. These figures measure pure projection work; they exclude server
+requests, DOM patching, CodeMirror layout and paint. They do not establish total
+click latency or a general application speedup.
+
+The current backend benchmarks remain diagnostic: 100 files/1,000 threads gave
+249.35 ms for a changed discussion response, 11.24 ms for the lean navigation
+index, and 51.87 ms for an unchanged response with no payload. A separate 1 MiB,
+ten-append review workload gave 39.02 ms saves, 1.96 ms unchanged polls and
+173-byte acknowledgements while preserving the original. Shared-container load
+and workload differences prevent comparisons with the historical tables above.

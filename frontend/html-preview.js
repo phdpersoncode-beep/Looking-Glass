@@ -1,3 +1,4 @@
+import {resolveRenderedPassage} from './passages.mjs';
 import {htmlTextMap} from './html-text-map.mjs';
 // Runs inside the opaque-origin report. Never receives application credentials.
 const send = (type, data={}) => parent.postMessage({lookingGlass:config.channel,type,...data},config.parentOrigin);
@@ -115,13 +116,7 @@ function capture(requestId){
   selected={source:sourceSelection(map,from,to),anchor:{quote:map.text.slice(from,to),prefix:map.text.slice(Math.max(0,from-48),from),suffix:map.text.slice(to,to+48)},rect:{left:rect.left,right:rect.right,top:rect.top,bottom:rect.bottom}};
   send('selection',{selection:selected,requestId});
 }
-function locate(map,anchor){
-  const candidates=[];let at=0;
-  while(anchor.quote&&(at=map.text.indexOf(anchor.quote,at))>=0){candidates.push(at);at++;}
-  const supported=candidates.filter(at=>(!anchor.prefix||map.text.slice(Math.max(0,at-anchor.prefix.length),at)===anchor.prefix)&&(!anchor.suffix||map.text.slice(at+anchor.quote.length,at+anchor.quote.length+anchor.suffix.length)===anchor.suffix));
-  const from=supported.length===1?supported[0]:candidates.length===1?candidates[0]:null;
-  return from===null?null:rangeFor(map,from,from+anchor.quote.length);
-}
+function locate(map,anchor){const resolved=resolveRenderedPassage(map.text,anchor);return resolved.status==='attached'?rangeFor(map,resolved.range.from,resolved.range.to):null;}
 const style=document.createElement('style');style.textContent='::selection{background:#b84dff45;color:inherit}::highlight(looking-glass-resolved){background:transparent;text-decoration:underline #8885}::highlight(looking-glass-passages){background:#a84dff30;text-decoration:underline #9935ee}::highlight(looking-glass-active){background:#a84dff60}::highlight(looking-glass-review-human){color:#18733b}::highlight(looking-glass-review-agent){color:#235fca}.looking-glass-review-deletion{color:#bf303c!important;text-decoration:line-through!important;white-space:pre-wrap;font-family:monospace;}';document.head.append(style);
 function clearReviewDeletions(){
   for(const {ghost,node,tail,binding,left,right} of reviewDeletions.reverse()){
@@ -182,6 +177,10 @@ function rangesOverlap(selected,passage){
 window.addEventListener('message',event=>{
   if(event.source!==parent||event.origin!==config.parentOrigin||event.data?.lookingGlass!==config.channel)return;
   const message=event.data;
+  if(message.type==='scroll-top'){
+    readingPosition=null;readingGesture=null;
+    window.scrollTo({top:0,behavior:'instant'});
+  }
   if(message.type==='suspend'){suspendedPosition={x:window.scrollX,y:window.scrollY};send('suspended',{requestId:message.requestId});}
   if(message.type==='resume'&&suspendedPosition){
     const position=suspendedPosition;let remaining=3;
@@ -200,7 +199,7 @@ window.addEventListener('message',event=>{
   if(message.type==='jump'){
     readingPosition=null;readingGesture=null;
     active=message.id;paint();const range=ranges.get(active)?.[0];if(!range){send('unmapped',{id:active});return;}
-    const element=range.startContainer.parentElement;element?.scrollIntoView({block:'center',behavior:'smooth'});
+    const element=range.startContainer.parentElement;element?.scrollIntoView({block:'center',behavior:message.behavior==='instant'?'instant':'smooth'});
   }
 });
 document.addEventListener('selectionchange',()=>capture());

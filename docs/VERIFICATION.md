@@ -1,3 +1,41 @@
+# Architecture refactor · 2026-10-11
+
+Implemented on `refactor/improve-app-architecture`, in
+[PR #15](https://github.com/phdpersoncode-beep/Looking-Glass/pull/15).
+
+- Completed the seven stages in the unchanged `REFACTOR_PLAN.md`: behavior
+  contracts, pure application transitions, awaited session/navigation lifecycles,
+  conservative passage/coordinate mapping, per-document review synchronization,
+  keyed discussion/composer updates, and selective backend boundaries.
+- Local fast gates: **47 JavaScript tests** and **112 non-browser Python tests**.
+  Shared operation fixtures cover Python/JavaScript Unicode and CRLF semantics.
+- Local Chromium verification includes **26** combined architecture/review/
+  interaction journeys and **21** architecture/spotlight journeys after the
+  scroll/readiness fixes, plus a controlled pending-save/highlight race. The final
+  **23-case** architecture/spotlight run also passed, including a review-only
+  reply/attachment retained across Edit and cleanup after actual thread deletion.
+- Full locked-dependency CI passed **47 JavaScript**, **112 Python**, and all
+  **423 Chromium/Firefox browser cases** in
+  [run 38137178632](https://github.com/phdpersoncode-beep/Looking-Glass/actions/runs/38137178632),
+  on runtime checkpoint `33341c501a0d92e7e8447cb5d5707fa0897c44ef`.
+  Playwright 1.63.0 installed Chromium 153 and Firefox 155 on Ubuntu 24.04.
+  Shards `[106, 106, 106, 105]` are complete/disjoint; no existing browser cases or
+  assertions were removed, and failures are not retried.
+- Rebuilt committed assets and verified a clean repeat build. Wheel/source builds
+  include the extracted backend modules, runtime assets and shared JSON fixture.
+  `git diff --check` passed. Existing HTTP/CLI interfaces and SQLite layouts remain
+  compatible under the regression suite.
+- Inspected the sidebar, spotlight, Markdown table and retained composer at
+  1440×960 in light/dark themes and at 960×760. No layout changes were needed.
+- Dense coordinate projection checks equivalent ranges and avoids per-thread
+  source scans; see [PERFORMANCE.md](PERFORMANCE.md) and the reusable benchmark.
+  These measurements do not establish overall browser rendering latency.
+- The protected `TASKS.md` instruction prefix, full `REFACTOR_PLAN.md`, and
+  `AGENTS.md` were verified byte-for-byte against starting commit `582c3b6`.
+  Only the permitted task-list/scratchpad section of `TASKS.md` changed.
+
+---
+
 # Non-destructive review mode · 2026-10-09
 
 Implementation: [PR #10](https://github.com/phdpersoncode-beep/Looking-Glass/pull/10),

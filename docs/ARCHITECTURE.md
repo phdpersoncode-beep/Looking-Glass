@@ -1,16 +1,19 @@
-# First milestone
+# Application architecture
 
 One Flask process serves a loopback-only application and a small JSON HTTP API.
 Files under the chosen project root are authoritative; SQLite stores threads,
 messages, anchor positions and the last observed file text used for reconciliation.
-CodeMirror 6 owns document editing and undo history. HTMX refreshes the file tree
-and discussion sidebar. A locally bundled JavaScript module owns tabs, editor
-decorations and Three.js viewers; Tailwind is compiled locally.
+CodeMirror 6 owns document editing and undo history. HTMX refreshes the file tree;
+the discussion view patches changed cards and messages by identity. The application store owns navigation intent, focus and preferences; document
+sessions own content/undo; surface adapters own decorations and Three.js viewers; Tailwind is compiled locally.
 
 ```
 looking_glass/
   app.py         HTTP routes, loopback/token protection
-  workspace.py   file reads, optimistic saves, SQLite discussions
+  workspace.py   file reads, optimistic saves and public discussion facade
+  discussion_store.py SQLite schema and connection lifetime
+  discussion_queries.py queries and shared review visibility
+  discussion_reconciliation.py anchor reconciliation and refresh
   anchors.py     conservative anchor mapping across edits
   revisions.py   selected-file Git checkpoints with a temporary index
   cli.py         server and agent commands
@@ -30,7 +33,7 @@ has its own token and database. A user-level SQLite registry records known roots
 and server addresses without tokens. CLI requests verify the server's root.
 
 Thread search, filters, pagination, summaries, and source context live in
-`workspace.py` and are exposed through the HTTP API. Existing unpaginated calls
+`discussion_queries.py` behind the `Workspace` facade and are exposed through the HTTP API. Existing unpaginated calls
 remain available for the browser. The CLI uses the shared query implementation.
 
 Discussion bodies remain Markdown in SQLite and API responses. The client uses
@@ -42,8 +45,9 @@ without changing selection contents or anchor coordinates. CodeMirror uses a
 measurement layer; native rendered selections use CSS Custom Highlights.
 Live tables update annotation marks in place while their source and offset stay
 unchanged, preserving native cell selections through background discussion updates.
-`frontend/thread-spotlight.mjs` filters the existing sidebar list in place to the
-clicked passage's discussions. Cards never move or acquire copies. A compact
+The application store derives the clicked passage's discussions; sidebar
+filtering projects them onto the existing cards. `frontend/thread-spotlight.mjs`
+projects the passage heading and retains list geometry. Cards never move or acquire copies. A compact
 header provides the passage thread count and an All discussions return control
 with an Esc key hint and accessible shortcut metadata.
 The original list scroll is retained across passage changes and restored on
@@ -51,10 +55,13 @@ return or Escape; incidental focus changes do not dismiss the view. Markdown
 marks and the HTML bridge carry overlapping thread IDs. Refreshes include new
 threads on the passage and preserve reply drafts, focus/cursor positions, and
 sidebar scroll. Only explicit passage navigation moves the reading pane;
-opening, collapsing, or resolving a focused discussion does not scroll it,
-including in zen mode. A collapsed sidebar icon explicitly navigates and opens
+opening a document highlight or collapsing a focused discussion does not scroll it.
+Resolving outside zen mode also preserves reading position. A collapsed sidebar icon or general card click explicitly navigates and opens
 spotlight without first revealing its card in the full list, so Escape restores
-the saved list position. Ordinary zen-mode resolve navigation is unchanged.
+the saved list position. Spotlight keyboard navigation derives the full scoped
+queue rather than the currently highlighted group. Zen resolve/delete captures that
+queue before the write and advances through open threads after success, including
+in spotlight. Search stays above the heading and total-count row.
 
 During a highlight inspection click, live Markdown retains its current syntax
 visibility and CodeMirror defers caret scrolling. A short measurement sequence
@@ -95,3 +102,45 @@ are rejected. Unrelated staged files, unstaged files and untracked files stay in
 Verification focuses on data preservation: edits, stale saves, deleted/ambiguous
 anchors, SQLite restarts, token isolation, path traversal, selected checkpoints,
 and the browser workflow. No models are called and no files are executed.
+
+## State and controller boundaries
+
+See [STATE_CONTRACTS.md](STATE_CONTRACTS.md) for ownership and interaction rules.
+
+| Module | Responsibility |
+| --- | --- |
+| `frontend/app-state.mjs` | Pure transitions, focus/spotlight/search/scope/preferences and visible-thread selectors |
+| `frontend/navigation.mjs`, `thread-navigation.mjs` | Request completion, supersession, destination policy and explicit reveal effects |
+| `frontend/document-session.mjs` | Compatible per-mode editor snapshots; suspended reading-surface lifetimes |
+| `frontend/coordinates.mjs`, `passages.mjs`, `markdown-source.mjs` | Named Unicode/CRLF boundaries, conservative resolution, passage groups and source mapping without browser objects |
+| `frontend/review-sync.mjs` | Per-document operations, frozen save batches, remote revision guards, conflicts and confirmed approval targets |
+| `frontend/discussion-view.mjs`, `composer.mjs` | Keyed cards/messages; one owner for reply body, attachments and sending state |
+| `frontend/discussion-lifetime.mjs` | Authoritative index observations; retain hidden mode scopes and retire observed deletions |
+| `looking_glass/discussion_store.py` | Existing SQLite schema and connection lifetime |
+| `looking_glass/discussion_reconciliation.py` | Conservative ordinary-file reconciliation and refresh |
+| `looking_glass/discussion_queries.py` | Shared review visibility plus specialized lean navigation/search queries |
+
+`app.js` composes these owners and contains surface adapters and browser event
+bindings. It does not choose focus while filtering or rendering. Navigation
+resolves as ready or superseded, rejects load failures, and never cancels a write.
+Discussion, index and review requests reject obsolete session/revision results.
+An HTML surface becomes ready after its isolated bridge handshake.
+
+Mode changes prepare all affected sessions before committing any visible mode or
+preference change. Compatible Edit and Review snapshots retain independent
+CodeMirror selections and undo histories. Review preference remains separate from
+the effective session mode, so JSON and HTML still open in Edit.
+
+Review synchronization uses `clean`, `pending`, `saving`, `conflicted`, and
+`approving` statuses. Operations sent to the backend are frozen; later edits form
+a separate batch. User editing is locked during mode preparation/approval.
+Approval validates the confirmed session, draft ID, revision and local epoch.
+
+Discussion polling reconciles nodes by thread/message/attachment identity.
+Unchanged cards and messages keep their native nodes; composers are retained even
+when their own thread receives a reply. Scoped views reuse cached cards, and only
+actual deletion prunes drafts/attachments. Existing API payloads, SQLite layouts,
+CLI contracts and review approval/recovery checks remain compatible.
+Review-only cards and pending attachments survive switching to Edit and back.
+Cached presentation data cannot retire IDs; a newer authoritative index for the
+same visibility universe establishes deletion.

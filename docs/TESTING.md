@@ -14,9 +14,13 @@ existing ones; browser sharding changes where tests run, never which cases run.
 | HTML source mapping, runtime anchors, report interactions and iframe isolation | `html-source.test.mjs`, `test_html_annotations.py`, `test_html_annotations_browser.py`, `test_browser.py` |
 | Stable Edit/review controls, confirmation/cancellation and revision races, JSON/HTML exclusion, quiet autosave, dense-highlight DOM stability, selectable thread cards and passage navigation | `test_interaction_polish_browser.py` |
 | Spotlight, unchanged reading positions, sidebar geometry, zen mode and navigation | `test_discussion_reading_browser.py`, `test_spotlight_navigation_browser.py`, `test_navigation_browser.py` |
+| Repeated spotlight arrows, unavailable anchors, explicit original context, stable reading surfaces, hidden reading scrollbars and native scrolling | `test_spotlight_regressions_browser.py` |
+| Native oversized downloads without browser buffering, expiring file-scoped download URLs, document top/copy controls, stable spotlight search, sidebar arrow focus, scoped queues and zen resolve/delete advancement | `test_file_downloads.py`, `test_reading_controls_browser.py`, `test_spotlight_controls_browser.py`, `app-state.test.mjs` |
 | Git graph/branches, durable commit/branch discussions and selected checkpoints preserving the index | `history.test.mjs`, `test_history.py`, `test_history_browser.py`, `test_git_discussions.py`, `test_revisions.py` |
 | JSON/JSONL folding, formatting/search/navigation/download, images, STL and software fallback | `json-format.test.mjs`, `test_requested_features.py`, `test_navigation_browser.py`, `test_browser.py` |
 | Local agent CLI, project discovery, token/origin checks and bounded reads/work | `test_cli.py`, `test_reviews.py`, `test_workspace.py`, `test_anchors.py`, `test_discussion_workflow.py` |
+| Pure application transitions, awaited navigation, stale completions, independent mode undo and unchanged node/cursor identity | `app-state.test.mjs`, `navigation.test.mjs`, `passages.test.mjs`, `review-sync.test.mjs`, `discussion-lifetime.test.mjs`, `test_architecture_browser.py` |
+| Shared Python/JavaScript Unicode/CRLF review operations | `tests/fixtures/review-operations.json`, `test_review_operations_shared.py`, `review-model.test.mjs` |
 | Cross-feature approval, discussion origins/attachments, stale writes, other file drafts and Git staging | `test_app_integration.py`, `test_app_integration_browser.py` |
 
 Fast feedback (no browser installation needed):
@@ -35,7 +39,31 @@ uv run playwright install chromium firefox
 LOOKING_GLASS_BROWSER=installed uv run pytest -m browser -q --durations=10
 ```
 
-CI runs the same collection in four jobs, using zero-based `--browser-shard=0/4`
+Automatic CI runs only fast checks on PR updates and pushes to `main`, avoiding
+duplicate push/PR runs for feature branches. Run relevant tests during iteration;
+start the full browser collection after the final code push, rather than at each
+intermediate push.
+
+To start the final browser run, add the **run-browser-tests** label to the PR,
+or use **Actions → Regression tests → Run workflow** and select the branch.
+With GitHub CLI, the manual equivalent is:
+
+```bash
+gh workflow run tests.yml --ref <branch>
+```
+
+Only adding the label triggers browsers; leaving it present does not rerun them
+on subsequent pushes. To request another run after changes, remove and re-add
+the label. Fast checks and browsers have separate concurrency groups, so a new
+fast-check run does not cancel an explicitly requested browser run.
+
+After starting a remote run, confirm that it is queued/running, record its URL
+and tested commit, and hand it back to the user without waiting or polling.
+Ask the user to return in about 5–10 minutes. On return, inspect that run's jobs
+and compare its tested commit to the latest PR head; an older run does not
+validate newer edits.
+
+The full browser run uses the same collection in four jobs, with zero-based `--browser-shard=0/4`
 through `--browser-shard=3/4`. Each job includes Chromium and Firefox cases. Cases
 are sorted by their full pytest IDs and distributed round-robin, so added tests
 automatically enter a shard. `uv run python scripts/verify_browser_shards.py 4`
