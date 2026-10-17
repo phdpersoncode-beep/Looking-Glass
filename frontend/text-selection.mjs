@@ -16,7 +16,9 @@ export function selectedTextRanges(range,host) {
 }
 
 export const textSelection=layer({
-  above:false,class:'cm-text-selectionLayer',
+  // Fenced code has an opaque line background. Paint above it so the
+  // text-only highlight stays visible, including while a composer has focus.
+  above:true,class:'cm-text-selectionLayer',
   update:u=>u.selectionSet||u.docChanged||u.geometryChanged||u.viewportChanged,
   markers(view) {
     const markers=[],rect=view.scrollDOM.getBoundingClientRect();

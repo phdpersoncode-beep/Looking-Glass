@@ -109,9 +109,12 @@ the full list or queuing unfinished document reveals; the current spotlight stay
 visible until its destination is ready.
 Unanchored or unavailable threads focus in the sidebar without opening another
 document or changing reading position. **Original context** opens the saved passage
-only when clicked. Main reading surfaces hide native scrollbar rails while keeping
-wheel, touch, keyboard, and go-to-top scrolling; wide tables keep their compact
-horizontal scroll controls.
+only when clicked. Main reading surfaces show a thin, theme-matched scrollbar
+with a transparent track. Wheel, touch, keyboard, and go-to-top scrolling remain
+available; wide tables keep their compact horizontal scroll controls. Markdown
+and text editors show monospace source line numbers alongside prose; source code
+keeps the same numbered gutter. Fenced code uses one background and rounded
+corners in live Markdown and preview; blockquotes use a quiet rule and upright text.
 
 Use **×** beside a comment to delete that comment. **Delete thread** removes the
 whole discussion and its highlight. Deleting the last comment also removes its thread.
@@ -147,18 +150,33 @@ unsaved until you save. Invalid JSON stays unchanged and produces an error.
 Ctrl+P opens fuzzy file search throughout the application and overrides browser printing.
 Type parts of a filename or path, use ↑/↓ to select, and press Enter to open.
 Escape closes the picker. The picker includes workspace files and open outside files.
+The arrows to the left of the file path move backward and forward through recent
+file visits. The dropdown beside them jumps to a visit or clears the history.
+History is kept per workspace in this browser, up to 100 visits. Opening a new
+file after going back replaces the forward branch. Clearing history keeps open
+tabs and unsaved drafts intact; temporary original-context and Git-history tabs
+are not recorded as file visits.
+
+Python files have a compact **Outline** strip on the right of the reading pane.
+Expand it to browse classes, functions, methods, and module-level assigned
+variables; click a name to jump to its definition. Nested definitions are
+indented. The outline follows unsaved edits and the active Edit/Review content,
+without executing Python. Its expanded/collapsed preference is remembered.
+
 Use **A− / A+** in the document toolbar to adjust document text size.
 The setting persists. Toolbar, sidebar, and search controls keep their size.
 Live Markdown task lists display clickable checkboxes. The active line exposes
 ordinary Markdown syntax. Checkbox clicks update the Markdown draft; save to write it.
 Markdown tables render in live mode; click a table to edit its source. Fenced Python,
-Bash, JSON, and HTML blocks have basic syntax highlighting in live/source mode and
-reading preview. Inactive fence markers and language labels are hidden in live mode.
+Bash, JSON, HTML, YAML (`yaml` or `yml`), and TOML blocks have basic syntax
+highlighting in live/source mode and reading preview. Inactive fence markers and
+language labels are hidden in live mode.
 
 Ctrl+A selects the active editor document. Ctrl+F and Ctrl+H open CodeMirror's
 document search/replace panel. Ctrl+Z and Ctrl+Shift+Z undo/redo. On macOS, use
 Command in place of Ctrl. Browser/input shortcuts retain their normal meaning
-when focus is outside the editor. Python and Bash have basic syntax highlighting.
+when focus is outside the editor. Python, Bash, YAML (`.yaml`/`.yml`), and TOML
+(`.toml`) files have basic syntax highlighting.
 Text and Markdown use locally bundled Newsreader with Times/serif fallback; code/JSON use
 your system monospace font. The top-right button switches light/dark themes.
 

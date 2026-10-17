@@ -220,27 +220,46 @@ def test_unanchored_spotlight_preserves_reading_and_opens_context_only_on_reques
 
 
 @pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
-def test_reading_scrollbars_are_hidden_without_disabling_scrolling(workspace_page):
+def test_reading_scrollbars_are_thin_and_themed_without_disabling_scrolling(workspace_page):
     from playwright.sync_api import expect
     root, page, url, ws = workspace_page
+
+    def assert_thin_scrollbar(pane):
+        if page.context.browser.browser_type.name == 'firefox' and not os.environ.get('LOOKING_GLASS_HEADED'):
+            # Playwright Firefox registers hidden-scrollbars.css as a browser
+            # !important rule in headless mode. Check the matching application
+            # declaration; theme colours and native scrolling are still observable.
+            assert pane.evaluate('''el=>[...document.styleSheets].some(sheet=>
+              [...sheet.cssRules].some(rule=>rule.selectorText && el.matches(rule.selectorText)
+                && rule.style.scrollbarWidth==='thin'))''')
+        else:
+            assert pane.evaluate('el=>getComputedStyle(el).scrollbarWidth') == 'thin'
+
     (root/'long.py').write_text(''.join(f'line_{i} = "'+ 'long_value_'*120 + '"\n' for i in range(160)))
     (root/'long.md').write_text('# Reading\n\n' + 'A paragraph to scroll through.\n\n'*150)
     page.goto(url); open_file(page, 'long.py')
+    colors = []
     for theme in ['light', 'dark']:
         if page.locator('html').get_attribute('data-theme') != theme:
             page.locator('#theme').click()
         page.set_viewport_size({'width':900,'height':720})
         scroller = page.locator('.cm-scroller')
-        assert scroller.evaluate('el=>getComputedStyle(el).scrollbarWidth') == 'none'
+        assert_thin_scrollbar(scroller)
+        colors.append(scroller.evaluate('el=>getComputedStyle(el).scrollbarColor'))
+        assert scroller.evaluate('''el=>{
+          const style=getComputedStyle(el);
+          return style.scrollbarColor.includes('rgba(0, 0, 0, 0)') && !style.scrollbarColor.includes('auto');
+        }''')
         assert scroller.evaluate('el=>el.scrollHeight>el.clientHeight && el.scrollWidth>el.clientWidth')
         scroller.hover(); page.mouse.wheel(240, 320)
         page.wait_for_function('()=>document.querySelector(".cm-scroller").scrollTop>0 && document.querySelector(".cm-scroller").scrollLeft>0')
         page.locator('.cm-content').click(); page.keyboard.press('Control+Home')
         page.wait_for_function('()=>document.querySelector(".cm-scroller").scrollTop<50')
         expect(page.locator('.cm-line').first).to_be_in_viewport()
+    assert colors[0] != colors[1]
     open_file(page, 'long.md'); page.locator('#mode').select_option('preview')
     pane = page.locator('#surface')
-    assert pane.evaluate('el=>getComputedStyle(el).scrollbarWidth') == 'none'
+    assert_thin_scrollbar(pane)
     pane.hover(); page.mouse.wheel(0, 500)
     page.wait_for_function('()=>document.querySelector("#surface").scrollTop>0')
     page.locator('#go-to-top').click()

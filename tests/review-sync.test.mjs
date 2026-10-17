@@ -48,13 +48,14 @@ test('failed or stale mode preparation never discards the current session',async
 
 test('mode sessions restore history only for a compatible document and draft',async()=>{
  const editState={undo:'edit'},reviewState={undo:'review'};
- const session={path:'a',content:'A',diskContent:'A',version:'v1',workMode:'edit',state:editState,dirty:false};
+ const editScroll={position:40},reviewScroll={position:400};
+ const session={path:'a',content:'A',diskContent:'A',version:'v1',workMode:'edit',state:editState,scrollSnapshot:editScroll,dirty:false};
  let draft={id:1,content:'AB',version:'d1',base:'A',segments:[{text:'AB',kind:'base'}]};
  const controller=createReviewSync(session,{metadata:()=>metadata,api:async()=>null});
  const ports={supports:()=>true,sync:()=>controller,api:async(route)=>route==='reviews'?draft:{content:'A',version:'v1'}};
- (await prepareWorkMode(session,'review',ports)).commit();session.state=reviewState;
- (await prepareWorkMode(session,'edit',ports)).commit();assert.equal(session.state,editState);
- (await prepareWorkMode(session,'review',ports)).commit();assert.equal(session.state,reviewState);
+ (await prepareWorkMode(session,'review',ports)).commit();assert.equal(session.scrollSnapshot,null);session.state=reviewState;session.scrollSnapshot=reviewScroll;
+ (await prepareWorkMode(session,'edit',ports)).commit();assert.equal(session.state,editState);assert.equal(session.scrollSnapshot,editScroll);
+ (await prepareWorkMode(session,'review',ports)).commit();assert.equal(session.state,reviewState);assert.equal(session.scrollSnapshot,reviewScroll);
  (await prepareWorkMode(session,'edit',ports)).commit();draft={...draft,id:2};
- (await prepareWorkMode(session,'review',ports)).commit();assert.equal(session.state,null);
+ (await prepareWorkMode(session,'review',ports)).commit();assert.equal(session.state,null);assert.equal(session.scrollSnapshot,null);
 });
