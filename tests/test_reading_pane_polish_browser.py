@@ -79,3 +79,51 @@ def test_fenced_code_has_one_background_rounded_ends_and_quiet_quotes(workspace_
     expect(inline).to_have_text('code')
     assert inline.evaluate('el=>getComputedStyle(el).backgroundColor') not in ['rgba(0, 0, 0, 0)', 'transparent']
     assert (root/'note.md').read_text() == text
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+@pytest.mark.parametrize('reverse', [False, True])
+def test_fenced_code_selection_is_purple_above_its_background(workspace_page, reverse):
+    import base64
+    from playwright.sync_api import expect
+    from test_discussion_reading_browser import endpoint
+    root, page, url, _ = workspace_page
+    first, last = 'alpha selected words', 'omega selected words'
+    text = f'# Selection\n\n```text\n{first}\n{last}\n```\n\nEnd.\n'
+    (root/'note.md').write_text(text)
+    page.goto(url); open_file(page, 'note.md')
+    for theme in ['light', 'dark']:
+        if page.locator('html').get_attribute('data-theme') != theme:
+            page.locator('#theme').click()
+        page.locator('.cm-content').click(); page.keyboard.press('ArrowRight')
+        settle(page)
+        a = endpoint(page.locator('.md-code-block').filter(has_text=first), 3)
+        b = endpoint(page.locator('.md-code-block').filter(has_text=last), len(last)-3)
+        if reverse:
+            a, b = b, a
+        page.mouse.move(**a); page.mouse.down(); page.mouse.move(**b, steps=20); page.mouse.up()
+        expect(page.locator('#selection-comment')).to_be_visible()
+        mark = page.locator('.cm-text-selection').first
+        expect(mark).to_be_visible()
+        # A DOM-visible rectangle can still be painted underneath an opaque
+        # code line. Inspect actual pixels, using uncoloured code to avoid
+        # mistaking syntax highlighting for the purple selection fill.
+        def purple_fraction():
+            png = base64.b64encode(mark.screenshot()).decode()
+            return page.evaluate('''async png=>{
+              const image=new Image();image.src='data:image/png;base64,'+png;await image.decode();
+              const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;
+              const ctx=canvas.getContext('2d');ctx.drawImage(image,0,0);
+              const pixels=ctx.getImageData(0,0,canvas.width,canvas.height).data;
+              let tinted=0;for(let i=0;i<pixels.length;i+=4)if(pixels[i+2]-pixels[i+1]>15)tinted++;
+              return tinted/(canvas.width*canvas.height);
+            }''', png)
+        assert purple_fraction() > .5, 'Code background obscures selected text'
+        # The highlight must not block clicks or disappear when the composer
+        # takes focus. Its quote still uses the exact source offsets.
+        page.locator('#selection-comment').click()
+        expect(page.locator('#selected-quote')).to_have_text(first[3:]+'\n'+last[:-3])
+        expect(page.locator('#comment-body')).to_be_focused()
+        assert purple_fraction() > .5
+        page.locator('#comment-cancel').click()
+    assert (root/'note.md').read_text() == text

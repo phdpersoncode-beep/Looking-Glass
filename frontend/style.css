@@ -136,6 +136,7 @@ dialog:modal{margin:auto}.directory-list{height:260px;overflow:auto;margin-top:8
 
 /* Paint each text run; CodeMirror's default rectangles include full-line gaps. */
 .live-markdown .cm-selectionBackground{background:transparent!important}
+.cm-text-selectionLayer{pointer-events:none}
 .cm-text-selection{background:var(--selection);border-radius:1px}
 @supports selector(::highlight(looking-glass-text-selection)){
   #surface :is(.markdown-preview,.comment-markdown)::selection,#surface :is(.markdown-preview,.comment-markdown) ::selection,#surface .md-table::selection,#surface .md-table ::selection{background:transparent!important}

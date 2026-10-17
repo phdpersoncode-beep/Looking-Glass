@@ -622,3 +622,19 @@ hidden-Markdown-gutter expectations now follow the requested visible affordances
   rebuilds, wheel/source builds, whitespace checks and the 501-case complete,
   disjoint browser shard collection pass. The full hosted browser run is a
   separate final gate; its status is recorded on the pull request.
+
+### Fenced-code selection hotfix
+
+Opaque fenced-code line backgrounds covered the text-only selection layer.
+Paint that layer above the content and make it ignore pointer events so selected
+text remains purple while dragging and after the comment composer takes focus.
+The selection still follows text runs rather than filling code-block margins.
+
+The new pixel-based regression fails before the fix and passes afterward for
+forward/reverse multiline selection, light/dark themes, and Chromium/Firefox.
+All 25 focused browser cases pass, including the existing end-to-end check
+that was the sole failure in the previous hosted run (500/501 passed).
+56 JavaScript and 118 Python tests pass; the 505-case browser collection is
+complete and disjoint. Asset rebuilds, package builds and whitespace checks pass.
+Local browser versions and the Firefox container setting are unchanged from the
+recovery checkpoint above. The next full hosted run validates the hotfix head.
