@@ -18,6 +18,7 @@ import {textSelection,updateNativeTextSelection} from './text-selection.mjs';
 import {createThreadSpotlight} from './thread-spotlight.mjs';
 import {createThreadSearchView} from './thread-search-view.mjs';
 import {mountMarkdownContents} from './markdown-contents.mjs';
+import {createFileHistory,mountFileHistory} from './file-history.mjs';
 import {basicSetup} from 'codemirror';
 import {EditorState, StateEffect, StateField, Compartment, Text, RangeSet, Transaction} from '@codemirror/state';
 import {EditorView, Decoration, ViewPlugin, keymap, WidgetType, gutter, GutterMarker} from '@codemirror/view';
@@ -31,6 +32,7 @@ import {html} from '@codemirror/lang-html';
 import {json} from '@codemirror/lang-json';
 import {syntaxTree, syntaxHighlighting, HighlightStyle, ensureSyntaxTree, foldable, foldEffect, unfoldAll} from '@codemirror/language';
 import {codeLanguage,shellLanguage} from './code-languages.mjs';
+import {mountPythonOutline} from './python-outline.mjs';
 import {tags,highlightTree,classHighlighter} from '@lezer/highlight';
 import * as THREE from 'three';
 import {STLLoader} from 'three/addons/loaders/STLLoader.js';
@@ -90,6 +92,7 @@ let passagePosition=null;
 let jsonlSearch = null;
 let renderedPreview=null,renderedSelection=null,renderedJump=null;
 let contentsController=null;
+let outlineController=null,historyControls=null;
 const markdownViews=new Set();
 function markdownSelection(){for(const rendered of markdownViews){if(rendered.host.isConnected){const selection=rendered.selection();if(selection)return selection;}}return null;}
 function markdownSpans(){const e=entry();return view?view.state.field(spanField):e?(e.dirty&&e.state?e.state.field(spanField):spansFor(appStore.state.threads,e.content)).map(span=>({...span,from:toRawUnits(e.content,span.from),to:toRawUnits(e.content,span.to)})):[];}
@@ -330,7 +333,7 @@ const ext=path=>path.split('.').pop().toLowerCase();
 const isImage=path=>['png','jpg','jpeg','svg'].includes(ext(path));
 function entry(){return appStore.state.displayedDocument?tabs.get(appStore.state.displayedDocument):null;}
 function remember(){localStorage.setItem('looking-glass-tabs:'+root,JSON.stringify({active:entry()?.kind==='original'?contextVisit?.path:appStore.state.displayedDocument,tabs:[...tabs.values()].filter(e=>e.kind!=='original').map(e=>({path:e.path,pinned:e.pinned,mode:e.mode,kind:e.kind,...(e.kind==='history'?{history:{target:e.history?.target,selection:e.history?.selection}}:{})}))}));}
-function syncState(){const e=entry();if(e&&view){e.state=view.state;e.content=view.state.sliceDoc();}}
+function syncState(){const e=entry();if(e&&view){e.state=view.state;e.content=view.state.sliceDoc();e.scrollSnapshot=view.scrollSnapshot();}}
 function spansFor(threads,text){return sourceSpans(threads,text,appStore.state.displayedDocument,entry()?.version);}
 
 function removedSelection(){
@@ -441,7 +444,18 @@ function makeState(e){
   ]});
 }
 
-const navigation=createNavigationController({load:loadFile,onRequest:({path})=>appStore.dispatch({type:'DOCUMENT_REQUESTED',path}),onFailure:()=>appStore.dispatch({type:'DOCUMENT_FAILED'}),onInvalidate:()=>appStore.dispatch({type:'DOCUMENT_CANCELLED'})});
+let savedFileHistory={};try{savedFileHistory=JSON.parse(localStorage.getItem('looking-glass-file-history:'+root)||'{}')||{};}catch{}
+const fileHistory=createFileHistory(savedFileHistory);
+function cancelFileVisit(){fileHistory.cancel();historyControls?.render();}
+const navigation=createNavigationController({load:loadFile,onRequest:({path,context})=>{fileHistory.request(context?.fileHistoryIndex);historyControls?.render();appStore.dispatch({type:'DOCUMENT_REQUESTED',path});},onFailure:()=>{cancelFileVisit();appStore.dispatch({type:'DOCUMENT_FAILED'});},onInvalidate:()=>{cancelFileVisit();appStore.dispatch({type:'DOCUMENT_CANCELLED'});}});
+function rememberFileVisit(e,at){
+  if(e&&!['original','history'].includes(e.kind)){fileHistory.visit(e.path,at);historyControls?.remember();}
+  else cancelFileVisit();
+}
+historyControls=mountFileHistory($('#file-navigation'),fileHistory,{
+  navigate:guard(target=>{cancelSidebarNavigation();return navigation.open(target.path,{fileHistoryIndex:target.index});}),
+  save:snapshot=>localStorage.setItem('looking-glass-file-history:'+root,JSON.stringify(snapshot))
+});
 const discussionRequests=createRequestGate(),indexRequests=createRequestGate();
 function cancelSidebarNavigation(){
   arrowNavigation.invalidate();threadNavigator.invalidate();
@@ -452,7 +466,7 @@ function openFile(path){cancelSidebarNavigation();return navigation.open(path);}
 async function loadFile(path,request){
     await restoreReady;
     if(!request.current())return;
-    if(appStore.state.displayedDocument===path){await entry()?.ready;return;}
+    if(appStore.state.displayedDocument===path){await entry()?.ready;rememberFileVisit(entry(),request.context?.fileHistoryIndex);return;}
     if(entry()?.workMode==='review')await flushReview(entry());
     if(!request.current())return;
     const activation=request.context?.threadNavigation;
@@ -487,6 +501,7 @@ async function loadFile(path,request){
     view?.destroy();view=null;cleanup();cleanup=()=>{};
     if(discussions)receiveDiscussions(discussions.data,discussions.key,true,activation,path);
     else appStore.dispatch({type:'DOCUMENT_DISPLAYED',path});
+    rememberFileVisit(e,request.context?.fileHistoryIndex);
     if(held){for(const node of [...$('#surface').children])if(!held.nodes.includes(node))node.remove();}
     else $('#surface').replaceChildren();
     if(e.kind==='original')for(const [name,tab] of tabs)if(tab.kind==='original'&&name!==path)tabs.delete(name);
@@ -564,8 +579,9 @@ function mountDocument(e){
     const preview=document.createElement('div');preview.className='markdown-preview';$('#surface').append(preview);
     const rendered=mountMappedMarkdown(preview,e.content,0,highlightMarkdown);rendered.setReview(currentReviewRanges());rendered.highlight([],null);markdownViews.add(rendered);markdownDiagrams(preview);cleanup=()=>markdownViews.delete(rendered);
   }else{
+    const snapshot=e.state?e.scrollSnapshot:null;
     const parent=document.createElement('div');parent.id='editor';if(['md','markdown','txt'].includes(ext(e.path)))parent.className='prose-editor'+(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?' live-markdown':'');$('#surface').append(parent);view=new EditorView({state:e.state||makeState(e),parent});
-    view.dispatch({effects:[themeSlot.reconfigure(theme()),liveSlot.reconfigure(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables,textSelection]:[])]});
+    view.dispatch({effects:[themeSlot.reconfigure(theme()),liveSlot.reconfigure(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables,textSelection]:[]),...(snapshot?[snapshot]:[])]});
     guard(refreshBaseline)();
   }
   updateToolbar();
@@ -576,6 +592,7 @@ function updateToolbar(){
   const locked=!!changingWorkMode||entry()?.reviewSync?.status==='approving'||entry()?.kind==='original';
   if(view&&view.state.readOnly!==locked)view.dispatch({effects:workLockSlot.reconfigure(EditorState.readOnly.of(locked))});
   const e=entry(), type=e?ext(e.path):'', viewer=!!e?.kind||['stl','jsonl'].includes(type)||isImage(e?.path||'');
+  outlineController?.setDocument(!e?.kind&&type==='py'?e.path:null,!e?.kind&&type==='py'?view?.state.doc||null:null);
   $('#markdown-contents').hidden=!!e?.kind||!['md','markdown'].includes(type)||e?.mode!=='live';
   $('.font-controls').hidden=e?.kind==='history';$('#annotate').hidden=!!e?.kind;$('#save').hidden=!!e?.kind;
   $('#json-fold-controls').hidden=type!=='json';
@@ -1217,6 +1234,8 @@ window.addEventListener('resize',()=>{scheduleSelectionTools();if($('#comment-di
 document.addEventListener('keydown',event=>{
   passagePosition=null;
   if(event.key==='Escape'){passageActivation++;pressedPassage=null;}
+  // Let the focused navigation panel consume Escape before context/spotlight.
+  if(event.key==='Escape'&&event.target.closest?.('#file-history[open],#code-outline[open]'))return;
   if((event.ctrlKey||event.metaKey)&&event.altKey&&!event.shiftKey&&event.key.toLowerCase()==='z'){event.preventDefault();event.stopPropagation();toggleZen();return;}
   // Focusable table regions keep native cell selection/copying, while editor
   // commands still target the document rather than the browser page.
@@ -1455,6 +1474,11 @@ $('#collapse-files').onclick=()=>{expandedFolders.clear();localStorage.setItem('
 function fuzzyScore(path,query){const text=path.toLowerCase();let cursor=0,score=0,previous=-2;for(const character of query.toLowerCase().replace(/\s/g,'')){const index=text.indexOf(character,cursor);if(index<0)return null;score+=index===previous+1?8:0;score+=index===0||'/._-'.includes(text[index-1])?12:0;score-=index-cursor;previous=index;cursor=index+1;}return score-text.length/100;}
 contentsController=mountMarkdownContents($('#markdown-contents'),()=>view?.state.doc.toString()||'',from=>{
   if(!view)return;view.dispatch({selection:{anchor:from},effects:EditorView.scrollIntoView(from,{y:'start',yMargin:16})});view.focus();
+});
+$('#code-outline').open=localStorage.getItem('looking-glass-python-outline:'+root)==='true';
+outlineController=mountPythonOutline($('#code-outline'),{
+  navigate:from=>{if(!view)return;view.dispatch({selection:{anchor:from},effects:EditorView.scrollIntoView(from,{y:'start',yMargin:16})});view.focus();},
+  saveOpen:open=>localStorage.setItem('looking-glass-python-outline:'+root,String(open))
 });
 function renderQuickResults(){const query=$('#quick-query').value;quickMatches=quickPaths.map(path=>({path,score:fuzzyScore(path,query)})).filter(item=>item.score!==null).sort((a,b)=>b.score-a.score||a.path.localeCompare(b.path)).slice(0,50);quickIndex=Math.min(quickIndex,Math.max(0,quickMatches.length-1));$('#quick-results').replaceChildren(...quickMatches.map((item,index)=>{const button=document.createElement('button');button.textContent=item.path;button.id='quick-option-'+index;button.setAttribute('role','option');button.setAttribute('aria-selected',String(index===quickIndex));button.classList.toggle('selected',index===quickIndex);button.onclick=guard(async()=>{await openFile(item.path);$('#quick-dialog').close();view?.focus();});return button;}));if(!quickMatches.length)$('#quick-results').textContent='No matching files.';$('#quick-query').setAttribute('aria-activedescendant',quickMatches.length?'quick-option-'+quickIndex:'');$('#quick-results .selected')?.scrollIntoView({block:'nearest'});}
 async function showQuickOpen(){closeComment();if(!$('#quick-dialog').open)$('#quick-dialog').showModal();$('#quick-query').value='';quickIndex=0;quickPaths=[...new Set([...$$('.file-entry').map(b=>b.dataset.path),...tabs.keys()])];renderQuickResults();$('#quick-query').focus();const workspace=await api('workspace');if($('#quick-dialog').open){quickPaths=[...new Set([...workspace.files,...tabs.keys()])];renderQuickResults();}}

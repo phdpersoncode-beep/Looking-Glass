@@ -637,4 +637,42 @@ that was the sole failure in the previous hosted run (500/501 passed).
 56 JavaScript and 118 Python tests pass; the 505-case browser collection is
 complete and disjoint. Asset rebuilds, package builds and whitespace checks pass.
 Local browser versions and the Firefox container setting are unchanged from the
-recovery checkpoint above. The next full hosted run validates the hotfix head.
+recovery checkpoint above. The full hosted run subsequently passed all **505
+Chromium/Firefox cases** on hotfix commit
+`0141641c9471b6c127360d00cd697a52cb92e755`:
+[run 39025964326](https://github.com/phdpersoncode-beep/Looking-Glass/actions/runs/39025964326).
+
+### File history, Python outline, and YAML/TOML highlighting
+
+Continued on PR #17. YAML/YML and TOML now use the existing bundled language
+parsers in code files and Markdown fences. The shared parser registry has seven
+checks for file/fence aliases and actual highlighted tokens; no dependencies
+were added. That checkpoint was pushed as `9330933`.
+
+Back/Forward controls and a recent-file dropdown sit before the file path.
+Successful file visits are bounded to 100 and persisted per workspace; Clear
+history leaves tabs, drafts, and undo state intact. Failed navigation and
+temporary original/Git context do not create visits. Rapid arrow clicks retain
+their latest target, and returning to a code/editor tab restores its scroll
+snapshot. Edit and Review retain separate compatible snapshots.
+
+Python files have a collapsible right-side outline with classes, functions,
+methods, and module assignments. It uses the bundled Python syntax parser,
+follows unsaved and Review content, preserves UTF-16 editor coordinates, and
+never executes source. The expanded preference persists; narrow layouts use
+an overlay so the reading surface remains usable.
+
+- **72 JavaScript** and **118 non-browser Python** checks pass.
+- **52 distinct focused Chromium/Firefox cases** pass: eight new file-history
+  and outline journeys, plus 44 existing reading-pane, go-to-top, and
+  architecture regressions. The final mode-snapshot adjustment was checked
+  again with the new journeys and architecture regressions.
+- Inspected light/dark layouts at 1440 pixels and the 900-pixel outline overlay,
+  plus the populated history dropdown. Local browsers remain Playwright 1.56.0,
+  Chromium 141 and Firefox 142, with the same Firefox container setting above.
+- Rebuilt committed assets, wheel and source distributions; whitespace checks
+  pass. The complete browser collection now contains 513 cases and remains
+  disjoint across four shards.
+- Per the user's instruction, the full browser suite was **not rerun** for
+  these additions. The historical 505-case hosted pass above validates the
+  selection-hotfix checkpoint, not this later feature head.

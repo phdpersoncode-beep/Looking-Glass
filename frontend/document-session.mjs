@@ -7,7 +7,8 @@ export function retainModeState(session) {
   if (!session.workMode) return;
   session.modes ??= new Map();
   session.modes.set(session.workMode, {state: session.state, content: session.content,
-    version: session.version, reviewId: session.review?.id, reviewField: session.reviewField});
+    version: session.version, reviewId: session.review?.id, reviewField: session.reviewField,
+    scrollSnapshot: session.scrollSnapshot});
 }
 
 export function matchingModeState(session, mode, content, reviewId) {

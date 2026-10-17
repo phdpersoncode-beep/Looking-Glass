@@ -150,6 +150,19 @@ unsaved until you save. Invalid JSON stays unchanged and produces an error.
 Ctrl+P opens fuzzy file search throughout the application and overrides browser printing.
 Type parts of a filename or path, use ↑/↓ to select, and press Enter to open.
 Escape closes the picker. The picker includes workspace files and open outside files.
+The arrows to the left of the file path move backward and forward through recent
+file visits. The dropdown beside them jumps to a visit or clears the history.
+History is kept per workspace in this browser, up to 100 visits. Opening a new
+file after going back replaces the forward branch. Clearing history keeps open
+tabs and unsaved drafts intact; temporary original-context and Git-history tabs
+are not recorded as file visits.
+
+Python files have a compact **Outline** strip on the right of the reading pane.
+Expand it to browse classes, functions, methods, and module-level assigned
+variables; click a name to jump to its definition. Nested definitions are
+indented. The outline follows unsaved edits and the active Edit/Review content,
+without executing Python. Its expanded/collapsed preference is remembered.
+
 Use **A− / A+** in the document toolbar to adjust document text size.
 The setting persists. Toolbar, sidebar, and search controls keep their size.
 Live Markdown task lists display clickable checkboxes. The active line exposes
