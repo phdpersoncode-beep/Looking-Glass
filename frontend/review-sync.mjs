@@ -107,6 +107,7 @@ export async function prepareWorkMode(session, desired, ports) {
     session.workMode = desired;
     if (desired === 'review') ports.sync(session).adopt(file);
     else {ports.sync(session).adopt(null); session.content = file.content; session.diskContent = file.content; session.version = file.version; session.dirty = false;}
-    session.state = held?.state || null; session.reviewField = held?.reviewField || null; session.conflict = null; ports.resumed?.(session);
+    session.state = held?.state || null; session.scrollSnapshot = held?.scrollSnapshot || null;
+    session.reviewField = held?.reviewField || null; session.conflict = null; ports.resumed?.(session);
   }};
 }

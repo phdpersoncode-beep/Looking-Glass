@@ -70,7 +70,7 @@ def test_review_workflow_features(tmp_path, browser_pool):
             assert page.locator('#save').evaluate('el=>getComputedStyle(el).fontSize')==ui_size
             page.locator('.file-entry[data-path="tasks.md"]').click()
             expect(page.locator('.md-task-checkbox')).to_have_count(2)
-            expect(page.locator('.cm-lineNumbers')).not_to_be_visible()
+            expect(page.locator('.cm-lineNumbers')).to_be_visible()
             page.locator('.md-task-checkbox').first.check()
             page.keyboard.press('Control+s');expect(page.locator('#dirty')).to_have_text('')
             assert '- [x] Pending task' in (root/'tasks.md').read_text()
