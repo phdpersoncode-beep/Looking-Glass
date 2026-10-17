@@ -155,13 +155,15 @@ The setting persists. Toolbar, sidebar, and search controls keep their size.
 Live Markdown task lists display clickable checkboxes. The active line exposes
 ordinary Markdown syntax. Checkbox clicks update the Markdown draft; save to write it.
 Markdown tables render in live mode; click a table to edit its source. Fenced Python,
-Bash, JSON, and HTML blocks have basic syntax highlighting in live/source mode and
-reading preview. Inactive fence markers and language labels are hidden in live mode.
+Bash, JSON, HTML, YAML (`yaml` or `yml`), and TOML blocks have basic syntax
+highlighting in live/source mode and reading preview. Inactive fence markers and
+language labels are hidden in live mode.
 
 Ctrl+A selects the active editor document. Ctrl+F and Ctrl+H open CodeMirror's
 document search/replace panel. Ctrl+Z and Ctrl+Shift+Z undo/redo. On macOS, use
 Command in place of Ctrl. Browser/input shortcuts retain their normal meaning
-when focus is outside the editor. Python and Bash have basic syntax highlighting.
+when focus is outside the editor. Python, Bash, YAML (`.yaml`/`.yml`), and TOML
+(`.toml`) files have basic syntax highlighting.
 Text and Markdown use locally bundled Newsreader with Times/serif fallback; code/JSON use
 your system monospace font. The top-right button switches light/dark themes.
 

@@ -29,8 +29,8 @@ import {markdown} from '@codemirror/lang-markdown';
 import {python} from '@codemirror/lang-python';
 import {html} from '@codemirror/lang-html';
 import {json} from '@codemirror/lang-json';
-import {StreamLanguage, syntaxTree, syntaxHighlighting, HighlightStyle, ensureSyntaxTree, foldable, foldEffect, unfoldAll} from '@codemirror/language';
-import {shell} from '@codemirror/legacy-modes/mode/shell';
+import {syntaxTree, syntaxHighlighting, HighlightStyle, ensureSyntaxTree, foldable, foldEffect, unfoldAll} from '@codemirror/language';
+import {codeLanguage,shellLanguage} from './code-languages.mjs';
 import {tags,highlightTree,classHighlighter} from '@lezer/highlight';
 import * as THREE from 'three';
 import {STLLoader} from 'three/addons/loaders/STLLoader.js';
@@ -189,7 +189,7 @@ const threadFocusField=StateField.define({
 const colors = HighlightStyle.define([
   {tag:tags.keyword,color:'#ad5ded'}, {tag:tags.string,color:'#4a9c80'},
   {tag:tags.number,color:'#c68b45'}, {tag:tags.comment,color:'#858392',fontStyle:'italic'},
-  {tag:tags.propertyName,color:'#639bb5'}, {tag:tags.function(tags.variableName),color:'#8b72dc'}
+  {tag:[tags.propertyName,tags.atom],color:'#639bb5'}, {tag:tags.function(tags.variableName),color:'#8b72dc'}
 ]);
 const theme = () => EditorView.theme({
   '&':{height:'100%',color:'var(--text)',backgroundColor:'var(--paper)'},
@@ -408,14 +408,6 @@ async function closeTab(path,returning=false){
   else if(!appStore.state.displayedDocument){lastThreadHTML='';lastThreadKey='';$('#surface').innerHTML='<div class="welcome"><h1>Open a file to begin.</h1></div>';$('#threads').replaceChildren();discussionView.reset();appStore.dispatch({type:'THREADS_RECEIVED',threads:[]});$('#thread-count').textContent='0';updateToolbar();await refreshThreads();}
 }
 
-const shellLanguage=StreamLanguage.define(shell);
-function codeLanguage(info){switch(info.trim().split(/\s+/)[0].toLowerCase()){
-  case 'py':case 'python':return python().language;
-  case 'sh':case 'bash':case 'shell':return shellLanguage;
-  case 'json':return json().language;
-  case 'html':case 'htm':return html().language;
-  default:return null;
-}}
 function highlightMarkdown(preview){
   for(const block of preview.querySelectorAll('pre code')){
     const language=codeLanguage(block.className.replace(/^language-/,''));if(!language)continue;
@@ -435,7 +427,7 @@ function highlightMarkdown(preview){
     }
   }
 }
-function language(path){switch(ext(path)){case'md':case'markdown':return markdown({extensions:[TaskList,Table],codeLanguages:codeLanguage});case'py':return python();case'sh':case'bash':return shellLanguage;case'html':case'htm':return html();case'json':return json();default:return [];}}
+function language(path){switch(ext(path)){case'md':case'markdown':return markdown({extensions:[TaskList,Table],codeLanguages:codeLanguage});case'py':return python();case'sh':case'bash':return shellLanguage;case'html':case'htm':return html();case'json':return json();case'yaml':case'yml':case'toml':return codeLanguage(ext(path));default:return [];}}
 function makeState(e){
   const tracked=e.workMode==='review'&&e.review;
   if(tracked)e.reviewField=reviewTracking({...e.review,segments:e.reviewSegments||e.review.segments},()=>({author:$('#author').value||'Altay',role:'human',at:new Date().toISOString()}));
