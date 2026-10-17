@@ -196,7 +196,7 @@ const theme = () => EditorView.theme({
   '.cm-scroller':{fontFamily:'var(--mono)',fontSize:'var(--document-font-size)',lineHeight:'1.7'},
   '.cm-content':{padding:'32px 0'},
   '.cm-line':{padding:'0 28px'},
-  '.cm-gutters':{backgroundColor:'var(--paper)',color:'var(--muted)',border:'none'},
+  '.cm-gutters':{backgroundColor:'var(--paper)',color:'var(--muted)',border:'none',fontFamily:'var(--mono)',fontSize:'12px',fontVariantNumeric:'tabular-nums'},
   '.cm-activeLine, .cm-activeLineGutter':{backgroundColor:'var(--active-line)'},
   '.cm-cursor':{borderLeftColor:'var(--purple)'},
   '.cm-selectionBackground, &.cm-focused .cm-selectionBackground':{backgroundColor:'var(--selection)'},
@@ -279,11 +279,19 @@ function liveDecorations(v, activeRange) {
       if(b<=a) return;
       const line=doc.lineAt(a), isActive=line.from<=activeTo && line.to>=activeFrom;
       if(/^ATXHeading[1-6]$/.test(name)) ranges.push(Decoration.line({class:'md-heading md-h'+name.slice(-1)}).range(line.from));
-      if(name==='FencedCode'){const last=doc.lineAt(b);for(let number=line.number;number<=last.number;number++)ranges.push(Decoration.line({class:number===line.number||number===last.number?'md-code-fence':'md-code-block'}).range(doc.line(number).from));}
-      if(name==='Blockquote') ranges.push(Decoration.line({class:'md-quote'}).range(line.from));
+      if(name==='FencedCode'){
+        const last=doc.lineAt(b);
+        for(let number=line.number;number<=last.number;number++){
+          const classes=[number===line.number||number===last.number?'md-code-fence':'md-code-block'];
+          if(number===line.number)classes.push('md-code-start');
+          if(number===last.number)classes.push('md-code-end');
+          ranges.push(Decoration.line({class:classes.join(' ')}).range(doc.line(number).from));
+        }
+      }
+      if(name==='Blockquote')for(let number=line.number;number<=doc.lineAt(b).number;number++)ranges.push(Decoration.line({class:'md-quote'}).range(doc.line(number).from));
       if(name==='StrongEmphasis') ranges.push(Decoration.mark({class:'md-strong'}).range(a,b));
       if(name==='Emphasis') ranges.push(Decoration.mark({class:'md-emphasis'}).range(a,b));
-      if(name==='InlineCode'||name==='CodeText') ranges.push(Decoration.mark({class:'md-code'}).range(a,b));
+      if(name==='InlineCode') ranges.push(Decoration.mark({class:'md-code'}).range(a,b));
       if(name==='Link') ranges.push(Decoration.mark({class:'md-link'}).range(a,b));
       if(isActive) return;
       if(['HeaderMark','EmphasisMark','CodeMark','CodeInfo','QuoteMark','LinkMark'].includes(name) && doc.lineAt(b).number===line.number)
@@ -434,7 +442,7 @@ function makeState(e){
   const docPath=e.sourcePath||e.path,prose=['md','markdown','txt'].includes(ext(docPath));
   return EditorState.create({doc:e.content,extensions:[EditorState.lineSeparator.of(e.diskContent.includes('\r\n')?'\r\n':'\n'),basicSetup,language(docPath),workLockSlot.of(EditorState.readOnly.of(changingWorkMode)),...(tracked?[e.reviewField]:[]),...(e.kind==='original'?[EditorState.readOnly.of(true),EditorView.editable.of(false)]:[]),syntaxHighlighting(colors),spanField,threadFocusField,gitField,gitSlot.of([]),
     themeSlot.of(theme()),liveSlot.of(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables,textSelection]:[]),
-    ...(prose?[EditorView.lineWrapping,EditorView.theme({'.cm-scroller':{fontFamily:'var(--prose)',fontSize:'var(--prose-font-size)'},'.cm-content':{maxWidth:'850px',margin:'0 auto',width:'100%'},'.cm-lineNumbers, .cm-foldGutter':{display:'none'}})]:[]),
+    ...(prose?[EditorView.lineWrapping,EditorView.theme({'.cm-scroller':{fontFamily:'var(--prose)',fontSize:'var(--prose-font-size)'},'.cm-content':{maxWidth:'850px',margin:'0 auto',width:'100%',minWidth:'0'},'.cm-foldGutter':{display:'none'}})]:[]),
     EditorView.scrollHandler.of(editor=>passagePosition?.editor===editor),
     keymap.of([{key:'Mod-s',run:()=>{guard(saveActive)();return true;}},{key:'Mod-Enter',run:()=>{guard(startComment)();return true;}},{key:'Mod-f',run:openSearchPanel},{key:'Mod-h',run:openSearchPanel},indentWithTab]),
     EditorView.updateListener.of(u=>{if(u.docChanged){if(tracked){if(!u.transactions.some(t=>t.effects.some(effect=>effect.is(remoteReview)))){for(const tr of u.transactions)if(tr.docChanged)queueReviewOperations(e,operationsFor(tr),u.state.field(e.reviewField).segments);scheduleReviewSave(e);}}e.content=u.state.sliceDoc();e.dirty=e.content!==e.diskContent;e.state=u.state;contentsController?.update();updateToolbar();renderTabs();}if(u.selectionSet)updateToolbar();if(u.selectionSet||u.docChanged||u.viewportChanged||u.geometryChanged)scheduleSelectionTools();})

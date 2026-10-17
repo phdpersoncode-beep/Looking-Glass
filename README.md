@@ -109,9 +109,12 @@ the full list or queuing unfinished document reveals; the current spotlight stay
 visible until its destination is ready.
 Unanchored or unavailable threads focus in the sidebar without opening another
 document or changing reading position. **Original context** opens the saved passage
-only when clicked. Main reading surfaces hide native scrollbar rails while keeping
-wheel, touch, keyboard, and go-to-top scrolling; wide tables keep their compact
-horizontal scroll controls.
+only when clicked. Main reading surfaces show a thin, theme-matched scrollbar
+with a transparent track. Wheel, touch, keyboard, and go-to-top scrolling remain
+available; wide tables keep their compact horizontal scroll controls. Markdown
+and text editors show monospace source line numbers alongside prose; source code
+keeps the same numbered gutter. Fenced code uses one background and rounded
+corners in live Markdown and preview; blockquotes use a quiet rule and upright text.
 
 Use **×** beside a comment to delete that comment. **Delete thread** removes the
 whole discussion and its highlight. Deleting the last comment also removes its thread.
