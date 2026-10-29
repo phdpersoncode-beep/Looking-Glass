@@ -125,6 +125,7 @@ the discussions to see threads throughout the workspace, including outside files
 opened in this workspace. ↑/↓ always traverses discussions across files, even when
 the toggle is off, and preserves unsaved drafts. Navigation stays at the top.
 The horizontal filters also include **Show resolved** and **Show unattached**.
+All three checkboxes stay side by side; labels sit below them in a narrow sidebar.
 Unattached threads are included initially; uncheck that box to hide threads needing
 reattachment from the list, search results, and navigation. The concise summary
 shows total, open, and closed counts for the current file or across-files scope,

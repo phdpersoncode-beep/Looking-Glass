@@ -95,7 +95,8 @@ def test_thread_references_open_target_file_and_preserve_drafts(workspace_page, 
 
 
 @pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
-def test_horizontal_filters_counts_search_and_copy_keep_thread_state(workspace_page):
+@pytest.mark.parametrize('filter_font', ['default', 'wide'])
+def test_horizontal_filters_counts_search_and_copy_keep_thread_state(workspace_page, filter_font):
     root, page, url, ws = workspace_page
     (root/'note.txt').write_text('First passage.\n\nLost passage.')
     version = ws.read('note.txt')['version']
@@ -106,6 +107,9 @@ def test_horizontal_filters_counts_search_and_copy_keep_thread_state(workspace_p
     closed = ws.create_thread('note.txt', 0, 5, 'Closed', 'Reviewer', ws.read('note.txt')['version'])
     ws.update_thread(closed['id'], resolved=True)
     page.goto(url); open_file(page, 'note.txt')
+    if filter_font == 'wide':
+        # Wider system-font metrics must not push a checkbox onto another row.
+        page.add_style_tag(content='.thread-filters label{font-family:monospace}')
     expect(page.locator('#thread-total')).to_have_text('3 threads · 2 open · 1 closed')
     lost_card = page.locator(f'.thread[data-thread="{lost["id"]}"]')
     expect(lost_card).to_be_visible()
@@ -128,6 +132,14 @@ def test_horizontal_filters_counts_search_and_copy_keep_thread_state(workspace_p
             boxes = page.locator('.thread-filters label').evaluate_all('els=>els.map(el=>({y:el.getBoundingClientRect().y,right:el.getBoundingClientRect().right}))')
             assert max(box['y'] for box in boxes)-min(box['y'] for box in boxes) < 2
             assert max(box['right'] for box in boxes) <= page.locator('#discussion-sidebar').bounding_box()['x']+page.locator('#discussion-sidebar').bounding_box()['width']
+            inputs = page.locator('.thread-filters input').evaluate_all('els=>els.map(el=>el.getBoundingClientRect().y+el.getBoundingClientRect().height/2)')
+            assert max(inputs)-min(inputs) < 2
+        # Exercise the smallest supported sidebar through its keyboard control.
+        page.locator('#discussion-resize').focus(); page.keyboard.press('Home')
+        boxes = page.locator('.thread-filters input').evaluate_all('els=>els.map(el=>({y:el.getBoundingClientRect().y,right:el.getBoundingClientRect().right}))')
+        assert max(box['y'] for box in boxes)-min(box['y'] for box in boxes) < 2
+        sidebar = page.locator('#discussion-sidebar').bounding_box()
+        assert max(box['right'] for box in boxes) <= sidebar['x']+sidebar['width']
     assert not ws.get_thread(first['id'])['resolved']
 
 
