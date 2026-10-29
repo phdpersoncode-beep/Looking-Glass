@@ -73,7 +73,8 @@ def test_fenced_code_has_one_background_rounded_ends_and_quiet_quotes(workspace_
           return lines.every(node=>['rgba(0, 0, 0, 0)','transparent',panel].includes(getComputedStyle(node).backgroundColor));
         }''')
         assert quote.evaluate('el=>getComputedStyle(el).fontStyle') == 'normal'
-        assert quote.evaluate('el=>getComputedStyle(el).backgroundColor') in ['rgba(0, 0, 0, 0)', 'transparent']
+        assert quote.evaluate('el=>getComputedStyle(el).backgroundColor') not in ['rgba(0, 0, 0, 0)', 'transparent']
+        assert quote.evaluate('el=>getComputedStyle(el).backgroundColor') != page.locator('body').evaluate('el=>getComputedStyle(el).backgroundColor')
         assert quote.evaluate('el=>parseFloat(getComputedStyle(el).borderLeftWidth)') == 2
     inline = page.locator('.md-code') if mode == 'live' else page.locator('.markdown-preview p code')
     expect(inline).to_have_text('code')

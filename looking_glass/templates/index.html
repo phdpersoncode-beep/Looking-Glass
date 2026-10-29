@@ -53,12 +53,15 @@
       <input id="thread-search" type="search" aria-label="Search threads" aria-controls="threads" aria-describedby="thread-search-status" placeholder="Search threads, passages, #…" maxlength="160" autocomplete="off" spellcheck="false">
       <button id="thread-search-clear" type="button" aria-label="Clear thread search" title="Clear search (Esc)" hidden>×</button>
     </div>
-    <div class="discussion-summary"><span id="thread-total" role="status" aria-live="polite">0 threads total</span><div id="passage-spotlight" hidden><div class="spotlight-heading"><span role="status" aria-live="polite"></span><button id="all-discussions" aria-controls="threads" aria-keyshortcuts="Escape" title="All discussions (Esc)">All discussions <kbd aria-hidden="true">Esc</kbd></button></div><div id="spotlight-shortcuts" aria-label="Sidebar keyboard shortcuts"><span><kbd>←</kbd><kbd>→</kbd> Threads</span><span><kbd>↑</kbd> Search</span><span><kbd>↓</kbd> Reply</span></div></div></div>
+    <div class="discussion-summary"><span id="thread-total" role="status" aria-live="polite">0 threads · 0 open · 0 closed</span><div id="passage-spotlight" hidden><div class="spotlight-heading"><span role="status" aria-live="polite"></span><button id="all-discussions" aria-controls="threads" aria-keyshortcuts="Escape" title="All discussions (Esc)">All discussions <kbd aria-hidden="true">Esc</kbd></button></div><div id="spotlight-shortcuts" aria-label="Sidebar keyboard shortcuts"><span><kbd>←</kbd><kbd>→</kbd> Threads</span><span><kbd>↑</kbd> Search</span><span><kbd>↓</kbd> Reply</span></div></div></div>
     <div id="thread-search-status" role="status" aria-live="polite" hidden></div>
     <div class="discussion-content">
     <label class="author-label">Your author label<input id="author" value="Altay" maxlength="120"></label>
+    <div class="thread-filters" role="group" aria-label="Discussion filters">
     <label class="thread-scope"><input type="checkbox" role="switch" id="thread-scope" aria-label="Across files"> Across files</label>
-    <label class="resolved-toggle"><input type="checkbox" id="show-resolved"> Show resolved threads</label>
+    <label class="resolved-toggle"><input type="checkbox" id="show-resolved" aria-label="Show resolved threads"> Show resolved</label>
+    <label><input type="checkbox" id="show-unattached" checked> Show unattached</label>
+    </div>
     <div id="threads-loading" role="status" aria-live="polite" hidden><span class="loading-ring" aria-hidden="true"></span><span>Loading discussions</span></div>
     <div id="threads" aria-busy="false"><div class="empty-discussions">Select text or code to leave a comment.<p>Feedback opens a conversation. Edits stay yours to make.</p></div></div>
     <div id="thread-search-empty" class="empty-discussions" hidden>No matching threads.<p>Try another term, search across files, or show resolved threads.</p><div id="thread-search-hints" aria-live="polite"></div></div>

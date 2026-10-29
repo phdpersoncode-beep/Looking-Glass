@@ -114,7 +114,9 @@ with a transparent track. Wheel, touch, keyboard, and go-to-top scrolling remain
 available; wide tables keep their compact horizontal scroll controls. Markdown
 and text editors show monospace source line numbers alongside prose; source code
 keeps the same numbered gutter. Fenced code uses one background and rounded
-corners in live Markdown and preview; blockquotes use a quiet rule and upright text.
+corners in live Markdown and preview; blockquotes use a quiet rule, upright text,
+and a subtle themed background. Bare square brackets such as `[0, 1]` stay literal;
+explicit Markdown links and references with definitions keep their link styling.
 
 Use **×** beside a comment to delete that comment. **Delete thread** removes the
 whole discussion and its highlight. Deleting the last comment also removes its thread.
@@ -122,6 +124,18 @@ The application asks for confirmation before deletion. Turn on **Across files** 
 the discussions to see threads throughout the workspace, including outside files
 opened in this workspace. ↑/↓ always traverses discussions across files, even when
 the toggle is off, and preserves unsaved drafts. Navigation stays at the top.
+The horizontal filters also include **Show resolved** and **Show unattached**.
+Unattached threads are included initially; uncheck that box to hide threads needing
+reattachment from the list, search results, and navigation. The concise summary
+shows total, open, and closed counts for the current file or across-files scope,
+including threads hidden by filters or search.
+
+In comments and replies, `#123` becomes a clickable thread reference. It opens
+that thread and its file in spotlight, including resolved or unattached threads
+hidden by the current filters. Code spans, code blocks, and existing links stay
+unchanged. Missing references show a quiet error. An unattached reference opens
+its current file without guessing a passage or opening original context. The
+copy icon beside each expanded thread number copies its `#123` reference.
 
 Drag the discussions divider to resize it; the width persists. Collapse a thread
 with its chevron and reopen it with its comment icon. The header also has collapse-all

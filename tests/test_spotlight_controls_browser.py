@@ -25,7 +25,7 @@ def test_spotlight_arrows_keep_sidebar_focus_drafts_and_search_position(workspac
     ws.update_thread(closed['id'], resolved=True)
     page.goto(url); open_file(page, 'note.md')
     search = page.locator('#thread-search'); before = search.bounding_box()['y']
-    expect(page.locator('#thread-total')).to_have_text('4 threads total')
+    expect(page.locator('#thread-total')).to_have_text('4 threads · 3 open · 1 closed')
     card = lambda i: page.locator(f'.thread[data-thread="{threads[i]["id"]}"]')
     card(0).locator('.comment-markdown p').click()
     expect(page.locator('#passage-spotlight')).to_be_visible()
@@ -143,7 +143,7 @@ def test_spotlight_cross_file_arrows_follow_scope_and_keep_drafts(workspace_page
     first_card.click(position={'x':4, 'y':4}); first_card.focus(); page.keyboard.press('ArrowRight')
     expect(page.locator('#document-name')).to_have_text('a.txt')
     page.keyboard.press('Escape'); page.locator('#thread-scope').check()
-    expect(page.locator('#thread-total')).to_have_text('2 threads total')
+    expect(page.locator('#thread-total')).to_have_text('2 threads · 2 open · 0 closed')
     first_card.click(position={'x':4, 'y':4}); first_card.locator('textarea').fill('Keep my reply')
     first_card.focus(); page.keyboard.press('ArrowRight')
     expect(page.locator('#document-name')).to_have_text('b.txt')

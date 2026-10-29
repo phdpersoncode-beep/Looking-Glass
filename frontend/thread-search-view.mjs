@@ -1,4 +1,5 @@
 import {createThreadSearch} from './thread-search.mjs';
+import {threadEligible} from './app-state.mjs';
 
 export function createThreadSearchView(sidebar,{onInput,onOpen,onRefresh,loadIndex}) {
   const input=sidebar.querySelector('#thread-search'),clear=sidebar.querySelector('#thread-search-clear');
@@ -55,12 +56,12 @@ export function createThreadSearchView(sidebar,{onInput,onOpen,onRefresh,loadInd
     const button=event.target.closest('.thread-search-match');
     if(button){event.preventDefault();onOpen(Number(button.closest('.thread').dataset.thread));}
   });
-  function update(threads,spotlight,showResolved,nextContext=null){
+  function update(threads,spotlight,showResolved,nextContext=null,showUnattached=true){
     if(context!==nextContext){context=nextContext;globalThreads=[];globalSearch=()=>[];hintTag=null;hintTime=0;hintLoading=false;}
     if(indexed!==threads){indexed=threads;search=createThreadSearch(threads);}
     const query=input.value.trim(),enabled=!!query&&!spotlight;
     const back=sidebar.querySelector('#all-discussions');back.firstChild.textContent=query?'Search results ':'All discussions ';back.title=(query?'Search results':'All discussions')+' (Esc)';
-    const ids=new Set(threads.filter(t=>showResolved||!t.resolved).map(t=>t.id));
+    const ids=new Set(threads.filter(t=>threadEligible(t,{showResolved,showUnattached})).map(t=>t.id));
     results=query?search(query).filter(result=>ids.has(result.id)):[];
     clear.hidden=!input.value;status.hidden=!enabled;empty.hidden=!enabled||!!results.length;
     status.textContent=`${results.length} ${results.length===1?'match':'matches'} · Best matches first`;
@@ -75,6 +76,8 @@ export function createThreadSearchView(sidebar,{onInput,onOpen,onRefresh,loadInd
       for(const id of found){const t=byId.get(id);if(!t)continue;const outside=!scope.checked&&!localIds.has(id),hiddenResolved=t.resolved&&!showResolved;
         if(outside&&hiddenResolved)both++;else if(outside)elsewhere++;else if(hiddenResolved)closed++;
       }
+      const unattached=search(query).filter(result=>{const t=byId.get(result.id);return t&&!showUnattached&&t.anchor_status!=='attached'&&(showResolved||!t.resolved);}).length;
+      if(unattached){const button=document.createElement('button');button.type='button';button.textContent=`${unattached} ${unattached===1?'match':'matches'} in unattached threads`;button.onclick=()=>sidebar.querySelector('#show-unattached').click();hints.append(button);}
       hint(elsewhere,'in other files',true,false);hint(closed,'in resolved threads',false,true);hint(both,'in resolved threads in other files',true,true);
       if(!scope.checked)refreshHints();
     }
