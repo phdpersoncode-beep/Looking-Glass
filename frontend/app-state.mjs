@@ -5,7 +5,7 @@ import {createThreadSearch} from './thread-search.mjs';
 const searchIndexes = new WeakMap();
 export function threadEligible(thread, state) {
   return (state.showResolved || !thread.resolved) &&
-    (state.showUnattached !== false || thread.anchor_status === 'attached');
+    (!state.onlyUnattached || thread.anchor_status !== 'attached');
 }
 export function selectVisibleThreads(state) {
   if (state.spotlight) return state.threads.filter(t => state.spotlightIds.includes(t.id));
@@ -20,7 +20,7 @@ export function selectVisibleThreads(state) {
 export function initialAppState(preferences = {}) {
   return {displayedDocument: null, requestedDocument: null, focusedThread: null, requestedThread: null,
     spotlight: null, spotlightIds: [], threads: [], searchQuery: '', scope: 'file',
-    showResolved: false, showUnattached: true, zen: false, reviewPreference: false, ...preferences};
+    showResolved: false, onlyUnattached: false, zen: false, reviewPreference: false, ...preferences};
 }
 
 export function selectThreadSequence(state) {
@@ -82,7 +82,11 @@ export function transition(state, event) {
       if(event.availableIds&&!event.availableIds.includes(next.focusedThread))next.focusedThread=null;
       break;
     }
-    case 'FILTERS_CHANGED': next = reconcileFocus({...state, ...event.filters}); break;
+    case 'FILTERS_CHANGED': {
+      const leaveSpotlight = event.filters.onlyUnattached !== undefined && event.filters.onlyUnattached !== state.onlyUnattached;
+      next = reconcileFocus({...state, ...event.filters, ...(leaveSpotlight ? {spotlight: null, spotlightIds: []} : {})});
+      break;
+    }
     case 'ZEN_CHANGED': next = reconcileFocus({...state, zen: event.value}); break;
     case 'REVIEW_PREFERENCE_CHANGED': next = {...state, reviewPreference: event.value}; break;
     case 'DOCUMENT_REQUESTED': next = {...state, requestedDocument: event.path}; break;

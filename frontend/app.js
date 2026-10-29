@@ -776,7 +776,7 @@ async function getNavigationIndex(){
   return navigationIndex;
 }
 function filterThreads(){
-  threadSearch.update(appStore.state.threads,threadSpotlight.active,$('#show-resolved').checked,discussionReview(),appStore.state.showUnattached);
+  threadSearch.update(appStore.state.threads,threadSpotlight.active,$('#show-resolved').checked,discussionReview(),appStore.state.onlyUnattached);
   const visible=new Set(selectVisibleThreads(appStore.state).map(t=>t.id));
   $$('.thread').forEach(t=>{
     const id=Number(t.dataset.thread);
@@ -788,7 +788,7 @@ function filterThreads(){
   });
 }
 appStore.subscribe((state,previous,event)=>{
-  if(state.threads===previous.threads&&state.focusedThread===previous.focusedThread&&state.spotlight===previous.spotlight&&state.zen===previous.zen&&state.searchQuery===previous.searchQuery&&state.scope===previous.scope&&state.showResolved===previous.showResolved&&state.showUnattached===previous.showUnattached)return;
+  if(state.threads===previous.threads&&state.focusedThread===previous.focusedThread&&state.spotlight===previous.spotlight&&state.zen===previous.zen&&state.searchQuery===previous.searchQuery&&state.scope===previous.scope&&state.showResolved===previous.showResolved&&state.onlyUnattached===previous.onlyUnattached)return;
   if(state.focusedThread!==previous.focusedThread)zenCollapsed=false;
   threadSpotlight.capture();filterThreads();threadSpotlight.render();
   if(state.focusedThread!==previous.focusedThread){zenCollapsed=false;previewThreads();refreshMarkdownHighlights();if(view&&event.origin!=='sidebar-navigation'&&!event.activation)view.dispatch({effects:threadFocusEffect.of(state.focusedThread)});}
@@ -1426,7 +1426,7 @@ function visibleThreadIds(){return $$('.thread').filter(t=>!t.hidden).map(t=>Num
 $('#collapse-threads').onclick=guard(async()=>{if(contextVisit)await returnFromOriginal();if(appStore.state.zen)zenCollapsed=true;else for(const id of visibleThreadIds())collapsedThreads.add(id);rememberCollapsed();filterThreads();});
 $('#expand-threads').onclick=()=>{for(const id of visibleThreadIds())collapsedThreads.delete(id);rememberCollapsed();filterThreads();};
 $('#previous').onclick=guard(()=>navigate(-1));$('#next').onclick=guard(()=>navigate(1));$('#show-resolved').onchange=()=>{cancelSidebarNavigation();appStore.dispatch({type:'FILTERS_CHANGED',filters:{showResolved:$('#show-resolved').checked}});};
-$('#show-unattached').onchange=()=>{cancelSidebarNavigation();appStore.dispatch({type:'FILTERS_CHANGED',filters:{showUnattached:$('#show-unattached').checked}});};
+$('#only-unattached').onchange=()=>{cancelSidebarNavigation();appStore.dispatch({type:'FILTERS_CHANGED',filters:{onlyUnattached:$('#only-unattached').checked}});};
 $('#thread-scope').checked=localStorage.getItem('looking-glass-thread-scope:'+root)==='all';
 $('#thread-scope').onchange=guard(async()=>{cancelSidebarNavigation();appStore.dispatch({type:'FILTERS_CHANGED',filters:{scope:$('#thread-scope').checked?'all':'file'}});clearSpotlight();localStorage.setItem('looking-glass-thread-scope:'+root,threadScope());await refreshThreads(true);});
 async function setMode(value){const e=entry();if(!e||e.mode===value)return;syncState();e.mode=value;view?.destroy();view=null;cleanup();cleanup=()=>{};mountDocument(e);await e.ready;await refreshThreads();remember();}

@@ -25,12 +25,20 @@ def test_thread_search_index_is_lean_authenticated_cached_and_never_reads_files(
     data=response.json;assert [item['id'] for item in data]==[t['id'],other['id']]
     assert data[0]['messages']==[{'body':'Review'},{'body':'Second message'}]
     assert data[1]['resolved'] is True
-    assert all(set(item)=={'id','path','quote','resolved','messages'} for item in data)
+    assert all(set(item)=={'id','path','quote','resolved','anchor_status','messages'} for item in data)
+    assert all(item['anchor_status']=='attached' for item in data)
     conditional={**h,'If-None-Match':response.headers['ETag']}
     assert c.get('/api/thread-search-index',headers=conditional).status_code==304
     with ws.connection() as db:
         db.execute('UPDATE threads SET resolved=0 WHERE id=?',(other['id'],))
-    assert c.get('/api/thread-search-index',headers=conditional).status_code==200
+    refreshed=c.get('/api/thread-search-index',headers=conditional)
+    assert refreshed.status_code==200
+    conditional={**h,'If-None-Match':refreshed.headers['ETag']}
+    with ws.connection() as db:
+        db.execute("UPDATE threads SET anchor_status='needs_reattachment' WHERE id=?",(t['id'],))
+    changed=c.get('/api/thread-search-index',headers=conditional)
+    assert changed.status_code==200
+    assert changed.json[0]['anchor_status']=='needs_reattachment'
 
 def test_search_index_respects_review_visibility_and_passage_versions(api,monkeypatch):
     root,ws,c,h,t=api
@@ -48,8 +56,17 @@ def test_search_index_respects_review_visibility_and_passage_versions(api,monkey
         assert reviewed.status_code==200
         assert [item['id'] for item in reviewed.json]==[t['id'],only['id']]
         assert reviewed.json[0]['quote']=='A draft passage'
+        assert reviewed.json[0]['anchor_status']=='attached'
         assert reviewed.json[1]['messages']==[{'body':'Draft-only comment'}]
         assert c.get(f'/api/thread-search-index?review={draft["id"]}',headers={**h,'If-None-Match':reviewed.headers['ETag']}).status_code==304
+    with ws.connection() as db:
+        db.execute("UPDATE review_anchors SET anchor_status='needs_reattachment' WHERE review_id=? AND thread_id=?",(draft['id'],t['id']))
+    assert c.get('/api/thread-search-index',headers=h).json[0]['anchor_status']=='attached'
+    changed=c.get(f'/api/thread-search-index?review={draft["id"]}',headers={**h,'If-None-Match':reviewed.headers['ETag']})
+    assert changed.status_code==200
+    assert changed.json[0]['anchor_status']=='needs_reattachment'
+    with ws.connection() as db:
+        db.execute("UPDATE review_anchors SET anchor_status='attached' WHERE review_id=? AND thread_id=?",(draft['id'],t['id']))
     ws.reviews.approve(draft['id'],draft['version'])
     promoted=c.get('/api/thread-search-index',headers=h).json
     assert [item['id'] for item in promoted]==[t['id'],only['id']]

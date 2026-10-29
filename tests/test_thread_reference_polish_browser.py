@@ -62,8 +62,6 @@ def test_thread_references_open_target_file_and_preserve_drafts(workspace_page, 
     source = ws.create_thread('from.md', 0, 6, body, 'Reviewer', ws.read('from.md')['version'])
     page.add_init_script('Object.defineProperty(navigator,"clipboard",{value:{writeText:async text=>window.copiedReference=text}})')
     page.goto(url); open_file(page, 'from.md')
-    if target_kind == 'unattached':
-        page.locator('#show-unattached').uncheck()
     card = page.locator(f'.thread[data-thread="{source["id"]}"]')
     expect(card.locator('a[data-thread-reference]')).to_have_text([f'#{target["id"]}', '#999999'])
     expect(card.locator('a[href="https://example.com"]')).to_have_count(2)
@@ -112,16 +110,34 @@ def test_horizontal_filters_counts_search_and_copy_keep_thread_state(workspace_p
         page.add_style_tag(content='.thread-filters label{font-family:monospace}')
     expect(page.locator('#thread-total')).to_have_text('3 threads · 2 open · 1 closed')
     lost_card = page.locator(f'.thread[data-thread="{lost["id"]}"]')
-    expect(lost_card).to_be_visible()
-    page.locator('#show-unattached').uncheck(); expect(lost_card).not_to_be_visible()
-    page.locator('#thread-search').fill('zebra')
+    first_card = page.locator(f'.thread[data-thread="{first["id"]}"]')
+    closed_card = page.locator(f'.thread[data-thread="{closed["id"]}"]')
+    only_unattached = page.get_by_role('checkbox', name='Only unattached', exact=True)
+    expect(only_unattached).not_to_be_checked()
+    expect(lost_card).to_be_visible(); expect(first_card).to_be_visible()
+    first_card.locator('[data-action=jump]').first.click()
+    first_card.locator('textarea').fill('Keep this draft across filters')
+    expect(page.locator('#passage-spotlight')).to_be_visible()
+    page.locator('#all-discussions').click()
+    only_unattached.check()
+    expect(page.locator('#passage-spotlight')).not_to_be_visible()
+    expect(lost_card).to_be_visible(); expect(first_card).not_to_be_visible()
+    page.locator('#thread-search').fill(f'#{first["id"]}')
     expect(page.locator('#thread-search-status')).to_contain_text('0 matches')
-    page.get_by_role('button', name='1 match in unattached threads', exact=True).click()
+    page.get_by_role('button', name='1 match in attached threads', exact=True).click()
+    expect(only_unattached).not_to_be_checked()
+    expect(first_card).to_be_visible()
+    page.locator('#thread-search').fill('zebra')
+    only_unattached.check()
     expect(lost_card).to_be_visible()
     expect(page.locator('#thread-search-status')).to_contain_text('1 match')
     page.locator('#thread-search-clear').click()
     page.locator('#show-resolved').check()
-    page.locator(f'.thread[data-thread="{closed["id"]}"] [data-action=resolve]').click()
+    expect(closed_card).not_to_be_visible()
+    only_unattached.uncheck()
+    expect(lost_card).to_be_visible(); expect(first_card).to_be_visible(); expect(closed_card).to_be_visible()
+    expect(first_card.locator('textarea')).to_have_value('Keep this draft across filters')
+    closed_card.locator('[data-action=resolve]').click()
     expect(page.locator('#thread-total')).to_have_text('3 threads · 3 open · 0 closed')
     for width in [1440, 900]:
         page.set_viewport_size({'width': width, 'height': 850})
@@ -144,6 +160,52 @@ def test_horizontal_filters_counts_search_and_copy_keep_thread_state(workspace_p
 
 
 @pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_only_unattached_filters_cross_file_navigation_and_resolved_threads(workspace_page):
+    root, page, url, ws = workspace_page
+    attached, lost = [], []
+    for name in ['a.txt', 'b.txt']:
+        (root/name).write_text('Keep passage.\n\nLost passage.')
+        version = ws.read(name)['version']
+        attached.append(ws.create_thread(name, 0, 4, 'Attached feedback', 'Reviewer', version))
+        lost.append(ws.create_thread(name, 15, 28, 'Lost feedback', 'Reviewer', version))
+        if name == 'a.txt':
+            closed = ws.create_thread(name, 15, 28, 'Closed lost feedback', 'Reviewer', version)
+            ws.update_thread(closed['id'], resolved=True)
+        (root/name).write_text('Keep passage.')
+        ws.read(name)
+    page.goto(url); open_file(page, 'a.txt')
+    page.locator('#only-unattached').check()
+    expect(page.locator('#threads>.thread:visible')).to_have_count(1)
+    expect(page.locator(f'.thread[data-thread="{lost[0]["id"]}"]')).to_be_visible()
+    page.locator('#show-resolved').check()
+    expect(page.locator(f'.thread[data-thread="{closed["id"]}"]')).to_be_visible()
+    page.locator('#show-resolved').uncheck()
+    page.locator('#thread-scope').check()
+    expect(page.locator('#threads>.thread:visible')).to_have_count(2)
+    for target in [lost[0], lost[1], lost[0]]:
+        page.locator('#next').click()
+        expect(page.locator('.thread.active')).to_have_attribute('data-thread', str(target['id']))
+        # Unattached navigation focuses feedback without guessing a passage.
+        expect(page.locator('#document-name')).to_have_text('a.txt')
+        expect(page.locator('#only-unattached')).to_be_checked()
+        for thread in attached:
+            expect(page.locator(f'.thread[data-thread="{thread["id"]}"]')).not_to_be_visible()
+    page.locator('#only-unattached').uncheck()
+    expect(page.locator('#threads>.thread:visible')).to_have_count(4)
+    # Search hints clear every filter needed to reveal an attached, resolved match.
+    ws.update_thread(attached[1]['id'], resolved=True)
+    page.locator('#only-unattached').check()
+    page.locator('#thread-scope').uncheck()
+    page.locator('#thread-search').fill(f'#{attached[1]["id"]}')
+    page.get_by_role('button', name='1 match in resolved attached threads in other files', exact=True).click()
+    expect(page.locator('#only-unattached')).not_to_be_checked()
+    expect(page.locator('#show-resolved')).to_be_checked()
+    expect(page.locator('#thread-scope')).to_be_checked()
+    expect(page.locator(f'.thread[data-thread="{attached[1]["id"]}"]')).to_be_visible()
+    expect(page.locator('#thread-search-status')).to_contain_text('1 match')
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
 def test_new_reference_or_file_navigation_supersedes_pending_reference(workspace_page):
     root, page, url, ws = workspace_page
     targets = []
@@ -154,9 +216,11 @@ def test_new_reference_or_file_navigation_supersedes_pending_reference(workspace
     ws.create_thread('from.md', 0, 6, f'Compare #{targets[0]["id"]} and #{targets[1]["id"]}', 'Reviewer', ws.read('from.md')['version'])
     page.goto(url); open_file(page, 'from.md')
     held = []
+    page.expose_function('referenceRequestHeld', lambda: bool(held))
     page.route(f'**/api/threads/{targets[0]["id"]}', lambda route: held.append(route))
     for navigate_file in [False, True]:
         page.locator(f'a[data-thread-reference="{targets[0]["id"]}"]').click()
+        page.wait_for_function('() => window.referenceRequestHeld()')
         assert held
         if navigate_file:
             open_file(page, 'b.txt')

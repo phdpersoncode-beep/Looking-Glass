@@ -3,17 +3,42 @@ import assert from 'node:assert/strict';
 import {initialAppState, transition, selectVisibleThreads, selectThreadSequence, nextOpenThread, createAppStore} from '../frontend/app-state.mjs';
 const thread = (id, start = 0, end = 12, more = {}) => ({id, start, end, path: 'note.txt', quote: 'passage', anchor_kind: 'source', anchor_status: 'attached', messages: [], resolved: false, ...more});
 
-test('unattached visibility composes with resolved, search, navigation, and explicit spotlight', () => {
+test('only unattached defaults off and composes with resolved, search, navigation, and spotlight', () => {
   const threads = [thread(1), thread(2, 20, 30, {quote: 'lost passage', anchor_status: 'needs_reattachment'}),
-    thread(3, 40, 50, {resolved: true, anchor_status: 'needs_reattachment'})];
+    thread(3, 40, 50, {resolved: true, anchor_status: 'needs_reattachment'}), thread(4, 60, 70, {resolved: true})];
   let state = {...initialAppState(), threads};
+  assert.equal(state.onlyUnattached, false);
   assert.deepEqual(selectVisibleThreads(state).map(t => t.id), [1, 2]);
-  state = transition(state, {type: 'FILTERS_CHANGED', filters: {showUnattached: false, showResolved: true}}).state;
-  assert.deepEqual(selectThreadSequence(state).map(t => t.id), [1]);
-  state = transition(state, {type: 'FILTERS_CHANGED', filters: {searchQuery: '#2'}}).state;
-  assert.deepEqual(selectVisibleThreads(state), []);
-  state = transition(state, {type: 'THREAD_ACTIVATED', threadId: 2, spotlight: true}).state;
+  state = transition(state, {type: 'THREAD_ACTIVATED', threadId: 1, spotlight: true}).state;
+  state = transition(state, {type: 'FILTERS_CHANGED', filters: {onlyUnattached: true}}).state;
+  assert.equal(state.spotlight, null);
   assert.deepEqual(selectVisibleThreads(state).map(t => t.id), [2]);
+  assert.deepEqual(selectThreadSequence(state).map(t => t.id), [2]);
+  assert.equal(nextOpenThread(state, 1).id, 2);
+  state = transition(state, {type: 'FILTERS_CHANGED', filters: {showResolved: true}}).state;
+  assert.deepEqual(selectVisibleThreads(state).map(t => t.id), [2, 3]);
+  state = transition(state, {type: 'FILTERS_CHANGED', filters: {searchQuery: '#1'}}).state;
+  assert.deepEqual(selectVisibleThreads(state), []);
+  // Explicit references can still inspect a thread without changing filters.
+  state = transition(state, {type: 'THREAD_ACTIVATED', threadId: 1, spotlight: true}).state;
+  assert.deepEqual(selectVisibleThreads(state).map(t => t.id), [1]);
+  state = transition(state, {type: 'FILTERS_CHANGED', filters: {onlyUnattached: false}}).state;
+  assert.equal(state.spotlight, null);
+  assert.deepEqual(selectVisibleThreads(state).map(t => t.id), [1]);
+  state = transition(state, {type: 'FILTERS_CHANGED', filters: {searchQuery: ''}}).state;
+  assert.deepEqual(selectThreadSequence(state).map(t => t.id), [1, 2, 3, 4]);
+});
+
+test('only unattached reconciles zen focus and reattached threads leave the filtered list', () => {
+  let state = {...initialAppState({zen: true}), threads: [thread(1), thread(2, 20, 30, {anchor_status: 'needs_reattachment'})], focusedThread: 1};
+  state = transition(state, {type: 'FILTERS_CHANGED', filters: {onlyUnattached: true}}).state;
+  assert.equal(state.focusedThread, 2);
+  state = transition(state, {type: 'THREADS_RECEIVED', threads: [thread(1), thread(2, 20, 30)]}).state;
+  assert.deepEqual(selectVisibleThreads(state), []);
+  assert.equal(state.focusedThread, null);
+  state = transition(state, {type: 'FILTERS_CHANGED', filters: {onlyUnattached: false}}).state;
+  assert.deepEqual(selectVisibleThreads(state).map(t => t.id), [1, 2]);
+  assert.equal(state.focusedThread, 1);
 });
 
 test('highlight inspection has no reveal effect; repeated card activation does', () => {
