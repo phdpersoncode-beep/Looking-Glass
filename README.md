@@ -118,6 +118,11 @@ corners in live Markdown and preview; blockquotes use a quiet rule, upright text
 and a subtle themed background. Bare square brackets such as `[0, 1]` stay literal;
 explicit Markdown links and references with definitions keep their link styling.
 
+Your author name defaults to **User**. Use the pen icon beside the discussion
+collapse/expand controls to change it in a small popover. **Save** remembers the
+name for the current project in this browser; Cancel, Escape, or clicking outside
+leaves it unchanged. New comments, replies, and human review edits use that name.
+
 Use **×** beside a comment to delete that comment. **Delete thread** removes the
 whole discussion and its highlight. Deleting the last comment also removes its thread.
 The application asks for confirmation before deletion. Turn on **Across files** above
@@ -140,6 +145,8 @@ unchanged. Missing references show a quiet error. An unattached reference opens
 its current file without guessing a passage or opening original context. The
 copy icon beside each expanded thread number copies its `#123` reference.
 
+Both sidebars use stacked-panel minus/plus icons to collapse/expand all folders
+or threads, and panel icons to hide/show the sidebar itself.
 Drag the discussions divider to resize it; the width persists. Collapse a thread
 with its chevron and reopen it with its comment icon. The header also has collapse-all
 and expand-all controls. **Zen mode** (top-bar button or **Ctrl+Alt+Z**, **Cmd+Alt+Z**

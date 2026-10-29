@@ -44,6 +44,8 @@ import {SVGRenderer} from 'three/addons/renderers/SVGRenderer.js';
 const $ = selector => document.querySelector(selector);
 const token = $('meta[name=looking-glass-token]').content;
 const root = $('.root-label').textContent;
+const authorKey='looking-glass-author:'+root;
+let authorName=localStorage.getItem(authorKey)?.trim()||'User';
 const appStore=createAppStore({zen:localStorage.getItem('looking-glass-zen')==='true',reviewPreference:localStorage.getItem('looking-glass-review-mode:'+root)==='true',scope:localStorage.getItem('looking-glass-thread-scope:'+root)||'file'});
 const threadSpotlight=createThreadSpotlight($('.discussion-sidebar'),()=>appStore.state);
 function clearSpotlight(){appStore.dispatch({type:'SPOTLIGHT_CLEARED'});}
@@ -438,7 +440,7 @@ function highlightMarkdown(preview){
 function language(path){switch(ext(path)){case'md':case'markdown':return markdown({extensions:[TaskList,Table],codeLanguages:codeLanguage});case'py':return python();case'sh':case'bash':return shellLanguage;case'html':case'htm':return html();case'json':return json();case'yaml':case'yml':case'toml':return codeLanguage(ext(path));default:return [];}}
 function makeState(e){
   const tracked=e.workMode==='review'&&e.review;
-  if(tracked)e.reviewField=reviewTracking({...e.review,segments:e.reviewSegments||e.review.segments},()=>({author:$('#author').value||'Altay',role:'human',at:new Date().toISOString()}));
+  if(tracked)e.reviewField=reviewTracking({...e.review,segments:e.reviewSegments||e.review.segments},()=>({author:authorName,role:'human',at:new Date().toISOString()}));
   const docPath=e.sourcePath||e.path,prose=['md','markdown','txt'].includes(ext(docPath));
   return EditorState.create({doc:e.content,extensions:[EditorState.lineSeparator.of(e.diskContent.includes('\r\n')?'\r\n':'\n'),basicSetup,language(docPath),workLockSlot.of(EditorState.readOnly.of(changingWorkMode)),...(tracked?[e.reviewField]:[]),...(e.kind==='original'?[EditorState.readOnly.of(true),EditorView.editable.of(false)]:[]),syntaxHighlighting(colors),spanField,threadFocusField,gitField,gitSlot.of([]),
     themeSlot.of(theme()),liveSlot.of(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables,textSelection]:[]),
@@ -634,7 +636,7 @@ async function saveActive(){
 }
 
 function reviewSync(e){
-  return e.reviewSync??=createReviewSync(e,{api,metadata:()=>({author:$('#author').value||'Altay',role:'human',at:new Date().toISOString()}),changed:()=>{updateToolbar();renderTabs();},error:error=>notify('Review draft preserved locally: '+error.message,true),
+  return e.reviewSync??=createReviewSync(e,{api,metadata:()=>({author:authorName,role:'human',at:new Date().toISOString()}),changed:()=>{updateToolbar();renderTabs();},error:error=>notify('Review draft preserved locally: '+error.message,true),
     saved:async segments=>{if(e.path===appStore.state.displayedDocument&&view&&e.reviewField){view.dispatch({effects:reviewEffect.of(segments)});e.state=view.state;}else if(e.state&&e.reviewField)e.state=e.state.update({effects:reviewEffect.of(segments)}).state;if(e.path===appStore.state.displayedDocument){refreshMarkdownHighlights();await refreshThreads();}},
     remote:(draft,before)=>applyRemoteReview(e,draft,before),concluded:async()=>{if(entry()===e)return setWorkMode('edit');const change=await prepareWorkMode(e,'edit',modePorts);change.commit();renderTabs();}});
 }
@@ -951,7 +953,7 @@ async function startComment(){
 }
 async function submitComment(event){
   event.preventDefault();if(!pending||postingComment)return;
-  const selection=pending,body=$('#comment-body').value,author=$('#author').value;
+  const selection=pending,body=$('#comment-body').value,author=authorName;
   if(selection.path!==appStore.state.displayedDocument||selection.content!==selectedContent(selection))throw new Error('The document changed. Select the passage again before commenting.');
   postingComment=true;composers.setSending($('#comment-form'),true);
   try{
@@ -1237,6 +1239,7 @@ document.addEventListener('focusin',event=>{if(appStore.state.requestedThread!==
 document.addEventListener('scroll',scheduleSelectionTools,true);
 window.addEventListener('resize',()=>{scheduleSelectionTools();if($('#comment-dialog').open){const location=selectionLocation();if(location)placeNearSelection($('#comment-dialog'),location);}});
 document.addEventListener('keydown',event=>{
+  if(event.target.closest?.('#author-popover'))return;
   passagePosition=null;
   if(event.key==='Escape'){passageActivation++;pressedPassage=null;}
   // Let the focused navigation panel consume Escape before context/spotlight.
@@ -1373,7 +1376,7 @@ document.addEventListener('submit',event=>{
     const id=Number(form.closest('.thread').dataset.thread),field=form.querySelector('textarea'),body=field.value;
     composers.setSending(form,true);composers.status(form,'Sending…');
     try{
-      await composers.post('threads/'+id+'/replies',{author:$('#author').value,body,...(discussionReview()?{review_id:discussionReview()}: {})},form);
+      await composers.post('threads/'+id+'/replies',{author:authorName,body,...(discussionReview()?{review_id:discussionReview()}: {})},form);
       composers.complete(form,body);
       await refreshThreads();filterThreads();notify('Reply added');
     }catch(error){composers.status(form,error.message,true);throw error;}
@@ -1414,7 +1417,7 @@ $('#review-merge-form').onsubmit=event=>{
   event.preventDefault();const form=event.currentTarget;guard(async()=>{const e=entry(),latest=form._draft;
   if(latest.id!==e.review?.id)throw new Error('Open the reviewed file before finishing this comparison.');
   const content=$('#merged-review').value,operations=differenceOperations(latest.content,content);
-  const saved=operations.length?await api('reviews/'+latest.id,'PATCH',{version:latest.version,operations,author:$('#author').value||'Altay',role:'human'}):latest;
+  const saved=operations.length?await api('reviews/'+latest.id,'PATCH',{version:latest.version,operations,author:authorName,role:'human'}):latest;
   reviewSync(e).adopt(saved);e.state=null;
   view?.destroy();view=null;cleanup();cleanup=()=>{};mountDocument(e);$('#review-merge-dialog').close();await refreshThreads();updateToolbar();renderTabs();
 })();};
@@ -1477,6 +1480,7 @@ $('#explorer-toggle').onclick=()=>setExplorerHidden(!explorerHidden,true);
 setExplorerHidden(explorerHidden);
 let discussionsHidden=localStorage.getItem('looking-glass-discussions-hidden')==='true';
 function setDiscussionsHidden(hidden,focus=false){
+  if(hidden&&$('#author-popover').matches(':popover-open'))$('#author-popover').hidePopover();
   if(hidden&&contextVisit)guard(returnFromOriginal)();
   if(hidden){cancelSidebarNavigation();clearSpotlight();}
   discussionsHidden=hidden;document.body.classList.toggle('discussions-hidden',hidden);
@@ -1506,7 +1510,20 @@ $('#quick-query').oninput=()=>{quickIndex=0;renderQuickResults();};
 $('#quick-query').onkeydown=event=>{if(['ArrowDown','ArrowUp'].includes(event.key)){event.preventDefault();quickIndex=(quickIndex+(event.key==='ArrowDown'?1:-1)+quickMatches.length)%Math.max(1,quickMatches.length);renderQuickResults();}if(event.key==='Enter'){event.preventDefault();$('#quick-results .selected')?.click();}};
 $('#agent-open').onclick=guard(async()=>{const result=await api('agent-instructions');$('#agent-instructions').value=result.instructions;$('#agent-dialog').showModal();});
 $('#agent-copy').onclick=guard(async()=>{await navigator.clipboard.writeText($('#agent-instructions').value);notify('Agent instructions copied');$('#agent-dialog').close();});
-$('#author').value=localStorage.getItem('looking-glass-author')||'Altay';$('#author').onchange=()=>localStorage.setItem('looking-glass-author',$('#author').value);
+function placeAuthorPopover(){
+  const popover=$('#author-popover');if(!popover.matches(':popover-open'))return;
+  const button=$('#author-edit').getBoundingClientRect(),sidebar=$('#discussion-sidebar').getBoundingClientRect(),width=popover.getBoundingClientRect().width;
+  popover.style.left=Math.max(12,Math.min(sidebar.right-width-12,innerWidth-width-12))+'px';
+  popover.style.top=Math.max(12,Math.min(button.bottom+8,innerHeight-popover.getBoundingClientRect().height-12))+'px';
+}
+$('#author-popover').addEventListener('beforetoggle',event=>{if(event.newState==='open')$('#author').value=authorName;});
+$('#author-popover').addEventListener('toggle',event=>{if(event.newState==='open'){placeAuthorPopover();$('#author').focus({preventScroll:true});$('#author').select();}});
+$('#author-form').onsubmit=event=>{
+  event.preventDefault();authorName=$('#author').value.trim()||'User';
+  localStorage.setItem(authorKey,authorName);$('#author-popover').hidePopover();$('#author-edit').focus({preventScroll:true});
+};
+window.addEventListener('resize',placeAuthorPopover);
+$('#author-edit').disabled=false;
 $('#reload-disk').onclick=guard(async()=>{
   const e=entry();if(!e)return;if(e.dirty&&!confirm('Discard your unsaved edits and reload the current disk file?'))return;const disk=await api('file?'+new URLSearchParams({path:e.path}));e.content=disk.content;e.diskContent=disk.content;e.version=disk.version;e.dirty=false;e.conflict=null;e.state=null;view?.destroy();view=null;mountDocument(e);await refreshThreads();renderTabs();notify('Reloaded from disk');
 });
