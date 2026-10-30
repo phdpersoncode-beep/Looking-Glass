@@ -1517,7 +1517,14 @@ function placeAuthorPopover(){
   popover.style.top=Math.max(12,Math.min(button.bottom+8,innerHeight-popover.getBoundingClientRect().height-12))+'px';
 }
 $('#author-popover').addEventListener('beforetoggle',event=>{if(event.newState==='open')$('#author').value=authorName;});
-$('#author-popover').addEventListener('toggle',event=>{if(event.newState==='open'){placeAuthorPopover();$('#author').focus({preventScroll:true});$('#author').select();}});
+$('#author-edit').onclick=event=>{
+  event.preventDefault();
+  const popover=$('#author-popover');
+  if(popover.matches(':popover-open')){popover.hidePopover();return;}
+  // Position in the opening task: toggle is queued after native autofocus and
+  // can otherwise expose the previous position when reopening after a resize.
+  popover.showPopover();placeAuthorPopover();$('#author').focus({preventScroll:true});$('#author').select();
+};
 $('#author-form').onsubmit=event=>{
   event.preventDefault();authorName=$('#author').value.trim()||'User';
   localStorage.setItem(authorKey,authorName);$('#author-popover').hidePopover();$('#author-edit').focus({preventScroll:true});

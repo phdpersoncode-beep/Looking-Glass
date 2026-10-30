@@ -28,6 +28,8 @@ def test_author_popover_defaults_cancel_and_comment_reply_review_attribution(wor
     expect(page.locator('#discussion-sidebar input[type=text]')).to_have_count(0)
     expect(page.locator('#author-popover')).not_to_be_visible()
     pen.click(); expect(name).to_have_value('User'); expect(name).to_be_focused()
+    pen.click(); expect(page.locator('#author-popover')).not_to_be_visible()
+    pen.click(); expect(name).to_have_value('User'); expect(name).to_be_focused()
     name.fill('Discard this name'); name.press('Escape')
     expect(page.locator('#author-popover')).not_to_be_visible(); expect(pen).to_be_focused()
     card = page.locator(f'.thread[data-thread="{thread["id"]}"]')
@@ -109,9 +111,14 @@ def test_sidebar_controls_and_author_popover_fit_both_themes_and_narrow_panes(wo
                 boxes = page.locator(sidebar+' .panel-heading button').evaluate_all('els=>els.map(el=>{const r=el.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom}})')
                 assert all(box['left'] >= bounds['x'] and box['right'] <= bounds['x']+bounds['width'] for box in boxes)
                 assert all(first['right'] <= second['left'] for first, second in zip(boxes, boxes[1:]))
-            page.locator('#author-edit').click()
+            # Inspect in the opening task, before the queued toggle event. The
+            # first visible frame must not retain the wider viewport's position.
+            box = page.locator('#author-edit').evaluate('''button=>{
+                button.click();
+                const box=document.querySelector('#author-popover').getBoundingClientRect();
+                return {x:box.x,y:box.y,width:box.width,height:box.height};
+            }''')
             expect(page.locator('#author')).to_be_focused()
-            box = page.locator('#author-popover').bounding_box()
             assert box['x'] >= 0 and box['x']+box['width'] <= width
             assert box['y'] >= 0 and box['y']+box['height'] <= 850
             page.locator('#author').press('Escape')
