@@ -21,13 +21,13 @@ import {createThreadSpotlight} from './thread-spotlight.mjs';
 import {createThreadSearchView} from './thread-search-view.mjs';
 import {mountMarkdownContents} from './markdown-contents.mjs';
 import {createFileHistory,mountFileHistory} from './file-history.mjs';
+import {documentSearch,documentSearchShortcut} from './document-search.mjs';
 import {basicSetup} from 'codemirror';
 import {EditorState, StateEffect, StateField, Compartment, Text, RangeSet, Transaction} from '@codemirror/state';
 import {EditorView, Decoration, ViewPlugin, keymap, WidgetType, gutter, GutterMarker} from '@codemirror/view';
 import {Chunk,diff} from '@codemirror/merge';
 import {TaskList, Table} from '@lezer/markdown';
 import {undo, redo, indentWithTab, isolateHistory} from '@codemirror/commands';
-import {openSearchPanel} from '@codemirror/search';
 import {markdown} from '@codemirror/lang-markdown';
 import {python} from '@codemirror/lang-python';
 import {html} from '@codemirror/lang-html';
@@ -442,11 +442,11 @@ function makeState(e){
   const tracked=e.workMode==='review'&&e.review;
   if(tracked)e.reviewField=reviewTracking({...e.review,segments:e.reviewSegments||e.review.segments},()=>({author:authorName,role:'human',at:new Date().toISOString()}));
   const docPath=e.sourcePath||e.path,prose=['md','markdown','txt'].includes(ext(docPath));
-  return EditorState.create({doc:e.content,extensions:[EditorState.lineSeparator.of(e.diskContent.includes('\r\n')?'\r\n':'\n'),basicSetup,language(docPath),workLockSlot.of(EditorState.readOnly.of(changingWorkMode)),...(tracked?[e.reviewField]:[]),...(e.kind==='original'?[EditorState.readOnly.of(true),EditorView.editable.of(false)]:[]),syntaxHighlighting(colors),spanField,threadFocusField,gitField,gitSlot.of([]),
+  return EditorState.create({doc:e.content,extensions:[EditorState.lineSeparator.of(e.diskContent.includes('\r\n')?'\r\n':'\n'),basicSetup,documentSearch,language(docPath),workLockSlot.of(EditorState.readOnly.of(changingWorkMode)),...(tracked?[e.reviewField]:[]),...(e.kind==='original'?[EditorState.readOnly.of(true),EditorView.editable.of(false)]:[]),syntaxHighlighting(colors),spanField,threadFocusField,gitField,gitSlot.of([]),
     themeSlot.of(theme()),liveSlot.of(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables,textSelection]:[]),
     ...(prose?[EditorView.lineWrapping,EditorView.theme({'.cm-scroller':{fontFamily:'var(--prose)',fontSize:'var(--prose-font-size)'},'.cm-content':{maxWidth:'850px',margin:'0 auto',width:'100%',minWidth:'0'},'.cm-foldGutter':{display:'none'}})]:[]),
     EditorView.scrollHandler.of(editor=>passagePosition?.editor===editor),
-    keymap.of([{key:'Mod-s',run:()=>{guard(saveActive)();return true;}},{key:'Mod-Enter',run:()=>{guard(startComment)();return true;}},{key:'Mod-f',run:openSearchPanel},{key:'Mod-h',run:openSearchPanel},indentWithTab]),
+    keymap.of([{key:'Mod-s',run:()=>{guard(saveActive)();return true;}},{key:'Mod-Enter',run:()=>{guard(startComment)();return true;}},indentWithTab]),
     EditorView.updateListener.of(u=>{if(u.docChanged){if(tracked){if(!u.transactions.some(t=>t.effects.some(effect=>effect.is(remoteReview)))){for(const tr of u.transactions)if(tr.docChanged)queueReviewOperations(e,operationsFor(tr),u.state.field(e.reviewField).segments);scheduleReviewSave(e);}}e.content=u.state.sliceDoc();e.dirty=e.content!==e.diskContent;e.state=u.state;contentsController?.update();updateToolbar();renderTabs();}if(u.selectionSet)updateToolbar();if(u.selectionSet||u.docChanged||u.viewportChanged||u.geometryChanged)scheduleSelectionTools();})
   ]});
 }
@@ -1245,14 +1245,14 @@ document.addEventListener('keydown',event=>{
   // Let the focused navigation panel consume Escape before context/spotlight.
   if(event.key==='Escape'&&event.target.closest?.('#file-history[open],#code-outline[open]'))return;
   if((event.ctrlKey||event.metaKey)&&event.altKey&&!event.shiftKey&&event.key.toLowerCase()==='z'){event.preventDefault();event.stopPropagation();toggleZen();return;}
+  if(view&&event.target.closest?.('.document-panel')&&!document.querySelector('dialog:modal')&&documentSearchShortcut(view,event)){event.preventDefault();event.stopPropagation();return;}
   // Focusable table regions keep native cell selection/copying, while editor
   // commands still target the document rather than the browser page.
   if(view&&event.target.closest?.('.md-table')&&(event.ctrlKey||event.metaKey)&&!event.altKey){
     const key=event.key.toLowerCase();
-    if((!event.shiftKey&&['a','f','h','s','y'].includes(key))||key==='z'){
+    if((!event.shiftKey&&['a','s','y'].includes(key))||key==='z'){
       event.preventDefault();
-      if(key==='f'||key==='h')openSearchPanel(view);
-      else if(key==='s')guard(saveActive)();
+      if(key==='s')guard(saveActive)();
       else{view.focus();if(key==='a')view.dispatch({selection:{anchor:0,head:view.state.doc.length},userEvent:'select'});else if(key==='y'||event.shiftKey)redo(view);else undo(view);}
       return;
     }

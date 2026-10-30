@@ -246,7 +246,7 @@ def test_end_to_end(tmp_path, browser_pool):
             page.locator('.cm-content').click()
             page.keyboard.press('Control+f')
             page.get_by_role('textbox',name='Find',exact=True).fill(quote)
-            page.get_by_role('button',name='next',exact=True).click()
+            page.get_by_role('button',name='Next match (Enter)',exact=True).click()
             page.keyboard.press('Escape')
 
         def drag_passage(start,end=None,reverse=False):
@@ -356,7 +356,7 @@ def test_end_to_end(tmp_path, browser_pool):
         page.keyboard.press('Control+h')
         page.get_by_role('textbox',name='Find',exact=True).fill('box_volume')
         page.get_by_role('textbox',name='Replace',exact=True).fill('solid_volume')
-        page.get_by_role('button',name='replace all',exact=True).click()
+        page.get_by_role('button',name='Replace all',exact=True).click()
         page.keyboard.press('Escape')
         page.keyboard.press('Control+s')
         expect(page.locator('#dirty')).to_have_text('')

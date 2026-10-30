@@ -175,8 +175,21 @@ html[data-theme="dark"] { --review-human: #78d49a; --review-agent: #84b4ff; --re
 .review-approve { color: var(--review-human); border: 1px solid currentColor; background: var(--paper); font-size: 10px; }
 .reading-actions { position: absolute; bottom: 12px; right: 18px; z-index: 3; display: flex; align-items: center; gap: 8px; max-width: calc(100% - 36px); }
 #approve-review { display: flex; align-items: center; gap: 6px; padding: 6px 9px; }
-#go-to-top { display: grid; place-items: center; width: 30px; height: 30px; padding: 5px; background: var(--paper); color: var(--muted); flex-shrink: 0; }
-.reading-pane:has(.reading-actions button:not([hidden])) #surface { padding-bottom: 44px; }
+#go-to-top { display: grid; place-items: center; width: 26px; height: 26px; padding: 4px; color: var(--muted); flex-shrink: 0; }
+.reading-actions:not(:has(button:not([hidden]))) { display: none; }
+
+/* Float search above the document without reserving a full-width panel row. */
+.cm-editor > .cm-panels:has(.document-search) { position: absolute; inset: 8px 8px auto auto; width: min(420px, calc(100% - 16px)); z-index: 8; border: 0; background: transparent; }
+.cm-editor .cm-panel.document-search { padding: 5px; border: 1px solid var(--border); border-radius: 7px; background: var(--panel); box-shadow: 0 4px 18px #0002; font: 11px/1.4 var(--font-sans); }
+.document-search-row { display: flex; align-items: center; gap: 2px; }
+.cm-editor .cm-panel.document-search input { flex: 1; width: 0; min-width: 0; height: 26px; margin: 0; padding: 4px 6px; border: 1px solid var(--border); background: var(--paper); font: inherit; }
+.cm-editor .cm-panel.document-search button { display: grid; place-items: center; flex: 0 0 22px; width: 22px; height: 26px; margin: 0; padding: 3px; border: 0; background: transparent; color: var(--muted); font: 11px var(--mono); }
+.cm-editor .cm-panel.document-search button:hover, .cm-editor .cm-panel.document-search button[aria-pressed=true] { background: var(--selection); color: var(--purple); }
+.cm-editor .cm-panel.document-search [name=close] { position: static; }
+.document-search [name=wholeWord] span { border-bottom: 1px solid currentColor; }
+.document-search [aria-expanded=true] svg { transform: rotate(90deg); }
+.document-replace-row { margin-top: 4px; padding-left: 24px; }
+.cm-editor .cm-panel.document-search input[aria-invalid=true] { border-color: #c08340; }
 .document-path { display: flex; align-items: center; gap: 5px; min-width: 0; }
 #copy-filepath { display: grid; place-items: center; border: 0; padding: 4px; color: var(--muted); flex-shrink: 0; }
 #review-approve-path { font: 12px var(--mono); overflow-wrap: anywhere; }

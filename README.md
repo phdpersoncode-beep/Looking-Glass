@@ -158,9 +158,12 @@ the final open thread clears focus and spotlight. Reopening a resolved thread do
 not advance.
 
 The small copy icon beside the document path copies that file's displayed path in
-one click. The bottom-right **Go to top** arrow scrolls the current document to its
-beginning, including HTML reports, without changing its contents or selection.
-Review approval sits beside it in a separate button and still asks for confirmation.
+one click. The **Go to top** arrow in the toolbar, just before the text-size controls,
+scrolls the current document to its beginning, including HTML reports, without
+changing its contents or selection.
+It keeps the same position through reading/editing mode changes and reserves no
+space below the document. Review approval stays at the bottom right and still asks
+for confirmation.
 
 Use **Attach files** on a thread to upload images, STL, JSON, or other files
 (up to 64 MiB each). Images can be previewed; all attachments can be downloaded,
@@ -196,10 +199,17 @@ Bash, JSON, HTML, YAML (`yaml` or `yml`), and TOML blocks have basic syntax
 highlighting in live/source mode and reading preview. Inactive fence markers and
 language labels are hidden in live mode.
 
-Ctrl+A selects the active editor document. Ctrl+F and Ctrl+H open CodeMirror's
-document search/replace panel. Ctrl+Z and Ctrl+Shift+Z undo/redo. On macOS, use
+Ctrl+A selects the active editor document. Ctrl+F toggles a compact search box at
+the upper right of the reading pane. Ctrl+H toggles its additional replace row;
+Ctrl+F in replace mode returns to search only. The query and options stay intact
+when toggling rows. Icons provide case, whole-word and regular-expression options,
+previous/next matches and selection of all matches; hover for a short description.
+Enter/Shift+Enter find the next/previous match; Enter in Replace replaces the next
+match. Escape or the close icon dismisses search and returns focus to the document.
+Read-only contexts offer search without replacement. The panel overlays the document
+without reducing its height. Ctrl+Z and Ctrl+Shift+Z undo/redo. On macOS, use
 Command in place of Ctrl. Browser/input shortcuts retain their normal meaning
-when focus is outside the editor. Python, Bash, YAML (`.yaml`/`.yml`), and TOML
+when focus is outside the document pane. Python, Bash, YAML (`.yaml`/`.yml`), and TOML
 (`.toml`) files have basic syntax highlighting.
 Text and Markdown use locally bundled Newsreader with Times/serif fallback; code/JSON use
 your system monospace font. The top-right button switches light/dark themes.

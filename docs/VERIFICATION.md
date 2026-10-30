@@ -676,3 +676,30 @@ an overlay so the reading surface remains usable.
 - Per the user's instruction, the full browser suite was **not rerun** for
   these additions. The historical 505-case hosted pass above validates the
   selection-hotfix checkpoint, not this later feature head.
+
+### Toolbar navigation and compact document search (PR #18)
+
+The Go to top button now sits before the toolbar's text-size controls. Removing
+the floating button's reserved surface padding restores the full document height,
+including rendered HTML. Review approval remains an overlay at the bottom right.
+
+Document search is a compact upper-right overlay: Ctrl+F toggles search and
+Ctrl+H toggles its replacement row. Query/options/replacement drafts survive row
+toggles; icon buttons expose accessible names and hover tips. Keyboard navigation,
+regex errors, all-match selection, replacement undo and read-only contexts remain
+supported. Search closes before Escape can leave an original context.
+
+- All **77 JavaScript** and **118 non-browser Python** checks pass.
+- **28 focused browser cases** pass: 14 each in Chromium 141 headless shell and
+  Firefox 155. They cover Edit/Review replacement and undo, search options/regex,
+  keyboard toggles, read-only context, live table shortcuts, every Go to top
+  surface, approval placement, and frame-sampled toolbar stability through modes.
+- Inspected light/dark search and replacement layouts at 1440/900 pixels. Search
+  does not shrink the scroller, move its reading position, or overflow narrow panes.
+- The four shards cover all **547 browser cases**, without omissions/duplicates.
+  Asset and Python distribution builds and whitespace checks pass. The full suite
+  remains a final hosted gate; focused checks do not claim a complete suite pass.
+- Local Playwright uses the locked 1.63.0 driver. The full Chromium executable
+  could not create its singleton socket in this container; its headless shell
+  works. Firefox uses `MOZ_DISABLE_CONTENT_SANDBOX=1` locally. These environment
+  accommodations do not change repository dependencies or hosted test settings.
