@@ -68,6 +68,8 @@ class Workspace:
         self.origins = Origins(self)
         from .reviews import Reviews
         self.reviews = Reviews(self)
+        from .pdfs import PDFs
+        self.pdfs = PDFs(self)
 
     def connection(self):
         return self.store.connection()
@@ -139,6 +141,8 @@ class Workspace:
         return raw
 
     def text(self, path):
+        if self.path(path).suffix.lower() == '.pdf':
+            raise Problem('PDF files are read only. Use the PDF reader and database bookmarks.', 415)
         raw = self.bytes(path)
         if b'\x00' in raw:
             raise Problem('This binary file is not a text document.', 415)
@@ -233,6 +237,8 @@ class Workspace:
             t = self.get_thread(identifier,review=review)
             if t['git_target']:
                 t['context'] = dict(t['git_target'],content=self.origins.read(identifier)['content'])
+            elif t['anchor_kind'] == 'pdf':
+                t['context'] = dict(kind='pdf', **t['render_anchor'])
             elif t['anchor_kind'] == 'rendered':
                 t['context'] = dict(kind='rendered', **t['render_anchor'])
             elif t['anchor_kind'] == 'review_removed':

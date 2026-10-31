@@ -1,3 +1,4 @@
+import {mountPDF} from './pdf-reader.mjs';
 import {createDiscussionView} from './discussion-view.mjs';
 import {createDiscussionRetention} from './discussion-lifetime.mjs';
 import {createReviewSync,prepareWorkMode} from './review-sync.mjs';
@@ -73,6 +74,7 @@ async function readTab(path){
   }
   const info=await api('stat?'+new URLSearchParams({path}));
   if(info.too_large)return {...info,content:'',kind:'oversized'};
+  if(ext(path)==='pdf')return api('pdf?'+new URLSearchParams({path}));
   return ext(path)==='stl'||isImage(path)?{content:'',version:null}:api('file?'+new URLSearchParams({path}));
 }
 function openOriginal(id,message){return openFile(ORIGINAL+id+'/original'+(message?'/'+message:''));}
@@ -355,6 +357,7 @@ function removedSelection(){
 }
 function selectionLocation(){
   if(entry()?.kind)return null;
+  const pdf=ext(entry()?.path||'')==='pdf'?cleanup.selection?.():null;if(pdf)return {coords:pdf.rect,bounds:$('#surface').getBoundingClientRect(),from:0,to:0};
   const removed=removedSelection();if(removed)return {coords:removed.rect,bounds:$('#surface').getBoundingClientRect(),from:0,to:0};
   if(renderedPreview&&renderedSelection){const frame=renderedPreview.frame.getBoundingClientRect(),rect=renderedSelection.rect;const coords={left:frame.left+rect.left,right:frame.left+rect.right,top:frame.top+rect.top,bottom:frame.top+rect.bottom};if(coords.bottom<frame.top||coords.top>frame.bottom)return null;return {coords,bounds:frame,from:0,to:0};}
   const md=markdownSelection();if(md){const bounds=$('#surface').getBoundingClientRect();return {coords:md.rect,bounds,from:md.from,to:md.to};}
@@ -499,7 +502,7 @@ async function loadFile(path,request){
     // context, rather than reconstructing the document on return.
     if(e.kind==='original'&&!contextVisit){
       const scroller=view?.scrollDOM||$('#surface');
-      contextVisit={path:appStore.state.displayedDocument,content:entry()?.content,editor:view,cleanup,nodes:[...$('#surface').children],preview:renderedPreview,selection:renderedSelection,jump:renderedJump,thread:appStore.state.focusedThread,top:scroller.scrollTop,left:scroller.scrollLeft,snapshot:view?.scrollSnapshot()};
+      contextVisit={path:appStore.state.displayedDocument,version:entry()?.version,content:entry()?.content,editor:view,cleanup,nodes:[...$('#surface').children],preview:renderedPreview,selection:renderedSelection,jump:renderedJump,thread:appStore.state.focusedThread,top:scroller.scrollTop,left:scroller.scrollLeft,snapshot:view?.scrollSnapshot()};
       const held=contextVisit;
       held.surface=createSurfaceSession({suspend:async()=>{await suspendHTMLPreview();held.nodes.forEach(node=>node.hidden=true);},resume:()=>held.nodes.forEach(node=>node.hidden=false),dispose:()=>{held.editor?.destroy();held.cleanup();held.nodes.forEach(node=>node.remove());}});
       await held.surface.suspend();if(!request.current()){held.surface.resume();previewMessage('resume');contextVisit=null;return;}view=null;cleanup=()=>{};
@@ -512,7 +515,7 @@ async function loadFile(path,request){
     if(held){for(const node of [...$('#surface').children])if(!held.nodes.includes(node))node.remove();}
     else $('#surface').replaceChildren();
     if(e.kind==='original')for(const [name,tab] of tabs)if(tab.kind==='original'&&name!==path)tabs.delete(name);
-    const resume=held&&e.kind!=='original'&&path===held.path&&e.content===held.content;
+    const resume=held&&e.kind!=='original'&&path===held.path&&e.content===held.content&&(ext(path)!=='pdf'||e.version===held.version);
     if(held&&e.kind!=='original'){
       for(const [name,tab] of tabs)if(tab.kind==='original')tabs.delete(name);
       contextVisit=null;
@@ -530,6 +533,7 @@ async function loadFile(path,request){
     else if(e.kind==='history')cleanup=mountHistory($('#surface'),e.history??={},api,{onTarget:guard(async()=>{closeComment();clearThreadFocus();remember();await refreshThreads();}),onComment:guard(startGitComment),onState:remember});
     else if(e.kind==='original')mountOriginal(e);
     else if(e.kind==='oversized')mountOversized(e);
+    else if(ext(path)==='pdf')await mountPDFDocument(e);
     else if(isImage(path))await mountImage(e);
     else if(ext(path)==='stl')await mountSTL(e);
     else if(ext(path)==='jsonl')mountJSONL(e);
@@ -594,20 +598,26 @@ function mountDocument(e){
   updateToolbar();
 }
 async function refreshBaseline(){const editor=view,path=appStore.state.displayedDocument;if(!editor||entry()?.kind||entry()?.workMode==='review')return;const baseline=await api('git/baseline?'+new URLSearchParams({path}));if(view===editor&&appStore.state.displayedDocument===path)editor.dispatch({effects:[baselineEffect.of(baseline.content),gitSlot.reconfigure(baseline.content===null?[]:gitGutter)]});}
-function supportsReview(e){return !!e&&!e.kind&&!['stl','jsonl','json','html','htm'].includes(ext(e.path))&&!isImage(e.path);}
+async function mountPDFDocument(e){
+  cleanup=await mountPDF($('#surface'),$('#pdf-contents'),e,{token,api,onPassage:showPassage,onError:message=>notify(message,true),onSelection:updateToolbar});
+  cleanup.highlight?.(appStore.state.threads,appStore.state.focusedThread);
+}
+function supportsReview(e){return !!e&&!e.kind&&!['stl','jsonl','json','html','htm','pdf'].includes(ext(e.path))&&!isImage(e.path);}
 function updateToolbar(){
   const locked=!!changingWorkMode||entry()?.reviewSync?.status==='approving'||entry()?.kind==='original';
   if(view&&view.state.readOnly!==locked)view.dispatch({effects:workLockSlot.reconfigure(EditorState.readOnly.of(locked))});
-  const e=entry(), type=e?ext(e.path):'', viewer=!!e?.kind||['stl','jsonl'].includes(type)||isImage(e?.path||'');
+  const e=entry(), type=e?ext(e.path):'', viewer=!!e?.kind||['stl','jsonl','pdf'].includes(type)||isImage(e?.path||'');
   outlineController?.setDocument(!e?.kind&&type==='py'?e.path:null,!e?.kind&&type==='py'?view?.state.doc||null:null);
   $('#markdown-contents').hidden=!!e?.kind||!['md','markdown'].includes(type)||e?.mode!=='live';
-  $('.font-controls').hidden=e?.kind==='history';$('#annotate').hidden=!!e?.kind;$('#save').hidden=!!e?.kind;
+  for(const [id,direction] of [['font-smaller','Decrease'],['font-larger','Increase']]){const control=$('#'+id);control.setAttribute('aria-label',direction+(type==='pdf'?' PDF zoom':' document font size'));control.title=type==='pdf'?direction+' PDF zoom':direction+' document font size';control.textContent=type==='pdf'?(direction==='Increase'?'+':'−'):(direction==='Increase'?'A+':'A−');}
+  $('#pdf-contents').hidden=!!e?.kind||type!=='pdf';
+  $('.font-controls').hidden=e?.kind==='history';$('#annotate').hidden=!!e?.kind;$('#save').hidden=!!e?.kind||type==='pdf';
   $('#json-fold-controls').hidden=type!=='json';
   $('#download-file').hidden=!['html','htm','jsonl'].includes(type);
   $('#copy-filepath').hidden=!e||e.kind==='history';
   $('#go-to-top').hidden=!e||['history','oversized'].includes(e.kind)||type==='stl'||isImage(e.path);
   $('#document-name').textContent=e?.kind==='history'?'Commit history':e?.kind==='original'?'Original · '+e.sourcePath:e?.path||'Open a file';$('#dirty').textContent=e?.dirty&&e.workMode!=='review'?' · Unsaved':'';
-  $('#save').disabled=!e||viewer||!e.dirty||saving;$('#annotate').disabled=!e||viewer||!(renderedPreview?renderedSelection:removedSelection()||markdownSelection()||view&&!view.state.selection.main.empty);
+  $('#save').disabled=!e||viewer||!e.dirty||saving;$('#annotate').disabled=!e||(viewer&&type!=='pdf')||!(type==='pdf'?cleanup.selection?.():renderedPreview?renderedSelection:removedSelection()||markdownSelection()||view&&!view.state.selection.main.empty);
   const mode=$('#mode');const modes=type==='md'||type==='markdown'?[['live','Live Markdown'],['source','Raw source'],['preview','Reading preview']]:type==='html'||type==='htm'?[['rendered','Rendered HTML'],['source','HTML source']]:[['source',viewer?'Viewer':'Source']];
   if(mode.dataset.path!==appStore.state.displayedDocument){mode.replaceChildren(...modes.map(([value,label])=>{const opt=document.createElement('option');opt.value=value;opt.textContent=label;return opt;}));mode.dataset.path=appStore.state.displayedDocument||'';}
   const html=type==='html'||type==='htm', toggle=$('#html-toggle');
@@ -743,7 +753,7 @@ function receiveDiscussions(data,key,authoritative=true,activation=null,displaye
   }
   const native=markdownSelection(),resolved=appStore.state.threads.filter(t=>t.resolved&&previous.some(p=>p.id===t.id&&!p.resolved));
   if(native&&markdownSpans().some(s=>resolved.some(t=>t.id===s.id)&&s.from<native.to&&s.to>native.from)){window.getSelection()?.removeAllRanges();updateNativeTextSelection();}
-  previewThreads();
+  previewThreads();cleanup.highlight?.(appStore.state.threads,appStore.state.focusedThread);
   if(retained)discussionView.prune(retained);
   discussionView.render(data.html);lastThreadHTML=data.html;lastThreadKey=key;
   for(const form of $$('.reply-form'))composers.render(form);
@@ -793,7 +803,7 @@ appStore.subscribe((state,previous,event)=>{
   if(state.threads===previous.threads&&state.focusedThread===previous.focusedThread&&state.spotlight===previous.spotlight&&state.zen===previous.zen&&state.searchQuery===previous.searchQuery&&state.scope===previous.scope&&state.showResolved===previous.showResolved&&state.onlyUnattached===previous.onlyUnattached)return;
   if(state.focusedThread!==previous.focusedThread)zenCollapsed=false;
   threadSpotlight.capture();filterThreads();threadSpotlight.render();
-  if(state.focusedThread!==previous.focusedThread){zenCollapsed=false;previewThreads();refreshMarkdownHighlights();if(view&&event.origin!=='sidebar-navigation'&&!event.activation)view.dispatch({effects:threadFocusEffect.of(state.focusedThread)});}
+  if(state.focusedThread!==previous.focusedThread){zenCollapsed=false;previewThreads();cleanup.highlight?.(state.threads,state.focusedThread);refreshMarkdownHighlights();if(view&&event.origin!=='sidebar-navigation'&&!event.activation)view.dispatch({effects:threadFocusEffect.of(state.focusedThread)});}
 });
 function capturePassagePosition(mark,coords){
   const rendered=[...markdownViews].find(rendered=>rendered.host.contains(mark));
@@ -866,6 +876,7 @@ const threadNavigator=createThreadNavigator({
   selectGit:async target=>{cleanup.selectTarget?.(target);await refreshThreads();},
   revealRemoved:thread=>{if(entry()?.workMode!=='review'||entry()?.path!==thread.path)return false;const ghost=$$('.review-deletion').find(el=>Number(el.dataset.reviewDeletion)===thread.render_anchor?.edit_id&&el.textContent===thread.render_anchor?.text);if(!ghost)return false;ghost.scrollIntoView({block:'center'});return true;},
   revealRendered:async(thread,current,focusEditor)=>{if(entry().mode!=='rendered'){await setMode('rendered');if(!current())return;}renderedJump=thread.id;previewMessage('jump',{id:thread.id,behavior:focusEditor?'smooth':'instant'});},
+  revealPDF:thread=>cleanup.jump?.(thread.render_anchor.page,thread.render_anchor),
   revealSource:revealSourcePassage
 });
 function jump(id,target=null,spotlight=false,focusEditor=true,options={}){
@@ -940,9 +951,10 @@ function presentComment(){
   else {$('#comment-dialog').style.left='calc(50% - 160px)';$('#comment-dialog').style.top='30%';}
   scheduleSelectionTools();$('#comment-body').focus();
 }
-function selectedContent(selection){return selection.git_target?'':selection.removed||selection.html||selection.render_anchor||selection.markdown&&!view?entry()?.content:view?.state.sliceDoc();}
+function selectedContent(selection){return selection.git_target?'':selection.pdf_anchor?entry()?.version:selection.removed||selection.html||selection.render_anchor||selection.markdown&&!view?entry()?.content:view?.state.sliceDoc();}
 async function startComment(){
   const e=entry();if(!e||e.kind)return;
+  if(ext(e.path)==='pdf'){const selected=cleanup.selection?.();if(!selected)throw new Error('Select text on a single PDF page first.');pending={path:e.path,...selected,content:e.version};presentComment();return;}
   const removed=removedSelection();
   if(removed){await flushReview(e);const segment=e.review.segments.find(s=>s.kind==='delete'&&s.text===removed.removed_anchor.text);if(!segment)throw new Error('The removed passage changed. Select it again.');const stable={...removed,removed_anchor:{...removed.removed_anchor,edit_id:segment.edit_id}};pending={path:e.path,...stable,content:e.content,removed:true};presentComment();return;}
   if(renderedPreview)await captureHTMLSelection();
@@ -958,7 +970,7 @@ async function submitComment(event){
   postingComment=true;composers.setSending($('#comment-form'),true);
   try{
     await saveActive();const e=entry();if(selection!==pending||selection.path!==appStore.state.displayedDocument||selection.content!==selectedContent(selection))throw new Error('The selected passage changed. Select it again.');
-    const anchor=selection.git_target?{git_target:selection.git_target}:{path:selection.path,...(selection.removed_anchor?{removed_anchor:selection.removed_anchor}:selection.render_anchor?{render_anchor:selection.render_anchor}:{start:selection.start,end:selection.end}),version:e.version,...(e.workMode==='review'?{review_id:e.review.id}: {})};
+    const anchor=selection.git_target?{git_target:selection.git_target}:{path:selection.path,...(selection.pdf_anchor?{pdf_anchor:selection.pdf_anchor}:selection.removed_anchor?{removed_anchor:selection.removed_anchor}:selection.render_anchor?{render_anchor:selection.render_anchor}:{start:selection.start,end:selection.end}),version:e.version,...(e.workMode==='review'?{review_id:e.review.id}: {})};
     const result=await composers.post('threads',{...anchor,body,author},$('#comment-form'));
     composers.clear($('#comment-form'));
     if(appStore.state.displayedDocument===selection.path){closeComment();if(selection.html)previewMessage('clear-selection');appStore.dispatch({type:'THREAD_ACTIVATED',threadId:result.id});await refreshThreads();showThread(result.id);view?.focus();}
@@ -1131,6 +1143,14 @@ async function poll(){
       try{
         if(e.workMode==='review'){await pollReview(e);continue;}
         const requestedVersion=e.version;
+        if(ext(e.path)==='pdf'){
+          const disk=await api('pdf?'+new URLSearchParams({path:e.path,version:requestedVersion,bookmark_revision:e.bookmark_revision}));
+          if(!disk)continue;
+          if(e.version!==requestedVersion||navigation.busy||saving)continue;
+          if(disk.version!==e.version){Object.assign(e,disk);if(e.path===appStore.state.displayedDocument){closeComment();cleanup();cleanup=()=>{};$('#surface').replaceChildren();await mountPDFDocument(e);notify('PDF changed; previous passage comments need reattachment.');}}
+          else if(disk.bookmark_revision!==e.bookmark_revision){notify('PDF bookmarks changed elsewhere. Use Reload contents to load them.');}
+          continue;
+        }
         if(ext(e.path)==='stl'||isImage(e.path)){
           const disk=await api('stat?'+new URLSearchParams({path:e.path}));
           if(e.version!==requestedVersion||navigation.busy||saving)continue;
@@ -1215,7 +1235,7 @@ document.addEventListener('click',event=>{
 });
 document.addEventListener('htmx:responseError',event=>notify('Sidebar request failed: '+event.detail.xhr.status,true));
 function beginSelection(event){
-  if(event.button===0&&event.target.closest?.('#editor,#surface .markdown-preview')){selectingText=true;scheduleSelectionTools();}
+  if(event.button===0&&event.target.closest?.('#editor,#surface .markdown-preview,#surface .textLayer')){selectingText=true;scheduleSelectionTools();}
 }
 function settleSelection(){
   if(!selectingText)return;selectingText=false;
@@ -1365,6 +1385,7 @@ document.addEventListener('click',guard(async event=>{
   if(action.dataset.action==='reattach'){
     if(t.path!==appStore.state.displayedDocument){await openFile(t.path);showThread(id);notify('Select the new passage in this file, then attach the thread.');return;}
     if(renderedPreview)await captureHTMLSelection();
+    if(t.anchor_kind==='pdf'){const selected=cleanup.selection?.();if(!selected)throw new Error('Select text on one PDF page first.');await api('threads/'+id,'PATCH',{pdf_anchor:selected.pdf_anchor,version:entry().version});await refreshThreads();await jump(id);return;}
     if(t.anchor_kind==='rendered'){if(!renderedSelection)throw new Error('Select the new passage in the rendered report first.');await saveActive();await api('threads/'+id,'PATCH',{render_anchor:renderedSelection.anchor,version:entry().version,...(entry().workMode==='review'?{review_id:entry().review.id}: {})});await refreshThreads();await jump(id);return;}
     if(renderedPreview){const source=htmlSelection();if(!source)throw new Error('Select a passage with matching HTML source, or attach it in source mode.');await saveActive();await api('threads/'+id,'PATCH',{...source,version:entry().version,...(entry().workMode==='review'?{review_id:entry().review.id}: {})});await refreshThreads();await jump(id);return;}
     if(!view||view.state.selection.main.empty)throw new Error('Select the new passage in the editor first.');const {from,to}=view.state.selection.main;const start=selectionPoints(view.state,from),end=selectionPoints(view.state,to);await saveActive();await api('threads/'+id,'PATCH',{start,end,version:entry().version,...(entry().workMode==='review'?{review_id:entry().review.id}: {})});await refreshThreads();await jump(id);
@@ -1436,8 +1457,8 @@ async function setMode(value){const e=entry();if(!e||e.mode===value)return;syncS
 $('#mode').onchange=guard(()=>setMode($('#mode').value));
 $('#html-toggle').onclick=guard(()=>setMode(entry().mode==='rendered'?'source':'rendered'));
 $('#theme').onclick=()=>{const value=document.documentElement.dataset.theme==='light'?'dark':'light';document.documentElement.dataset.theme=value;localStorage.setItem('looking-glass-theme',value);$('#theme').textContent=value==='dark'?'Light mode':'Dark mode';if(view)view.dispatch({effects:themeSlot.reconfigure(theme())});$$('.mermaid-diagram').forEach(host=>{const source=host.dataset.diagramSource;if(source)renderMermaid(host,source);});};
-$('#font-smaller').onclick=()=>{fontStep=Math.max(-4,fontStep-1);localStorage.setItem('looking-glass-font-step',fontStep);applyFontSize();};
-$('#font-larger').onclick=()=>{fontStep=Math.min(12,fontStep+1);localStorage.setItem('looking-glass-font-step',fontStep);applyFontSize();};
+$('#font-smaller').onclick=()=>{if(ext(entry()?.path||'')==='pdf'){cleanup.zoom?.(-1);return;}fontStep=Math.max(-4,fontStep-1);localStorage.setItem('looking-glass-font-step',fontStep);applyFontSize();};
+$('#font-larger').onclick=()=>{if(ext(entry()?.path||'')==='pdf'){cleanup.zoom?.(1);return;}fontStep=Math.min(12,fontStep+1);localStorage.setItem('looking-glass-font-step',fontStep);applyFontSize();};
 applyFontSize();
 function filterFiles(){const query=$('#file-filter').value.toLowerCase();$$('.file-entry').forEach(b=>b.hidden=!b.dataset.path.toLowerCase().includes(query));$$('.file-folder').reverse().forEach(folder=>{folder.hidden=!!query&&![...folder.querySelectorAll('.file-entry')].some(b=>!b.hidden);folder.open=query?!folder.hidden:expandedFolders.has(folder.dataset.directory);});}
 $('#file-filter').oninput=filterFiles;$('#refresh-files').onclick=()=>window.htmx.trigger('#file-tree','refresh');

@@ -45,7 +45,7 @@ def create_app(root):
             response.headers['Content-Security-Policy'] = "sandbox allow-scripts allow-forms allow-modals; default-src https: data: blob:; script-src https: 'unsafe-inline' 'unsafe-eval' blob:; style-src https: 'unsafe-inline'; connect-src https:; img-src https: data: blob:; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'"
         else:
             response.headers['X-Frame-Options'] = 'DENY'
-            response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-src 'self' about: blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+            response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-src 'self' about: blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
         return response
 
     @app.errorhandler(Problem)
@@ -217,6 +217,17 @@ def create_app(root):
             return Response(status=304)
         return jsonify(ws.read(request.args.get('path')))
 
+    @app.get('/api/pdf')
+    def read_pdf():
+        result = ws.pdfs.read(request.args.get('path'), request.args.get('version'), request.args.get('bookmark_revision'))
+        return Response(status=304) if result is None else jsonify(result)
+
+    @app.put('/api/pdf/bookmarks')
+    def pdf_bookmarks():
+        data = body()
+        return jsonify(ws.pdfs.save_bookmarks(data.get('path'), data.get('bookmarks'),
+                                             data.get('bookmark_revision'), data.get('version')))
+
     @app.put('/api/file')
     def save_file():
         data = body()
@@ -258,9 +269,9 @@ def create_app(root):
     def binary():
         p = ws.path(request.args.get('path'))
         types = {'.stl':'application/octet-stream', '.png':'image/png', '.jpg':'image/jpeg',
-                 '.jpeg':'image/jpeg', '.svg':'image/svg+xml'}
+                 '.jpeg':'image/jpeg', '.svg':'image/svg+xml', '.pdf':'application/pdf'}
         if p.suffix.lower() not in types:
-            raise Problem('Choose an STL, PNG, JPEG, or SVG file.')
+            raise Problem('Choose an STL, PNG, JPEG, SVG, or PDF file.')
         if p.stat().st_size > MAX_BINARY:
             raise Problem('Binary viewer files are limited to 64 MiB.',413)
         return send_file(p, mimetype=types[p.suffix.lower()], as_attachment=True)
@@ -269,7 +280,7 @@ def create_app(root):
     def file_stat():
         p = ws.path(request.args.get('path'))
         info = p.stat()
-        limit = MAX_BINARY if p.suffix.lower() in ('.stl','.png','.jpg','.jpeg','.svg') else MAX_TEXT
+        limit = MAX_BINARY if p.suffix.lower() in ('.stl','.png','.jpg','.jpeg','.svg','.pdf') else MAX_TEXT
         return jsonify(version=f'{info.st_mtime_ns}:{info.st_size}',size=info.st_size,limit=limit,too_large=info.st_size > limit)
 
     def download_path(path):
@@ -359,12 +370,16 @@ def create_app(root):
     def new_thread():
         data,files = review_body()
         if 'git_target' in data:
-            if any(key in data for key in ('path','start','end','render_anchor')):
+            if any(key in data for key in ('path','start','end','render_anchor','pdf_anchor')):
                 raise Problem('Choose either a Git target or a file passage.')
             return jsonify(save_review(lambda empty:ws.create_git_thread(data['git_target'],data.get('body'),data.get('author'),allow_empty=empty),files,new_thread=True)),201
         ws.path(data.get('path'))
         if Path(data['path']).suffix.lower() in ('.stl','.jsonl','.png','.jpg','.jpeg','.svg'):
             raise Problem('This viewer does not support annotations.')
+        if 'pdf_anchor' in data:
+            if any(key in data for key in ('start','end','render_anchor','review_id','removed_anchor')):
+                raise Problem('Choose a single PDF passage anchor.')
+            return jsonify(save_review(lambda empty:ws.pdfs.create_thread(data.get('path'), data['pdf_anchor'], data.get('body'), data.get('author'), data.get('version'), allow_empty=empty), files, new_thread=True)),201
         if 'review_id' in data:
             draft=ws.reviews.read(data['review_id'])
             if draft['path']!=data['path']: raise Problem('Review belongs to another file.')
@@ -403,8 +418,12 @@ def create_app(root):
     @app.patch('/api/threads/<int:identifier>')
     def update_thread(identifier):
         data = body()
-        if not set(data).issubset({'resolved','start','end','version','render_anchor','render_attached','review_id'}):
+        if not set(data).issubset({'resolved','start','end','version','render_anchor','render_attached','review_id','pdf_anchor'}):
             raise Problem('Unknown thread update fields.')
+        if 'pdf_anchor' in data:
+            if set(data) != {'pdf_anchor', 'version'}:
+                raise Problem('Reattach a PDF passage with its current version only.')
+            return jsonify(ws.pdfs.reattach(identifier, data['pdf_anchor'], data.get('version')))
         return jsonify(ws.update_thread(identifier,**data))
 
     @app.post('/api/threads/<int:identifier>/attachments')

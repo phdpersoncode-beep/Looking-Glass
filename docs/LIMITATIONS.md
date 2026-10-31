@@ -23,6 +23,18 @@
   highlighting; unrecognized languages remain plain text. Markdown images and
   other block layouts are best viewed in the reading preview. It is a first inline
   Markdown editor, not feature parity with Obsidian.
+- PDFs are read only, up to 64 MiB. Passage comments require selectable text
+  on a single page; scanned pages can be read but there is no built-in OCR.
+  Password-protected PDFs are unsupported. Embedded scripts, forms, links,
+  multimedia, signatures, and editing/export of PDF bytes are not exposed.
+  Bookmark targets are page-level; embedded vertical offsets are not imported.
+  Outlines import at most 2,000 entries and 32 nesting levels. They belong to
+  the workspace database and do not follow a renamed/moved file automatically.
+  If PDF bytes change, all existing geometry anchors require explicit
+  reattachment and bookmark targets must be checked and saved again. Original
+  discussion context retains the selected text and page metadata, not a copy
+  of the original PDF or its complete visual layout. PDF reading uses its own
+  selectable text surface; CodeMirror find/replace is unavailable there.
 - PNG/JPEG/SVG, JSONL and STL are viewers without editing or annotations.
   Image zoom and pan are view-only; SVG scripts are inert in the image viewer. The JSONL left side
   is a raw row list; basic JSON syntax highlighting is on the formatted right.
@@ -32,7 +44,7 @@
   inside the viewer instead of geometry.
 - Text files must be UTF-8 and at most 8 MiB. Uniform CRLF/LF line endings and
   executable mode are preserved. Mixed line endings are normalized to the first
-  detected style during editing. STL and image files are limited to 64 MiB. The file list
+  detected style during editing. PDF, STL and image files are limited to 64 MiB. The file list
   is capped at 10,000 entries; no lazy tree or large-file virtualization yet.
 - Source anchor reconciliation shares bounded work per changed file. Unique
   exact passages and unchanged ranges survive; modest edits require surviving

@@ -703,3 +703,42 @@ supported. Search closes before Escape can leave an original context.
   could not create its singleton socket in this container; its headless shell
   works. Firefox uses `MOZ_DISABLE_CONTENT_SANDBOX=1` locally. These environment
   accommodations do not change repository dependencies or hosted test settings.
+
+
+## PDF reading and database bookmarks (2026-10-31)
+
+Based on PR #18 at `437b16c7a339cc3eacd4a5c9946819f47257454f`.
+
+- **80 JavaScript** and **131 non-browser Python** tests pass. New coverage
+  checks outline import, edits/deletion/reordering, empty-outline restart
+  persistence, concurrent writers, stale file versions, invalid pages and
+  hierarchy, PDF passage lifecycle/context/reattachment, authentication,
+  malformed/encrypted/oversized files, and unchanged original PDF bytes.
+- **24 distinct focused Chromium/Firefox cases** pass across PDF reading,
+  document search, and file navigation/outline. The **eight PDF cases** were
+  repeated after the final PDF selection/navigation changes. They use real
+  mouse selection, preserve reply drafts and highlight nodes through polling,
+  resume original context, save/reload/cancel outlines, reject concurrent
+  bookmark writes without losing drafts, retain bookmark drafts through tabs,
+  and verify normalized highlight geometry after zoom and explicit reattachment
+  after file replacement. A 20-page fixture checks lazy canvas rendering.
+- The Contents list and editor were inspected in light/dark themes at
+  900/1440 pixels. PDF pages retain their original colors in both themes.
+- The full collection contains **555 browser cases**, with four complete,
+  disjoint shards of 139/139/139/138. The full hosted suite is a separate final
+  gate; the focused checks do not establish that it passed.
+- Wheel and source distributions build successfully; the wheel contains the
+  PDF renderer/worker, CMaps, standard fonts, decoder WASM, and license notices.
+  Committed frontend assets rebuild reproducibly; whitespace checks pass.
+- Local tests use Node 24.19, Python 3.12.14, the locked Playwright 1.63 driver,
+  Chromium headless shell 153, and Firefox 155. The restricted executor requires
+  network-enabled test execution for local sockets and Node test child IPC.
+  Firefox uses `MOZ_DISABLE_CONTENT_SANDBOX=1`, disposable XDG directories, and
+  permission to create its local Mozilla cache/profile metadata. None of these
+  local runner settings change application or hosted CI security settings.
+
+PDFs are limited to 64 MiB, are read only, and have single-page selectable-text
+anchors. No OCR or password-protected PDF support is claimed. Bookmark targets
+are page-level, and immutable original context retains selected text/page
+metadata rather than original PDF bytes or visual layout. Database outlines do
+not automatically follow file renames.

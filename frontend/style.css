@@ -249,3 +249,25 @@ html[data-theme="dark"] { --review-human: #78d49a; --review-agent: #84b4ff; --re
 #author-popover{position:fixed;inset:auto;margin:0;width:260px;max-width:min(calc(100vw - 24px),calc(var(--discussion-width,310px) - 24px));padding:16px;border:1px solid var(--border);border-radius:8px;background:var(--panel);color:var(--text);box-shadow:0 8px 24px #0002;font:12px/1.5 var(--font-sans)}
 #author-title{display:block;margin:0 0 8px;font-size:12px;font-weight:500}#author{width:100%;padding:7px 9px;background:var(--paper);font-size:12px}
 #author-help{margin:8px 0 0;font-size:10px;color:var(--muted)}.author-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:14px}.author-actions button{padding:4px 9px;font-size:11px}.author-actions button[type=button]{border-color:transparent;color:var(--muted)}
+
+/* PDF.js text positioning (Apache-2.0); pages retain their original colors. */
+.pdf-reader{padding:22px;display:flex;flex-direction:column;align-items:center;gap:30px}
+.pdf-page{position:relative;max-width:100%;flex-shrink:0;background:white;color:#222;box-shadow:0 2px 12px #0002;scroll-margin-top:16px}
+.pdf-sheet{position:absolute;left:0;top:0;transform-origin:0 0;overflow:hidden}
+.pdf-sheet canvas{position:absolute;inset:0}
+.pdf-sheet .textLayer{position:absolute;inset:0;text-align:initial;overflow:clip;line-height:1;text-size-adjust:none;forced-color-adjust:none;transform-origin:0 0;z-index:2;--min-font-size:1;--text-scale-factor:calc(var(--total-scale-factor)*var(--min-font-size));--min-font-size-inv:calc(1/var(--min-font-size))}
+.pdf-sheet .textLayer :is(span,br){color:transparent;position:absolute;white-space:pre;cursor:text;transform-origin:0 0}
+.pdf-sheet .textLayer>:not(.markedContent),.pdf-sheet .textLayer .markedContent span:not(.markedContent){z-index:1;--font-height:0;font-size:calc(var(--text-scale-factor)*var(--font-height));--scale-x:1;--rotate:0deg;transform:rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv))}
+.pdf-sheet .textLayer .markedContent{display:contents}
+.pdf-sheet .textLayer ::selection{background:#9935ee55}
+.pdf-marks{position:absolute;inset:0;z-index:1;pointer-events:none}
+.pdf-passage{position:absolute;background:#a84dff40;border-bottom:1px solid #9935ee99}
+.pdf-passage.active{background:#a84dff66}.pdf-passage.resolved{background:transparent;border-bottom:1px dotted #7778}
+.pdf-page-links{position:absolute;top:100%;left:0;right:0;display:flex;gap:5px;flex-wrap:wrap;font-size:10px;color:var(--muted);padding-top:3px}
+.pdf-thread-link{padding:0 4px;color:var(--purple);border:0}
+.pdf-contents nav{max-height:55vh;overflow:auto}.pdf-contents nav>button{display:block;width:100%;text-align:left;padding-left:calc(12px + var(--heading-level,0)*16px)}
+.pdf-bookmark-editor{padding:8px;display:flex;flex-wrap:wrap;gap:6px}.pdf-bookmark-row{width:100%;display:flex;flex-wrap:wrap;gap:4px;padding:6px 0 6px calc(var(--heading-level)*10px);border-bottom:1px solid var(--border)}
+.pdf-bookmark-row input{min-width:0;padding:4px;font-size:12px}.pdf-bookmark-row input[type=text],.pdf-bookmark-row input:not([type]){flex:1 1 55%}.pdf-bookmark-row input[type=number]{width:62px}.pdf-bookmark-row button{padding:3px 5px;font-size:10px}
+.pdf-contents nav .pdf-bookmark-row button,.pdf-contents nav .pdf-bookmark-editor>button{display:inline-block;width:auto;padding:4px 6px;font-size:10px}.pdf-contents nav .pdf-bookmark-row{--heading-level:0}
+
+.pdf-reader{align-items:flex-start}.pdf-page{margin-inline:auto}.pdf-contents nav{--heading-level:0}.pdf-contents nav>button:nth-last-child(2){border-top:1px solid var(--border);margin-top:6px;padding-top:10px}

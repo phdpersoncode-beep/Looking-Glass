@@ -340,6 +340,21 @@ them in your terminal first. Checkpoints do not push. Saving never commits.
 
 ## Viewers
 
+- **PDF:** read pages with selectable text and purple passage discussions using
+  **Add comment** or Ctrl+Enter. Replies, attachments, resolve/reopen, thread
+  search, references, navigation, and immutable original text context use the
+  same discussion sidebar as Markdown. Select text on one page per comment.
+  Use the toolbar **+ / −** buttons to zoom; pages scale to fit narrow panes.
+  The top **Contents** bar imports embedded bookmarks once. **Edit bookmarks**
+  lets you rename, add, remove, change page targets, move groups up/down, and
+  indent/outdent them. Save explicitly; Cancel discards changes. Removing a
+  parent promotes its children. All changes live in the workspace SQLite
+  database: the PDF bytes are never rewritten. **Reload contents** refreshes
+  changes from another client; stale saves are rejected. If the file changes,
+  check and save bookmark pages again and explicitly reattach old passages.
+  PDFs are read only, limited to 64 MiB, and rendered with bundled offline
+  PDF.js assets. Password-protected files and OCR are not supported.
+
 - **PNG, JPEG, SVG:** view images with zoom buttons, wheel zoom, actual size, fit,
   and drag to pan. SVG runs as an image, so embedded scripts do not execute.
 - **JSON:** collapse all objects/arrays, then unfold individual entries using their

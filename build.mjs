@@ -1,8 +1,8 @@
 import {build} from 'esbuild';
 import {execFileSync} from 'node:child_process';
-import {copyFileSync,readFileSync,writeFileSync} from 'node:fs';
+import {copyFileSync,readFileSync,writeFileSync,cpSync} from 'node:fs';
 import {gzipSync} from 'node:zlib';
-await build({entryPoints:['frontend/app.js'],external:['/static/mermaid.js'],bundle:true,minify:true,sourcemap:false,format:'esm',outfile:'looking_glass/static/app.js'});
+await build({entryPoints:['frontend/app.js'],external:['/static/mermaid.js','/static/pdfjs.mjs'],bundle:true,minify:true,sourcemap:false,format:'esm',outfile:'looking_glass/static/app.js'});
 await build({entryPoints:['frontend/html-preview.js'],bundle:true,minify:true,format:'iife',outfile:'looking_glass/static/html-preview.js'});
 const diagrams=await build({entryPoints:['frontend/diagrams.mjs'],bundle:true,minify:true,format:'esm',write:false,outfile:'mermaid.js'});
 writeFileSync('looking_glass/static/mermaid.js.gz',gzipSync(diagrams.outputFiles[0].contents,{level:9}));
@@ -14,3 +14,9 @@ for(const match of readFileSync('frontend/newsreader.css','utf8').matchAll(/url\
   copyFileSync('node_modules/@fontsource-variable/newsreader/files/'+match[1],'looking_glass/static/'+match[1]);
 }
 copyFileSync('node_modules/@fontsource-variable/newsreader/LICENSE','looking_glass/static/newsreader-license.txt');
+
+// PDF.js stays optional and all of its resources work offline.
+copyFileSync('node_modules/pdfjs-dist/build/pdf.mjs','looking_glass/static/pdfjs.mjs');
+copyFileSync('node_modules/pdfjs-dist/build/pdf.worker.mjs','looking_glass/static/pdf.worker.mjs');
+for(const [source,target] of [['cmaps','pdf-cmaps'],['standard_fonts','pdf-fonts'],['wasm','pdf-wasm']])cpSync('node_modules/pdfjs-dist/'+source,'looking_glass/static/'+target,{recursive:true});
+copyFileSync('node_modules/pdfjs-dist/LICENSE','looking_glass/static/pdfjs-license.txt');
