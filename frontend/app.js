@@ -876,7 +876,7 @@ const threadNavigator=createThreadNavigator({
   selectGit:async target=>{cleanup.selectTarget?.(target);await refreshThreads();},
   revealRemoved:thread=>{if(entry()?.workMode!=='review'||entry()?.path!==thread.path)return false;const ghost=$$('.review-deletion').find(el=>Number(el.dataset.reviewDeletion)===thread.render_anchor?.edit_id&&el.textContent===thread.render_anchor?.text);if(!ghost)return false;ghost.scrollIntoView({block:'center'});return true;},
   revealRendered:async(thread,current,focusEditor)=>{if(entry().mode!=='rendered'){await setMode('rendered');if(!current())return;}renderedJump=thread.id;previewMessage('jump',{id:thread.id,behavior:focusEditor?'smooth':'instant'});},
-  revealPDF:thread=>cleanup.jump?.(thread.render_anchor.page),
+  revealPDF:thread=>cleanup.jump?.(thread.render_anchor.page,thread.render_anchor),
   revealSource:revealSourcePassage
 });
 function jump(id,target=null,spotlight=false,focusEditor=true,options={}){
@@ -951,10 +951,10 @@ function presentComment(){
   else {$('#comment-dialog').style.left='calc(50% - 160px)';$('#comment-dialog').style.top='30%';}
   scheduleSelectionTools();$('#comment-body').focus();
 }
-function selectedContent(selection){return selection.git_target?'':selection.pdf_anchor||selection.removed||selection.html||selection.render_anchor||selection.markdown&&!view?entry()?.content:view?.state.sliceDoc();}
+function selectedContent(selection){return selection.git_target?'':selection.pdf_anchor?entry()?.version:selection.removed||selection.html||selection.render_anchor||selection.markdown&&!view?entry()?.content:view?.state.sliceDoc();}
 async function startComment(){
   const e=entry();if(!e||e.kind)return;
-  if(ext(e.path)==='pdf'){const selected=cleanup.selection?.();if(!selected)throw new Error('Select text on a single PDF page first.');pending={path:e.path,...selected,content:e.content};presentComment();return;}
+  if(ext(e.path)==='pdf'){const selected=cleanup.selection?.();if(!selected)throw new Error('Select text on a single PDF page first.');pending={path:e.path,...selected,content:e.version};presentComment();return;}
   const removed=removedSelection();
   if(removed){await flushReview(e);const segment=e.review.segments.find(s=>s.kind==='delete'&&s.text===removed.removed_anchor.text);if(!segment)throw new Error('The removed passage changed. Select it again.');const stable={...removed,removed_anchor:{...removed.removed_anchor,edit_id:segment.edit_id}};pending={path:e.path,...stable,content:e.content,removed:true};presentComment();return;}
   if(renderedPreview)await captureHTMLSelection();

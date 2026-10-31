@@ -48,6 +48,7 @@ def test_pdf_selection_comments_highlights_context_and_poll_stability(workspace_
     ws.reply(identifier, 'Agent explanation', 'Agent')
     expect(page.locator('.thread')).to_contain_text('Agent explanation', timeout=10000)
     assert page.locator('.reply-form textarea').input_value() == 'An unsent reply'
+    assert page.locator('.pdf-passage').evaluate('el=>el===window.pdfMark')
     assert abs(page.locator('#surface').evaluate('el=>el.scrollTop')-before) < 2
     # Open immutable text context, then resume the same PDF surface.
     page.locator('[data-action=original]').first.click()
@@ -91,11 +92,13 @@ def test_pdf_bookmark_editor_persistence_navigation_and_layout(workspace_page):
     rows.first.get_by_label('Bookmark title', exact=True).fill('Discard me')
     contents.get_by_role('button', name='Cancel', exact=True).click()
     expect(contents.get_by_role('button', name='Final chapter · 3', exact=True)).to_be_visible()
+    contents.get_by_role('button', name='Edit bookmarks', exact=True).click()
     for theme, width in [('light', 900), ('dark', 1440)]:
         page.evaluate('(theme)=>document.documentElement.dataset.theme=theme', theme)
         page.set_viewport_size({'width': width, 'height': 960})
         assert contents.locator('nav').evaluate('el=>el.scrollWidth<=el.clientWidth+1')
         page.screenshot(path=f'/tmp/looking-glass-pdf-{theme}-{width}.png')
+    contents.get_by_role('button', name='Cancel', exact=True).click()
     page.reload(); expect(page.locator('.pdf-page[data-page="1"][data-ready=true]')).to_be_visible()
     contents.locator('summary').click()
     expect(contents.get_by_role('button', name='Custom bookmark · 2', exact=True)).to_be_visible()
@@ -137,7 +140,7 @@ def test_pdf_bookmark_conflict_preserves_draft_and_zoom_keeps_geometry(workspace
     width = first.bounding_box()['width']
     page.get_by_role('button', name='Increase PDF zoom', exact=True).click()
     page.wait_for_function('(width)=>document.querySelector(".pdf-page").getBoundingClientRect().width>width', arg=width)
-    page.wait_for_function('Math.abs(document.querySelector(".pdf-sheet").getBoundingClientRect().width-document.querySelector(".pdf-page").getBoundingClientRect().width)<1')
+    page.wait_for_function('()=>Math.abs(document.querySelector(".pdf-sheet").getBoundingClientRect().width-document.querySelector(".pdf-page").getBoundingClientRect().width)<1')
     marker, text = page.evaluate('''()=>[document.querySelector('.pdf-passage'),document.querySelector('.textLayer span')].map(el=>{const r=el.getBoundingClientRect();return {x:r.x,width:r.width};})''')
     assert abs(marker['x']-text['x']) < 4
     assert abs(marker['width']-text['width']) < 4

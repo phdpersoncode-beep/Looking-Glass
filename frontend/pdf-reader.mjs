@@ -50,7 +50,7 @@ export async function mountPDF(host,contents,session,{token,api,onPassage,onErro
       if(ids.length)onPassage(ids);
     });
   }
-  const jump=async number=>{const page=pages.get(number);if(!page)return;page.node.scrollIntoView({block:'start',behavior:'instant'});await render(page);};
+  const jump=async(number,anchor=null)=>{const page=pages.get(number);if(!page)return;page.node.scrollIntoView({block:'start',behavior:'instant'});await render(page);if(anchor?.rects?.length&&!disposed){const bounds=host.getBoundingClientRect(),sheet=page.sheet.getBoundingClientRect(),y=anchor.rects[0][1];host.scrollTop+=sheet.top+y*sheet.height-bounds.top-host.clientHeight/3;}};
   function zoom(direction=0){session.pdfZoom=Math.max(.5,Math.min(3,(session.pdfZoom||1)+direction*.2));for(const page of pages.values()){page.node.style.width=page.width*session.pdfZoom+'px';page.node.style.maxWidth=`calc(100% * ${session.pdfZoom})`;}}
   zoom();
   const disposeContents=mountPDFContents(contents,session,{api,jump,onError});

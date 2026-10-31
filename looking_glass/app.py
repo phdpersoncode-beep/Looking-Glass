@@ -370,13 +370,15 @@ def create_app(root):
     def new_thread():
         data,files = review_body()
         if 'git_target' in data:
-            if any(key in data for key in ('path','start','end','render_anchor')):
+            if any(key in data for key in ('path','start','end','render_anchor','pdf_anchor')):
                 raise Problem('Choose either a Git target or a file passage.')
             return jsonify(save_review(lambda empty:ws.create_git_thread(data['git_target'],data.get('body'),data.get('author'),allow_empty=empty),files,new_thread=True)),201
         ws.path(data.get('path'))
         if Path(data['path']).suffix.lower() in ('.stl','.jsonl','.png','.jpg','.jpeg','.svg'):
             raise Problem('This viewer does not support annotations.')
         if 'pdf_anchor' in data:
+            if any(key in data for key in ('start','end','render_anchor','review_id','removed_anchor')):
+                raise Problem('Choose a single PDF passage anchor.')
             return jsonify(save_review(lambda empty:ws.pdfs.create_thread(data.get('path'), data['pdf_anchor'], data.get('body'), data.get('author'), data.get('version'), allow_empty=empty), files, new_thread=True)),201
         if 'review_id' in data:
             draft=ws.reviews.read(data['review_id'])
@@ -419,6 +421,8 @@ def create_app(root):
         if not set(data).issubset({'resolved','start','end','version','render_anchor','render_attached','review_id','pdf_anchor'}):
             raise Problem('Unknown thread update fields.')
         if 'pdf_anchor' in data:
+            if set(data) != {'pdf_anchor', 'version'}:
+                raise Problem('Reattach a PDF passage with its current version only.')
             return jsonify(ws.pdfs.reattach(identifier, data['pdf_anchor'], data.get('version')))
         return jsonify(ws.update_thread(identifier,**data))
 
