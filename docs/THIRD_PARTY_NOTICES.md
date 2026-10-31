@@ -76,3 +76,9 @@ Some entries are build-time dependencies, which are not shipped as runtime code.
 
 - `parse5`: [license](licenses/parse5.txt)
 - `entities`: [license](licenses/entities.txt)
+
+- `pdfjs-dist` 5.4.624: [Apache-2.0](../looking_glass/static/pdfjs-license.txt).
+  Its bundled CMaps, standard fonts and WASM decoders retain their own notices
+  in `looking_glass/static/pdf-cmaps/`, `pdf-fonts/`, and `pdf-wasm/`.
+- Python `pypdf`: BSD-3-Clause, distributed as a locked Python dependency; used
+  only for read-only PDF metadata/outline parsing. PDF.js handles rendering.
