@@ -33,7 +33,9 @@
 - Text files must be UTF-8 and at most 8 MiB. Uniform CRLF/LF line endings and
   executable mode are preserved. Mixed line endings are normalized to the first
   detected style during editing. STL and image files are limited to 64 MiB. The file list
-  is capped at 10,000 entries; no lazy tree or large-file virtualization yet.
+  is capped at 10,000 visible entries after workspace-root `.looking.ignore`
+  filtering; ignored directories are pruned before scanning. Nested ignore files
+  are not read. No lazy tree or large-file virtualization yet.
 - Source anchor reconciliation shares bounded work per changed file. Unique
   exact passages and unchanged ranges survive; modest edits require surviving
   unique context and substantial matching text. Large rewrites, ambiguous

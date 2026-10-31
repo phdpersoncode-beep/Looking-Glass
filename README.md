@@ -71,6 +71,39 @@ Agents use `looking-glass agent review` instead of writing the source file.
 See [the review contract](docs/REVIEW_MODE.md) and
 [agent commands](docs/AGENT_API.md#non-destructive-review-drafts).
 
+## Ignore generated files
+
+Create `.looking.ignore` in the directory opened as your workspace to hide build
+outputs, logs, datasets, or other clutter from the file explorer:
+
+```gitignore
+# Directory names match at any depth; / anchors a pattern to the workspace root.
+outputs/
+/build/
+*.log
+**/checkpoints/
+
+# Keep one file from an otherwise filtered directory.
+reports/*
+!reports/summary.md
+```
+
+Rules use Git ignore syntax: `*`, `?`, character ranges, `**`, `#` comments,
+escaped characters, and `!` exceptions; later matching rules take precedence.
+As with Git, an exception cannot restore a file inside an excluded parent
+directory; exclude its contents instead, as in the `reports/*` example.
+Only the workspace-root `.looking.ignore` is read. `.gitignore` remains independent.
+
+Ignored folders are skipped before scanning their contents, and ignored files
+do not count toward the 10,000-file explorer limit. Click **Refresh files** in the
+left sidebar after adding, editing, or removing rules; no server restart is needed.
+The root `.looking.ignore` stays visible so you can edit it in Looking Glass.
+It must be a regular UTF-8 file, not a symlink.
+
+These rules only filter discovery. Already-open tabs, explicit **Open file** paths,
+and saved discussions remain accessible. Built-in exclusions such as `.git/`,
+`.looking-glass/`, `node_modules/`, and `.venv/` still apply and cannot be unignored.
+
 ## Review a file
 
 1. Open Markdown, text or code from the left sidebar.

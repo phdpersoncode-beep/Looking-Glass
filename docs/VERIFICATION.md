@@ -703,3 +703,20 @@ supported. Search closes before Escape can leave an original context.
   could not create its singleton socket in this container; its headless shell
   works. Firefox uses `MOZ_DISABLE_CONTENT_SANDBOX=1` locally. These environment
   accommodations do not change repository dependencies or hosted test settings.
+
+## Workspace ignore hotfix (2026-10-31)
+
+- Added root `.looking.ignore` discovery filtering through the locked `pathspec`
+  dependency, with directory pruning before traversal and the 10,000-file cap.
+- All **140 non-browser Python checks** and **77 JavaScript checks** pass.
+  The 22 new Python cases cover patterns, exceptions, built-in exclusions,
+  symlinks, workspace switching, explorer revalidation, and preserved open files
+  and discussions. A real 10,005-file output directory reproduces source-file
+  starvation; an instrumented scan then confirms that an ignored directory is
+  never entered.
+- Locked dependency sync, source/wheel builds, whitespace checks, and rebuilding
+  frontend assets without differences pass. All **549 browser cases** form four
+  complete, disjoint shards, including two new Chromium/Firefox refresh journeys.
+- Local browser execution is unavailable: Playwright's Chromium and headless-shell
+  downloads both returned truncated ZIPs. The hosted browser run must validate
+  the new journeys; collection alone does not establish browser correctness.
