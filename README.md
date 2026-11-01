@@ -240,13 +240,18 @@ supports fractions, roots, Greek letters, scripts, sums, integrals, limits,
 matrices, `cases`, `aligned`, text, operators, accents, and local macro definitions.
 Its JavaScript, stylesheet, fonts, and license ship with the app for offline use.
 
-In live mode, use **Edit source** above a display formula. For inline formulas,
+Display equations align with the prose and use compact spacing. Wide equations
+scroll horizontally; short equations keep their natural width. In live mode,
+hover over or focus a display formula to reveal **Edit source**. For inline formulas,
 double-click or focus the formula and press Enter. **Done editing math** returns
 to rendering; raw source mode always exposes the complete Markdown. Editing keeps
 ordinary undo/save and Review mode behavior. Selecting any portion of a rendered
 formula annotates its complete LaTeX source, including delimiters; source mode
 allows narrower selections. Passage and review colors preserve the equation's
 layout. Invalid or unsupported formulas show their source with an error tooltip.
+Mouse drags within fractions and other positioned math also select an equation
+when the browser cannot place a text caret; ordinary clicks still open its
+anchored discussion, and horizontal scrolling keeps working.
 Code spans/ordinary code fences and escaped dollars stay literal; currency such
 as `$5 and $10` stays text. For literal pipes in Markdown table formulas, use
 `\vert`, `\Vert`, or an escaped `\|` so the table parser keeps the cell intact.

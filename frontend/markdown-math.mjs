@@ -53,12 +53,34 @@ export function mathPlaceholder(token,slots,position) {
 
 export const mathOptions=Object.freeze({output:'htmlAndMathml',trust:false,throwOnError:true,strict:'ignore',maxExpand:1000,maxSize:20});
 
+function selectMathOnDrag(element) {
+  element.addEventListener('pointerdown',event=>{
+    if(event.button!==0||event.pointerType!=='mouse')return;
+    const {clientX:x,clientY:y}=event,scrollLeft=element.scrollLeft,controller=new AbortController();
+    const finish=end=>{
+      controller.abort();
+      if(end.type!=='pointerup'||!element.isConnected||!element.contains(end.target)||element.scrollLeft!==scrollLeft||Math.hypot(end.clientX-x,end.clientY-y)<4)return;
+      // Positioned fractions, roots and matrices do not expose reliable native
+      // caret hits in every browser. Math is one source passage, so normalize a
+      // drag within it to the visible formula, retaining its exact source map.
+      const selection=window.getSelection(),existing=selection.rangeCount&&selection.getRangeAt(0);
+      if(!selection.isCollapsed&&existing&&element.contains(existing.startContainer)&&element.contains(existing.endContainer))return;
+      const content=element.querySelector('.katex-html')||element.querySelector('.md-math-content');
+      const range=document.createRange();range.selectNodeContents(content);
+      selection.removeAllRanges();selection.addRange(range);
+    };
+    document.addEventListener('pointerup',finish,{capture:true,signal:controller.signal});
+    document.addEventListener('pointercancel',finish,{capture:true,signal:controller.signal});
+    window.addEventListener('blur',finish,{signal:controller.signal});
+  });
+}
+
 export function hydrateMath(host,slots) {
   for(const {key,text,raw,display,position} of slots){
     const element=host.querySelector(`[data-lg-math="${key}"]`);if(!element)continue;
     element.removeAttribute('data-lg-math');element.className='md-math'+(display?' md-math-display':'');
     if(display){element.tabIndex=0;element.setAttribute('role','region');element.setAttribute('aria-label','Math equation');}
-    if(position){element.dataset.mdFrom=position.from;element.dataset.mdTo=position.to;}
+    if(position){element.dataset.mdFrom=position.from;element.dataset.mdTo=position.to;selectMathOnDrag(element);}
     const body=document.createElement('span');body.className='md-math-content';element.replaceChildren(body);
     try{katex.render(text,body,{...mathOptions,displayMode:display});}
     catch(error){body.textContent=raw;element.classList.add('math-error');element.title=error.message;}

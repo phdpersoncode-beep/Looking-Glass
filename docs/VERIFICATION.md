@@ -1,3 +1,43 @@
+# Math spacing and mouse annotations · 2026-11-01
+
+- Checked [browser run 41350268361](https://github.com/phdpersoncode-beep/Looking-Glass/actions/runs/41350268361)
+  against the unchanged PR head `4ccc178`: **568 passed, 3 failed**. The two math
+  failures read SQLite immediately after clicking Submit, before the asynchronous
+  request finished. Those tests now wait for the second discussion and closed
+  composer. The Firefox ignore-refresh test sent Ctrl+S while Refresh held focus;
+  it now focuses the editor before sending its document shortcut. All source,
+  persistence, and UI assertions remain in place; no cases are skipped or retried.
+- Independently reproduced the reported product bug with a real mouse drag over
+  a fraction: browser caret hit testing collapsed the selection onto the adjacent
+  equals sign. A drag contained in mapped math now recovers the visible equation
+  selection when native selection fails. Valid native selections, normal clicks,
+  and horizontal scrolling retain their ordinary behavior and exact source maps.
+- Display equations align with prose, short equation regions use intrinsic width,
+  and wide equations remain constrained to a horizontal scroll region. Removed
+  stacked display margins and the reserved source-edit row; a small edit control
+  appears in the gutter on hover/focus without covering the equation. Live-mode
+  blank separators remain tall enough for readable source line numbers.
+- A representative fraction with 49 pixels of visible math previously occupied
+  a **134.6-pixel live widget** and an **826.6-pixel equation region**. It now uses
+  roughly **70 pixels of widget height** and its natural **101.9-pixel width**.
+  Inspected the supplied reconstruction example in both themes at 1440×1100 and
+  960×800, across live Markdown, preview, and discussion rendering.
+- Added **16 Chromium/Firefox cases** for real forward/reverse mouse drags through
+  inline math, fractions, and cases; repeated equations with Unicode/CRLF source;
+  background polling, toolbar/keyboard comments, reload, and ordinary highlight
+  clicks; plus compact/aligned layout and non-overlapping line numbers. Existing
+  wide-equation checks also ensure that the edit control does not obscure math.
+- Local fast checks: **84 JavaScript** and **140 non-browser Python** checks pass.
+  All **44 focused Chromium browser cases** pass in **144.39 seconds**, covering
+  math, existing Markdown discussions, thread references, and ignore refresh.
+  Wheel/source builds and archive checks pass; packaged frontend assets match the
+  current build. The complete browser collection has **587 cases**, partitioned
+  into complete/disjoint shards **[147, 147, 147, 146]**.
+- Local Firefox installation failed during the browser download. New Firefox
+  behavior requires validation in the hosted full-suite run on the final PR head.
+
+---
+
 # LaTeX Markdown rendering · 2026-11-01
 
 Runtime implementation: `8c39df38851a8235b54e8f9d9d80e6a63327e537`, added to

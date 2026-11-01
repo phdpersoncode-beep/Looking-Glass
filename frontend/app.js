@@ -252,9 +252,9 @@ class MarkdownMath extends MarkdownTable {
   toDOM(v){
     const el=document.createElement(this.block?'div':'span');el.className='md-formula'+(this.block?'':' md-formula-inline');el.tabIndex=0;
     const edit=()=>{v.dispatch({effects:blockSourceEffect.of({from:this.from,to:this.from+this.source.length,kind:'math'}),selection:{anchor:this.from}});v.focus();};
-    if(this.block){const button=document.createElement('button');button.className='markdown-source-edit';button.textContent='Edit source';button.setAttribute('aria-label','Edit math source');button.onclick=edit;el.append(button);}
+    if(this.block){const button=document.createElement('button');button.className='markdown-source-edit';button.title='Edit math source';button.setAttribute('aria-label','Edit math source');button.innerHTML='<svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 4 4 4M4 12l9-9a2.1 2.1 0 0 1 3 3l-9 9-4 1z"/></svg>';button.onclick=edit;el.append(button);}
     else{el.title='Double-click or press Enter to edit math source';el.setAttribute('role','group');el.setAttribute('aria-label','Math formula; press Enter to edit source');el.ondblclick=edit;el.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();edit();}};}
-    const body=document.createElement('span');el.append(body);
+    const body=document.createElement(this.block?'div':'span');el.append(body);
     const rendered=mountMappedMarkdown(body,this.source,this.from,()=>{},this.formula);rendered.setReview(this.review);rendered.highlight(this.spans,this.focused);markdownViews.add(rendered);el._markdown=rendered;
     return el;
   }
@@ -273,7 +273,7 @@ class MermaidDiagram extends WidgetType {
 function markdownDiagrams(preview){for(const code of preview.querySelectorAll('pre code.language-mermaid')){const source=code.textContent;renderMermaid(code.parentElement,source);}}
 function tableDecorations(state){
   const ranges=[],editing=state.field(blockEditing),spans=state.field(spanField),e=entry(),review=e?.reviewField&&state.field(e.reviewField,false)?reviewRanges(state.field(e.reviewField).segments,true):[];
-  const math=markdownMathRanges(state.doc.toString()),occupied=[];
+  const math=markdownMathRanges(state.doc.toString()),occupied=[],mathGaps=new Set();
   if(editing)ranges.push(Decoration.widget({block:true,side:-1,widget:new MarkdownSourceControl(editing.kind||'table')}).range(state.doc.lineAt(Math.min(editing.from,state.doc.length)).from));
   syntaxTree(state).iterate({enter(node){
     if(math.some(m=>m.from<=node.from&&m.to>=node.to))return false;
@@ -288,7 +288,12 @@ function tableDecorations(state){
     if(occupied.some(r=>r.from<formula.to&&r.to>formula.from)||editing&&editing.from<=formula.to&&editing.to>=formula.from)continue;
     const source=state.doc.sliceString(formula.from,formula.to),block=source.includes('\n')||formula.display&&state.doc.lineAt(formula.from).from===formula.from&&state.doc.lineAt(formula.to).to===formula.to;
     ranges.push(Decoration.replace({block,widget:new MarkdownMath(source,formula.from,spans.filter(s=>s.from<formula.to&&s.to>formula.from),review,block,formula)}).range(formula.from,formula.to));
+    if(block)for(const number of [state.doc.lineAt(formula.from).number-1,state.doc.lineAt(formula.to).number+1]){
+      if(number<1||number>state.doc.lines)continue;
+      const line=state.doc.line(number);if(!line.text.trim())mathGaps.add(line.from);
+    }
   }
+  for(const from of mathGaps)ranges.push(Decoration.line({class:'md-math-gap'}).range(from));
   return Decoration.set(ranges,true);
 }
 const liveTables=[blockEditing,StateField.define({create:tableDecorations,update:(_value,tr)=>tableDecorations(tr.state),provide:field=>EditorView.decorations.from(field)})];

@@ -11,6 +11,25 @@ pytestmark = [pytest.mark.browser, pytest.mark.skipif(
 SAMPLE = (Path(__file__).parent/'fixtures'/'markdown-math.md').read_text()
 
 
+def drag_math(page, formula, reverse=False):
+    """Use visible glyph coordinates without creating a synthetic selection."""
+    formula.scroll_into_view_if_needed()
+    points = formula.locator('.katex-html').evaluate('''el=>{
+      const walker=document.createTreeWalker(el,NodeFilter.SHOW_TEXT),points=[];let node;
+      while(node=walker.nextNode())if(node.data.trim()){
+        const range=document.createRange();range.selectNodeContents(node);const rect=range.getBoundingClientRect();
+        if(rect.width>0&&rect.height>0)points.push({x:rect.x,y:rect.y,width:rect.width,height:rect.height});
+      }
+      return points.slice(0,3);
+    }''')
+    first, last = points[0], points[-1]
+    start = (first['x']+1, first['y']+first['height']/2)
+    end = (last['x']+last['width']-1, last['y']+last['height']/2)
+    if reverse:
+        start, end = end, start
+    page.mouse.move(*start); page.mouse.down(); page.mouse.move(*end, steps=12); page.mouse.up()
+
+
 @pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
 @pytest.mark.parametrize('mode', ['live', 'preview'])
 def test_requested_math_and_tables_render_locally_in_both_themes(workspace_page, mode):
@@ -67,6 +86,8 @@ def test_formula_annotations_keep_tex_source_and_survive_polling_and_context(wor
     expect(page.locator('#annotate')).to_be_enabled(); page.locator('#annotate').click()
     expect(page.locator('#selected-quote')).to_have_text('$$\n\\frac{a}{b}\n$$')
     page.locator('#comment-body').fill('Check the fraction'); page.locator('#comment-submit').click()
+    expect(page.locator('.thread')).to_have_count(2)
+    expect(page.locator('#comment-dialog')).not_to_be_visible()
     assert ws.threads()[-1]['quote'] == '$$\r\n\\frac{a}{b}\r\n$$'
     page.locator('#mode').select_option('preview')
     expect(page.locator('.markdown-preview .md-math.passage-highlight .katex')).to_have_count(2)
@@ -188,6 +209,8 @@ $$a_1+a_2+a_3+a_4+a_5+a_6+a_7+a_8+a_9+a_{10}+a_{11}+a_{12}=0$$
     page.locator('#font-larger').click()
     assert wide.evaluate('el=>el.getBoundingClientRect().width') == before
     if mode == 'live':
+        wide.locator('..').locator('..').hover()
+        assert wide.evaluate('el=>el.closest(".md-formula").querySelector("button").getBoundingClientRect().right<=el.getBoundingClientRect().left')
         page.locator('#markdown-contents summary').click()
         expect(page.locator('#markdown-contents nav button')).to_have_count(1)
         expect(page.locator('#markdown-contents nav button')).to_contain_text('Heading with')
@@ -218,3 +241,88 @@ def test_live_equation_widget_changes_between_inline_and_block_after_neighbor_ed
     page.keyboard.press('Control+z')
     expect(page.locator('.md-formula-inline')).to_have_count(1)
     expect(page.locator('#surface .katex annotation')).to_have_text('x')
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+@pytest.mark.parametrize('mode', ['live', 'preview'])
+@pytest.mark.parametrize('formula,reverse', [
+    ('$abc=xyz$', False),
+    ('$$\r\n\\frac{abc}{xyz}=123\r\n$$', True),
+    ('$$\r\n\\begin{cases}abc,& xyz>0\\\\0,& xyz\\leq0\\end{cases}\r\n$$', False),
+])
+def test_mouse_drag_math_anchors_exact_repeated_source(workspace_page, mode, formula, reverse):
+    from playwright.sync_api import expect
+    root, page, url, ws = workspace_page
+    original = '😀 Before.\r\n\r\n'+formula+'\r\n\r\n'+formula+'\r\n\r\nAfter.\r\n'
+    (root/'math.md').write_bytes(original.encode())
+    page.goto(url); open_file(page, 'math.md'); page.locator('#mode').select_option(mode)
+    page.evaluate('document.fonts.ready')
+    if mode == 'live':
+        page.locator('.cm-line').first.click()
+    target = page.locator('#surface .md-math').nth(1)
+    drag_math(page, target, reverse)
+    expect(page.locator('#annotate')).to_be_enabled()
+    expect(page.locator('#selection-tools')).to_be_visible()
+    selected = page.evaluate('getSelection().toString()')
+    assert selected.strip()
+    with page.expect_response(lambda response: '/api/discussions?' in response.url):
+        pass
+    assert page.evaluate('getSelection().toString()') == selected
+    if reverse:
+        page.keyboard.press('Control+Enter')
+    else:
+        page.locator('#selection-comment').click()
+    expect(page.locator('#selected-quote')).to_have_text(formula.replace('\r\n', '\n'))
+    page.locator('#comment-body').fill('Check this equation'); page.locator('#comment-submit').click()
+    expect(page.locator('.thread')).to_have_count(1)
+    expect(page.locator('#comment-dialog')).not_to_be_visible()
+    thread = ws.threads()[0]
+    assert thread['quote'] == formula and thread['start'] == original.rindex(formula)
+    assert original[thread['start']:thread['end']] == formula
+    mark = page.locator('#surface .md-math.passage-highlight')
+    expect(mark.locator('.katex')).to_have_count(1)
+    # A normal click remains navigation; it must not force another selection.
+    page.evaluate('getSelection().removeAllRanges()')
+    mark.locator('.katex-html .base').first.click()
+    expect(page.locator('.thread.active')).to_have_count(1)
+    assert page.evaluate('getSelection().isCollapsed')
+    page.locator('#mode').select_option('preview'); page.reload()
+    expect(page.locator('.markdown-preview .md-math.passage-highlight .katex')).to_have_count(1)
+    assert (root/'math.md').read_bytes() == original.encode()
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+@pytest.mark.parametrize('mode', ['live', 'preview'])
+def test_display_math_has_compact_spacing_and_aligns_with_prose(workspace_page, mode):
+    from playwright.sync_api import expect
+    root, page, url, _ = workspace_page
+    (root/'math.md').write_text('Before.\n\n$$\n\\frac{abc}{xyz}=123\n$$\n\nAfter.\n')
+    page.goto(url); open_file(page, 'math.md'); page.locator('#mode').select_option(mode)
+    formula = page.locator('#surface .md-math-display')
+    expect(formula.locator('.katex')).to_have_count(1)
+    for theme in ['light', 'dark']:
+        if page.locator('html').get_attribute('data-theme') != theme:
+            page.locator('#theme').click()
+        for width in [1440, 960]:
+            page.set_viewport_size({'width': width, 'height': 900})
+            page.evaluate('document.fonts.ready')
+            geometry = formula.evaluate('''el=>{
+              const box=el.getBoundingClientRect(),bases=[...el.querySelectorAll('.katex-html>.base')].map(n=>n.getBoundingClientRect());
+              const left=Math.min(...bases.map(r=>r.left)),right=Math.max(...bases.map(r=>r.right)),top=Math.min(...bases.map(r=>r.top)),bottom=Math.max(...bases.map(r=>r.bottom));
+              const host=el.closest('.md-formula')||el,prose=document.querySelector('#surface .cm-line,#surface .markdown-preview p');
+              const walk=document.createTreeWalker(prose,NodeFilter.SHOW_TEXT),range=document.createRange();range.selectNodeContents(walk.nextNode());
+              return {width:box.width,visibleWidth:right-left,height:host.getBoundingClientRect().height,visibleHeight:bottom-top,left:box.left,proseLeft:range.getBoundingClientRect().left};
+            }''')
+            assert geometry['width'] <= geometry['visibleWidth']+4
+            assert geometry['height'] <= geometry['visibleHeight']+24
+            assert abs(geometry['left']-geometry['proseLeft']) <= 3
+            if mode == 'live':
+                for gap in page.locator('.cm-line.md-math-gap').all():
+                    assert gap.bounding_box()['height'] <= 20
+                labels = page.locator('.cm-lineNumbers .cm-gutterElement').evaluate_all('''elements=>elements.filter(el=>el.textContent.trim()&&getComputedStyle(el).visibility!=='hidden').map(el=>{
+                  const range=document.createRange();range.selectNodeContents(el);const rect=range.getBoundingClientRect();return {top:rect.top,bottom:rect.bottom};
+                })''')
+                for before, after in zip(labels, labels[1:]):
+                    assert after['top'] >= before['bottom']-1
+                page.locator('.md-formula').hover()
+                expect(page.get_by_role('button', name='Edit math source', exact=True)).to_be_visible()

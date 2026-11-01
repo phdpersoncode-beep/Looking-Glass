@@ -50,6 +50,13 @@ fonts, and its license are bundled locally, including in Python distributions.
 updates recolor its wrapper without replacing KaTeX's layout or duplicating its
 hidden MathML in source coordinates. Live math and tables share the mapped widget
 lifecycle; a cached shared parse prevents re-lexing on focus/annotation updates.
+Display widgets keep their edit control outside normal layout, use intrinsic
+equation widths, and compact adjacent blank source lines without changing the
+document or its offsets. A mouse drag contained in mapped math keeps a valid
+native selection; if browser caret hit testing collapses it in positioned math,
+the renderer selects the visible equation as its atomic source passage. It
+ignores clicks and horizontal scrollbar drags and releases temporary handlers on
+pointer completion/cancellation or window blur.
 `frontend/text-selection.mjs` paints selected text runs instead of block boxes,
 without changing selection contents or anchor coordinates. CodeMirror uses a
 measurement layer; native rendered selections use CSS Custom Highlights.

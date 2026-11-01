@@ -32,6 +32,7 @@ def test_ignore_refresh_keeps_open_document(workspace_page):
     expect(page.locator('#document-name')).to_have_text('main.py')
     expect(page.locator('.cm-content')).to_contain_text('# unsaved work')
     expect(page.locator('#dirty')).to_contain_text('Unsaved')
+    page.locator('.cm-content').click()
     page.keyboard.press('Control+s')
     expect(page.locator('#dirty')).to_have_text('')
     assert '# unsaved work' in (root / 'main.py').read_text()
