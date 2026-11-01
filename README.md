@@ -71,6 +71,39 @@ Agents use `looking-glass agent review` instead of writing the source file.
 See [the review contract](docs/REVIEW_MODE.md) and
 [agent commands](docs/AGENT_API.md#non-destructive-review-drafts).
 
+## Ignore generated files
+
+Create `.looking.ignore` in the directory opened as your workspace to hide build
+outputs, logs, datasets, or other clutter from the file explorer:
+
+```gitignore
+# Directory names match at any depth; / anchors a pattern to the workspace root.
+outputs/
+/build/
+*.log
+**/checkpoints/
+
+# Keep one file from an otherwise filtered directory.
+reports/*
+!reports/summary.md
+```
+
+Rules use Git ignore syntax: `*`, `?`, character ranges, `**`, `#` comments,
+escaped characters, and `!` exceptions; later matching rules take precedence.
+As with Git, an exception cannot restore a file inside an excluded parent
+directory; exclude its contents instead, as in the `reports/*` example.
+Only the workspace-root `.looking.ignore` is read. `.gitignore` remains independent.
+
+Ignored folders are skipped before scanning their contents, and ignored files
+do not count toward the 10,000-file explorer limit. Click **Refresh files** in the
+left sidebar after adding, editing, or removing rules; no server restart is needed.
+The root `.looking.ignore` stays visible so you can edit it in Looking Glass.
+It must be a regular UTF-8 file, not a symlink.
+
+These rules only filter discovery. Already-open tabs, explicit **Open file** paths,
+and saved discussions remain accessible. Built-in exclusions such as `.git/`,
+`.looking-glass/`, `node_modules/`, and `.venv/` still apply and cannot be unignored.
+
 ## Review a file
 
 1. Open Markdown, text or code from the left sidebar.
@@ -114,7 +147,14 @@ with a transparent track. Wheel, touch, keyboard, and go-to-top scrolling remain
 available; wide tables keep their compact horizontal scroll controls. Markdown
 and text editors show monospace source line numbers alongside prose; source code
 keeps the same numbered gutter. Fenced code uses one background and rounded
-corners in live Markdown and preview; blockquotes use a quiet rule and upright text.
+corners in live Markdown and preview; blockquotes use a quiet rule, upright text,
+and a subtle themed background. Bare square brackets such as `[0, 1]` stay literal;
+explicit Markdown links and references with definitions keep their link styling.
+
+Your author name defaults to **User**. Use the pen icon beside the discussion
+collapse/expand controls to change it in a small popover. **Save** remembers the
+name for the current project in this browser; Cancel, Escape, or clicking outside
+leaves it unchanged. New comments, replies, and human review edits use that name.
 
 Use **×** beside a comment to delete that comment. **Delete thread** removes the
 whole discussion and its highlight. Deleting the last comment also removes its thread.
@@ -122,7 +162,24 @@ The application asks for confirmation before deletion. Turn on **Across files** 
 the discussions to see threads throughout the workspace, including outside files
 opened in this workspace. ↑/↓ always traverses discussions across files, even when
 the toggle is off, and preserves unsaved drafts. Navigation stays at the top.
+The horizontal filters also include **Show resolved** and **Only unattached**.
+All three checkboxes stay side by side; labels sit below them in a narrow sidebar.
+With **Only unattached** off (the default), attached and unattached threads appear
+normally. Turn it on to show only threads needing reattachment in the list, search
+results, and navigation. Changing this filter leaves the current spotlight;
+**Show resolved** and the file scope still apply. The concise summary
+shows total, open, and closed counts for the current file or across-files scope,
+including threads hidden by filters or search.
 
+In comments and replies, `#123` becomes a clickable thread reference. It opens
+that thread and its file in spotlight, including resolved or unattached threads
+hidden by the current filters. Code spans, code blocks, and existing links stay
+unchanged. Missing references show a quiet error. An unattached reference opens
+its current file without guessing a passage or opening original context. The
+copy icon beside each expanded thread number copies its `#123` reference.
+
+Both sidebars use stacked-panel minus/plus icons to collapse/expand all folders
+or threads, and panel icons to hide/show the sidebar itself.
 Drag the discussions divider to resize it; the width persists. Collapse a thread
 with its chevron and reopen it with its comment icon. The header also has collapse-all
 and expand-all controls. **Zen mode** (top-bar button or **Ctrl+Alt+Z**, **Cmd+Alt+Z**
@@ -134,9 +191,12 @@ the final open thread clears focus and spotlight. Reopening a resolved thread do
 not advance.
 
 The small copy icon beside the document path copies that file's displayed path in
-one click. The bottom-right **Go to top** arrow scrolls the current document to its
-beginning, including HTML reports, without changing its contents or selection.
-Review approval sits beside it in a separate button and still asks for confirmation.
+one click. The **Go to top** arrow in the toolbar, just before the text-size controls,
+scrolls the current document to its beginning, including HTML reports, without
+changing its contents or selection.
+It keeps the same position through reading/editing mode changes and reserves no
+space below the document. Review approval stays at the bottom right and still asks
+for confirmation.
 
 Use **Attach files** on a thread to upload images, STL, JSON, or other files
 (up to 64 MiB each). Images can be previewed; all attachments can be downloaded,
@@ -172,10 +232,44 @@ Bash, JSON, HTML, YAML (`yaml` or `yml`), and TOML blocks have basic syntax
 highlighting in live/source mode and reading preview. Inactive fence markers and
 language labels are hidden in live mode.
 
-Ctrl+A selects the active editor document. Ctrl+F and Ctrl+H open CodeMirror's
-document search/replace panel. Ctrl+Z and Ctrl+Shift+Z undo/redo. On macOS, use
+LaTeX math renders in live Markdown, reading previews, original context, comments,
+and replies, including formulas inside table cells. Use `$x_i^2$` or `\(x_i^2\)`
+inline; use `$$ … $$` or `\[ … \]` for display equations, on one or multiple lines.
+Fenced `math`, `latex`, and `tex` blocks also render as display equations. KaTeX
+supports fractions, roots, Greek letters, scripts, sums, integrals, limits,
+matrices, `cases`, `aligned`, text, operators, accents, and local macro definitions.
+Its JavaScript, stylesheet, fonts, and license ship with the app for offline use.
+
+Display equations align with the prose and use compact spacing. Wide equations
+scroll horizontally; short equations keep their natural width. In live mode,
+hover over or focus a display formula to reveal **Edit source**. For inline formulas,
+double-click or focus the formula and press Enter. **Done editing math** returns
+to rendering; raw source mode always exposes the complete Markdown. Editing keeps
+ordinary undo/save and Review mode behavior. Selecting any portion of a rendered
+formula annotates its complete LaTeX source, including delimiters; source mode
+allows narrower selections. Passage and review colors preserve the equation's
+layout. Invalid or unsupported formulas show their source with an error tooltip.
+Mouse drags within fractions and other positioned math also select an equation
+when the browser cannot place a text caret; ordinary clicks still open its
+anchored discussion, and horizontal scrolling keeps working.
+Code spans/ordinary code fences and escaped dollars stay literal; currency such
+as `$5 and $10` stays text. For literal pipes in Markdown table formulas, use
+`\vert`, `\Vert`, or an escaped `\|` so the table parser keeps the cell intact.
+KaTeX renders its supported math subset rather than full LaTeX documents; commands
+that load external resources, add HTML, or create links are disabled. Macros are
+local to each formula.
+
+Ctrl+A selects the active editor document. Ctrl+F toggles a compact search box at
+the upper right of the reading pane. Ctrl+H toggles its additional replace row;
+Ctrl+F in replace mode returns to search only. The query and options stay intact
+when toggling rows. Icons provide case, whole-word and regular-expression options,
+previous/next matches and selection of all matches; hover for a short description.
+Enter/Shift+Enter find the next/previous match; Enter in Replace replaces the next
+match. Escape or the close icon dismisses search and returns focus to the document.
+Read-only contexts offer search without replacement. The panel overlays the document
+without reducing its height. Ctrl+Z and Ctrl+Shift+Z undo/redo. On macOS, use
 Command in place of Ctrl. Browser/input shortcuts retain their normal meaning
-when focus is outside the editor. Python, Bash, YAML (`.yaml`/`.yml`), and TOML
+when focus is outside the document pane. Python, Bash, YAML (`.yaml`/`.yml`), and TOML
 (`.toml`) files have basic syntax highlighting.
 Text and Markdown use locally bundled Newsreader with Times/serif fallback; code/JSON use
 your system monospace font. The top-right button switches light/dark themes.

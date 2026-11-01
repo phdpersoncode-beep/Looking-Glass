@@ -1,5 +1,6 @@
 import {label as reviewLabel} from './review-model.mjs';
-import {marked} from 'marked';
+import {Renderer} from 'marked';
+import {markdown as marked,isMathFence,mathPlaceholder,hydrateMath} from './markdown-math.mjs';
 import {mappedMarkdownHTML,visibleMap} from './markdown-source.mjs';
 export {tokenPositions,mappedMarkdownHTML} from './markdown-source.mjs';
 import DOMPurify from 'dompurify';
@@ -17,32 +18,41 @@ function wrapMarkdownTables(host) {
 export function renderMarkdown(host,source,decorate=()=>{}) {
   // Discussion HTML is content, never application controls. Keep saved Markdown
   // unchanged and prevent authored attributes from impersonating sidebar actions.
-  host.innerHTML=DOMPurify.sanitize(marked.parse(source),{
-    ALLOW_DATA_ATTR:false,FORBID_ATTR:['id','name','style'],
+  const math=[],renderer=new Renderer(),baseCode=renderer.code;
+  renderer.code=function(token){return isMathFence(token)?mathPlaceholder(token,math):baseCode.call(this,token);};
+  host.innerHTML=DOMPurify.sanitize(marked.parse(source,{renderer,mathRenderer:token=>mathPlaceholder(token,math)}),{
+    ALLOW_DATA_ATTR:false,ADD_ATTR:['data-lg-math'],FORBID_ATTR:['id','name','style'],
     FORBID_TAGS:['button','form','select','textarea','iframe','object','embed','style']
   });
   for(const element of host.querySelectorAll('[class]')) {
     const language=element.tagName==='CODE'&&[...element.classList].find(name=>/^language-[\w-]+$/.test(name));
     element.removeAttribute('class');if(language)element.className=language;
   }
+  hydrateMath(host,math);
   for(const link of host.querySelectorAll('a')){link.target='_blank';link.rel='noopener noreferrer';}
   decorate(host);wrapMarkdownTables(host);
 }
 
-export function mountMappedMarkdown(host,source,offset=0,decorate=()=>{}) {
-  host.innerHTML=DOMPurify.sanitize(mappedMarkdownHTML(source,offset));
+export function mountMappedMarkdown(host,source,offset=0,decorate=()=>{},formula=null) {
+  const math=[];
+  // Live widgets retain the original token's TeX. Re-lexing just its source
+  // range would turn quote/list continuation prefixes into part of the formula.
+  const html=formula?mathPlaceholder({...formula,raw:source},math,{from:offset,to:offset+source.length}):mappedMarkdownHTML(source,offset,math);
+  host.innerHTML=DOMPurify.sanitize(html);
+  hydrateMath(host,math);
   decorate(host);wrapMarkdownTables(host);
   let lastHighlights=null,lastActive=null,reviewChanges=[];
-  const leaves=[...host.querySelectorAll('.md-mapped-text')],nodes=new WeakMap();
+  const leaves=[...host.querySelectorAll('.md-mapped-text,.md-math[data-md-from]')],nodes=new WeakMap();
   for(const leaf of leaves) {
     const from=Number(leaf.dataset.mdFrom),to=Number(leaf.dataset.mdTo),text=leaf.textContent;
-    leaf._mapping=visibleMap(source.slice(from-offset,to-offset),from,text,!!leaf.querySelector('code'));
+    leaf._atomic=leaf.classList.contains('md-math');
+    leaf._mapping=leaf._atomic?[{from,to}]:visibleMap(source.slice(from-offset,to-offset),from,text,!!leaf.querySelector('code'));
     leaf._text=text;
   }
   function register(leaf) {
     if(!leaf._mapping)return;
     const walker=document.createTreeWalker(leaf,NodeFilter.SHOW_TEXT);let node,at=0;
-    while((node=walker.nextNode())){if(node.parentElement.closest('.review-deletion'))continue;nodes.set(node,leaf._mapping.slice(at,at+node.length));at+=node.length;}
+    while((node=walker.nextNode())){if(node.parentElement.closest('.review-deletion'))continue;nodes.set(node,leaf._atomic?Array(node.length).fill(leaf._mapping[0]):leaf._mapping.slice(at,at+node.length));at+=node.length;}
   }
   leaves.forEach(register);
   function boundary(node,at,end) {
@@ -66,6 +76,8 @@ export function mountMappedMarkdown(host,source,offset=0,decorate=()=>{}) {
       const node=caret?.offsetNode||range?.startContainer,offset=caret?.offset??range?.startOffset;
       if(!node||!host.contains(node))return null;
       const from=boundary(node,offset,false);if(from===null)return null;
+      const formula=node.parentElement?.closest('.md-math');
+      if(formula)return ()=>formula.isConnected?formula.getBoundingClientRect():null;
       // Annotation refreshes replace marks/text nodes. Keep the source offset,
       // rather than a DOM Range that could be detached by that refresh.
       return ()=>{
@@ -112,6 +124,14 @@ export function mountMappedMarkdown(host,source,offset=0,decorate=()=>{}) {
         const map=leaf._mapping;if(!map)continue;
         const target=leaf.querySelector('code')||leaf,fragment=document.createDocumentFragment(),ghosts=assigned.get(leaf)||[];let ghostAt=0;
         const addGhost=deletion=>{const ghost=document.createElement('span');ghost.className='review-deletion';ghost.textContent=deletion.text;ghost.title=reviewLabel(deletion);ghost.dataset.reviewDeletion=String(deletion.edit_id||'local');ghost.dataset.reviewFrom=String(deletion.from);fragment.append(ghost);};
+        if(leaf._atomic){
+          const ids=spans.filter(s=>s.from<map[0].to&&s.to>map[0].from).map(s=>s.id),change=reviewChanges.find(s=>s.kind==='insert'&&s.from<map[0].to&&s.to>map[0].from);
+          const resolved=ids.length&&ids.every(id=>spans.find(s=>s.id===id)?.resolved);
+          for(const [name,on] of Object.entries({'passage-highlight':ids.length,'resolved-passage':resolved,'focused-highlight':ids.includes(active)&&!spans.find(s=>s.id===active)?.resolved,'review-agent':change?.role==='agent','review-human':change&&change.role!=='agent'}))leaf.classList.toggle(name,!!on);
+          if(ids.length){leaf.dataset.anchor=String(ids.includes(active)?active:ids[0]);leaf.dataset.anchors=ids.join(',');}else{delete leaf.dataset.anchor;delete leaf.dataset.anchors;}
+          if(change)leaf.title=reviewLabel(change);else if(!leaf.classList.contains('math-error'))leaf.removeAttribute('title');
+          leaf.querySelectorAll(':scope > .review-deletion').forEach(el=>el.remove());ghosts.forEach(addGhost);leaf.prepend(fragment);continue;
+        }
         const idsAt=at=>spans.filter(s=>s.from<map[at].to&&s.to>map[at].from).map(s=>s.id);
         const changeAt=at=>reviewChanges.find(s=>s.kind==='insert'&&s.from<map[at].to&&s.to>map[at].from);
         for(let at=0;at<map.length;) {
@@ -129,7 +149,7 @@ export function mountMappedMarkdown(host,source,offset=0,decorate=()=>{}) {
     },
     jump(from,to,behavior='auto') {
       const walker=document.createTreeWalker(host,NodeFilter.SHOW_TEXT);let node;
-      while((node=walker.nextNode())){const map=nodes.get(node);if(map?.some(p=>p.from<to&&p.to>from)){node.parentElement.scrollIntoView({block:'center',behavior});return true;}}
+      while((node=walker.nextNode())){const map=nodes.get(node);if(map?.some(p=>p.from<to&&p.to>from)){(node.parentElement.closest('.md-math')||node.parentElement).scrollIntoView({block:'center',behavior});return true;}}
       return false;
     }
   };

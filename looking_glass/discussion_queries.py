@@ -90,10 +90,11 @@ class DiscussionQueries:
             return [dict(row) for row in self.index_rows(db,review,fields,'t.path,start,t.id')]
 
     def thread_search_index(self, review=None):
-        """Search text only: no file reads, reconciliation, origins or attachments."""
+        """Lean search text and filters: no file reads, reconciliation, origins or attachments."""
         with self.ws.lock, self.ws.connection() as db:
             quote = 'COALESCE(a.quote,t.quote)' if review else 't.quote'
-            rows = self.index_rows(db,review,f't.id,t.path,{quote} AS quote,t.resolved','t.id')
+            status = 'COALESCE(a.anchor_status,t.anchor_status)' if review else 't.anchor_status'
+            rows = self.index_rows(db,review,f't.id,t.path,{quote} AS quote,t.resolved,{status} AS anchor_status','t.id')
             threads = {row['id']: {**dict(row), 'resolved': bool(row['resolved']), 'messages': []}
                        for row in rows}
             for row in db.execute('SELECT thread_id,body FROM messages ORDER BY id'):

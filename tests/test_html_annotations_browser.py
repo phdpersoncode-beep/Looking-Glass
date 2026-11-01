@@ -180,10 +180,7 @@ def test_html_fragment_whitespace_partial_entities_and_reverse_mapping(workspace
     assert next(t for t in ws.threads() if t['messages'][0]['body']=='Legacy entity')['quote']=='&copy'
     select(page,'#entities',6,7);comment(page,'Part of multi-character entity')
     assert next(t for t in ws.threads() if t['messages'][0]['body']=='Part of multi-character entity')['quote']=='&NotEqualTilde;'
-    page.frame_locator('#html-preview').locator('body').evaluate('''el=>{
-      const range=document.createRange();range.setStart(el.firstChild,0);range.setEnd(el.firstChild,5);
-      getSelection().removeAllRanges();getSelection().addRange(range);
-    }''')
+    select(page,'body',0,5)
     comment(page,'Body fragment')
     assert next(t for t in ws.threads() if t['messages'][0]['body']=='Body fragment')['quote']=='Plain'
     assert (root/'fragment.htm').read_bytes()==source.encode()
