@@ -1,3 +1,39 @@
+# LaTeX Markdown rendering · 2026-11-01
+
+Runtime implementation: `8c39df38851a8235b54e8f9d9d80e6a63327e537`, added to
+[PR #18](https://github.com/phdpersoncode-beep/Looking-Glass/pull/18).
+
+- **84 JavaScript checks** and **140 non-browser Python checks** pass. Seven new
+  JavaScript checks cover the supplied reconstruction example, core notation,
+  delimiter/fence parsing, adjacent formulas, literal code/currency, inert
+  commands, macro isolation/expansion limits, and exact Unicode/CRLF coordinates.
+- **35 focused Chromium journeys** pass in 108.91 seconds: all Chromium cases in
+  `test_markdown_math_browser.py`, `test_markdown_discussions.py`, and
+  `test_thread_reference_polish_browser.py`. Eleven new journeys exercise live
+  and preview equations/tables, source editing/undo, widget layout transitions,
+  discussion/reply rendering, stable KaTeX nodes through polling, immutable
+  context, source annotations/reload, Review provenance, error fallback, and
+  authored-markup isolation. Local browser: Chromium **154.0.8037.57**.
+- Inspected the supplied example in live Markdown and preview at **1440×1100**
+  in light/dark themes and **960×800** narrow panes. Equations retain their
+  layout; wide math/table regions scroll horizontally. Passage highlights cover
+  formula content, preserving margins and the current theme. MathML accompanies
+  the visible KaTeX HTML.
+- `uv sync --locked`, `npm ci`, frontend build, whitespace checks, and wheel/source
+  builds pass. Rebuilding after the runtime commit leaves committed static assets
+  unchanged. Archive inspection verifies that final wheel assets match the build,
+  all **60 referenced font files** plus KaTeX CSS/license are present, and the
+  source distribution includes the supplied Markdown fixture.
+- The complete browser collection contains **571 cases**, including **22 new
+  Chromium/Firefox math cases**, in complete/disjoint shards **[143, 143, 143,
+  142]**. Local results cover Chromium; check the full hosted run against the
+  current PR head before treating Firefox or the entire collection as validated.
+- Rendering uses KaTeX's math subset, with external-resource/HTML/link commands
+  disabled and formula-local macros. Unsupported expressions remain readable as
+  source with an error tooltip; this is not a full LaTeX document processor.
+
+---
+
 # Architecture refactor · 2026-10-11
 
 Implemented on `refactor/improve-app-architecture`, in
