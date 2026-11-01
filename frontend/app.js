@@ -14,6 +14,7 @@ import {createComposers} from './composer.mjs';
 import {mountHistory} from './history.mjs';
 import {formatJSON} from './json-format.mjs';
 import {mountMappedMarkdown,renderMarkdown} from './markdown-render.mjs';
+import {markdownMathRanges} from './markdown-source.mjs';
 import {markdownLinks} from './markdown-links.mjs';
 import {linkThreadReferences} from './thread-references.mjs';
 import {textSelection,updateNativeTextSelection} from './text-selection.mjs';
@@ -244,6 +245,20 @@ class MarkdownSourceControl extends WidgetType {
   toDOM(v){const el=document.createElement('div');el.className='markdown-source-controls';const done=document.createElement('button');done.textContent='Done editing '+this.kind;done.onclick=()=>{v.dispatch({effects:blockSourceEffect.of(null)});v.focus();};el.append(done);return el;}
   ignoreEvent(){return true;}
 }
+class MarkdownMath extends MarkdownTable {
+  constructor(source,from,spans,review=[],block=false,formula=null){super(source,from,spans,review);this.block=block;this.formula=formula;}
+  eq(other){return this.block===other.block&&this.formula?.text===other.formula?.text&&super.eq(other);}
+  updateDOM(el,v,previous){return this.block===previous.block&&this.formula?.text===previous.formula?.text&&super.updateDOM(el,v,previous);}
+  toDOM(v){
+    const el=document.createElement(this.block?'div':'span');el.className='md-formula'+(this.block?'':' md-formula-inline');el.tabIndex=0;
+    const edit=()=>{v.dispatch({effects:blockSourceEffect.of({from:this.from,to:this.from+this.source.length,kind:'math'}),selection:{anchor:this.from}});v.focus();};
+    if(this.block){const button=document.createElement('button');button.className='markdown-source-edit';button.textContent='Edit source';button.setAttribute('aria-label','Edit math source');button.onclick=edit;el.append(button);}
+    else{el.title='Double-click or press Enter to edit math source';el.setAttribute('role','group');el.setAttribute('aria-label','Math formula; press Enter to edit source');el.ondblclick=edit;el.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();edit();}};}
+    const body=document.createElement('span');el.append(body);
+    const rendered=mountMappedMarkdown(body,this.source,this.from,()=>{},this.formula);rendered.setReview(this.review);rendered.highlight(this.spans,this.focused);markdownViews.add(rendered);el._markdown=rendered;
+    return el;
+  }
+}
 let diagramsModule=null;
 function renderMermaid(host,source){
   host.dataset.diagramSource=source;host.classList.add('mermaid-diagram');host.setAttribute('role','img');host.setAttribute('aria-label','Mermaid diagram');host.textContent='Rendering diagram…';
@@ -258,14 +273,22 @@ class MermaidDiagram extends WidgetType {
 function markdownDiagrams(preview){for(const code of preview.querySelectorAll('pre code.language-mermaid')){const source=code.textContent;renderMermaid(code.parentElement,source);}}
 function tableDecorations(state){
   const ranges=[],editing=state.field(blockEditing),spans=state.field(spanField),e=entry(),review=e?.reviewField&&state.field(e.reviewField,false)?reviewRanges(state.field(e.reviewField).segments,true):[];
-  if(editing)ranges.push(Decoration.widget({block:true,side:-1,widget:new MarkdownSourceControl(editing.kind||'table')}).range(Math.min(editing.from,state.doc.length)));
+  const math=markdownMathRanges(state.doc.toString()),occupied=[];
+  if(editing)ranges.push(Decoration.widget({block:true,side:-1,widget:new MarkdownSourceControl(editing.kind||'table')}).range(state.doc.lineAt(Math.min(editing.from,state.doc.length)).from));
   syntaxTree(state).iterate({enter(node){
+    if(math.some(m=>m.from<=node.from&&m.to>=node.to))return false;
     const diagram=node.name==='FencedCode'&&/^(`{3,}|~{3,})\s*mermaid\s*$/i.test(state.doc.lineAt(node.from).text.trim());
     if(node.name!=='Table'&&!diagram)return;
+    occupied.push({from:node.from,to:node.to});
     if(editing&&editing.from<=node.to&&editing.to>=node.from)return false;
     if(diagram){const first=state.doc.lineAt(node.from),last=state.doc.lineAt(node.to);const closed=/^(`{3,}|~{3,})\s*$/.test(last.text.trim());const source=state.doc.sliceString(Math.min(first.to+1,state.doc.length),closed?last.from:node.to);ranges.push(Decoration.replace({block:true,widget:new MermaidDiagram(source,node.from,node.to)}).range(node.from,node.to));return false;}
     ranges.push(Decoration.replace({block:true,widget:new MarkdownTable(state.doc.sliceString(node.from,node.to),node.from,spans.filter(s=>s.from<node.to&&s.to>node.from),review)}).range(node.from,node.to));return false;
   }});
+  for(const formula of math){
+    if(occupied.some(r=>r.from<formula.to&&r.to>formula.from)||editing&&editing.from<=formula.to&&editing.to>=formula.from)continue;
+    const source=state.doc.sliceString(formula.from,formula.to),block=source.includes('\n')||formula.display&&state.doc.lineAt(formula.from).from===formula.from&&state.doc.lineAt(formula.to).to===formula.to;
+    ranges.push(Decoration.replace({block,widget:new MarkdownMath(source,formula.from,spans.filter(s=>s.from<formula.to&&s.to>formula.from),review,block,formula)}).range(formula.from,formula.to));
+  }
   return Decoration.set(ranges,true);
 }
 const liveTables=[blockEditing,StateField.define({create:tableDecorations,update:(_value,tr)=>tableDecorations(tr.state),provide:field=>EditorView.decorations.from(field)})];
@@ -278,10 +301,12 @@ class TaskCheckbox extends WidgetType {
 }
 function liveDecorations(v, activeRange) {
   const ranges=[], doc=v.state.doc, links=markdownLinks(syntaxTree(v.state),doc);
+  const math=markdownMathRanges(doc.toString()),editing=v.state.field(blockEditing);
   const {from:activeFrom,to:activeTo}=activeRange;
   syntaxTree(v.state).iterate({
     enter(node){
       const name=node.name, a=node.from, b=node.to;
+      if(math.some(m=>m.from<=a&&m.to>=b&&!(editing&&editing.from<=m.to&&editing.to>=m.from)))return false;
       if(name==='Table'||name==='FencedCode'&&/^(`{3,}|~{3,})\s*mermaid\s*$/i.test(doc.lineAt(a).text.trim()))return false;
       if(b<=a) return;
       const line=doc.lineAt(a), isActive=line.from<=activeTo && line.to>=activeFrom;
@@ -1248,7 +1273,7 @@ document.addEventListener('keydown',event=>{
   if(view&&event.target.closest?.('.document-panel')&&!document.querySelector('dialog:modal')&&documentSearchShortcut(view,event)){event.preventDefault();event.stopPropagation();return;}
   // Focusable table regions keep native cell selection/copying, while editor
   // commands still target the document rather than the browser page.
-  if(view&&event.target.closest?.('.md-table')&&(event.ctrlKey||event.metaKey)&&!event.altKey){
+  if(view&&event.target.closest?.('.md-table,.md-formula')&&(event.ctrlKey||event.metaKey)&&!event.altKey){
     const key=event.key.toLowerCase();
     if((!event.shiftKey&&['a','s','y'].includes(key))||key==='z'){
       event.preventDefault();
@@ -1268,7 +1293,7 @@ document.addEventListener('pointerdown',event=>{
   passageActivation++;
   const mark=event.button===0&&event.target.closest?.('#surface [data-anchor]');
   passagePosition=mark?capturePassagePosition(mark,{x:event.clientX,y:event.clientY}):null;
-  pressedPassage=mark?{ids:passageIds(mark),path:appStore.state.displayedDocument,native:!!mark.closest('.md-table,.markdown-preview'),x:event.clientX,y:event.clientY}:null;
+  pressedPassage=mark?{ids:passageIds(mark),path:appStore.state.displayedDocument,native:!!mark.closest('.md-table,.md-formula,.markdown-preview'),x:event.clientX,y:event.clientY}:null;
 },true);
 document.addEventListener('pointermove',event=>{if(pressedPassage&&Math.hypot(event.clientX-pressedPassage.x,event.clientY-pressedPassage.y)>4){pressedPassage=null;passagePosition=null;}},true);
 document.addEventListener('pointerup',event=>{
@@ -1316,7 +1341,7 @@ document.addEventListener('click',guard(async event=>{
     return;
   }
   const anchor=event.target.closest('#surface [data-anchor]'),passage=anchor?Number(anchor.dataset.anchor):null;
-  if(passage&&event.detail===1&&!window.getSelection()?.toString()&&(anchor.closest('.md-table,.markdown-preview')||!view||view.state.selection.main.empty)){showPassage(passageIds(anchor));return;}
+  if(passage&&event.detail===1&&!window.getSelection()?.toString()&&(anchor.closest('.md-table,.md-formula,.markdown-preview')||!view||view.state.selection.main.empty)){showPassage(passageIds(anchor));return;}
   const file=event.target.closest('.file-entry');if(file)await openFile(file.dataset.path);
   const close=event.target.closest('[data-close]');if(close)close.closest('dialog').close();
   const card=event.target.closest('.thread');

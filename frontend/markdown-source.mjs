@@ -1,4 +1,5 @@
-import {marked,Renderer} from 'marked';
+import {Renderer} from 'marked';
+import {markdown as marked,isMathFence,mathPlaceholder} from './markdown-math.mjs';
 import {decodeHTML} from 'entities';
 
 // Locate tokens inside their parent's source range. A link's destination, for
@@ -35,7 +36,20 @@ export function tokenPositions(tokens, source) {
   locate(tokens,0,source.length);return positions;
 }
 
-export function mappedMarkdownHTML(source,offset=0) {
+// Cache the shared parse for live decorations; annotation/focus updates do not
+// need to lex the same document again.
+let lastSource=null,lastMath=[];
+export function markdownMathRanges(source) {
+  if(source===lastSource)return lastMath;
+  const tokens=marked.lexer(source),positions=tokenPositions(tokens,source),ranges=[];
+  marked.walkTokens(tokens,token=>{
+    if(!['mathBlock','mathInline'].includes(token.type)&&!isMathFence(token))return;
+    const position=positions.get(token);if(position)ranges.push({...position,to:position.to-source.slice(position.from,position.to).match(/\s*$/)[0].length,text:token.text,display:token.display??true});
+  });
+  lastSource=source;lastMath=ranges;return ranges;
+}
+
+export function mappedMarkdownHTML(source,offset=0,math=[]) {
   const normalized=source.replace(/\r\n?/g,'\n'),boundaries=[0];
   for(let i=0;i<source.length;i++){if(source[i]==='\r'&&source[i+1]==='\n')i++;boundaries.push(i+1);}
   const tokens=marked.lexer(normalized),positions=tokenPositions(tokens,normalized),renderer=new Renderer();
@@ -46,9 +60,14 @@ export function mappedMarkdownHTML(source,offset=0) {
   };
   renderer.text=function(token){return token.tokens?baseText.call(this,token):wrap(token,baseText.call(this,token));};
   renderer.codespan=function(token){return wrap(token,baseCode.call(this,token));};
-  renderer.code=function(token){return baseBlock.call(this,token).replace(/(<code[^>]*>)([\s\S]*)(<\/code>)/,(_all,open,body,close)=>open+wrap(token,body)+close);};
+  const renderMath=token=>{
+    const position=positions.get(token);
+    const end=position&&position.to-normalized.slice(position.from,position.to).match(/\s*$/)[0].length;
+    return mathPlaceholder({...token,raw:token.raw.trimEnd()},math,position&&{from:offset+boundaries[position.from],to:offset+boundaries[end]});
+  };
+  renderer.code=function(token){return isMathFence(token)?renderMath(token):baseBlock.call(this,token).replace(/(<code[^>]*>)([\s\S]*)(<\/code>)/,(_all,open,body,close)=>open+wrap(token,body)+close);};
   // Marked sends escaped punctuation through the text renderer as well.
-  return marked.parser(tokens,{renderer});
+  return marked.parser(tokens,{...marked.defaults,renderer,mathRenderer:renderMath});
 }
 
 export function visibleMap(raw,from,text,code=false) {

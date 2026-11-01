@@ -40,6 +40,16 @@ Discussion bodies remain Markdown in SQLite and API responses. The client uses
 `frontend/markdown-render.mjs` for sanitized rendering, shared table overflow,
 syntax highlighting, and diagrams. Comment markup cannot supply application
 controls or styling. Compact typography uses the document's Markdown rules.
+`markdown-math.mjs` configures a shared Marked parser that recognizes math before
+Markdown consumes TeX syntax. Per-render random placeholders survive sanitization;
+only those placeholders receive trusted KaTeX-generated markup afterward, with
+`trust: false`, bounded expansion/size, and fresh per-formula macro state. Authored
+markup cannot impersonate math slots. KaTeX HTML plus MathML, CSS, all referenced
+fonts, and its license are bundled locally, including in Python distributions.
+`markdown-source.mjs` maps each equation to one atomic source passage. Highlight
+updates recolor its wrapper without replacing KaTeX's layout or duplicating its
+hidden MathML in source coordinates. Live math and tables share the mapped widget
+lifecycle; a cached shared parse prevents re-lexing on focus/annotation updates.
 `frontend/text-selection.mjs` paints selected text runs instead of block boxes,
 without changing selection contents or anchor coordinates. CodeMirror uses a
 measurement layer; native rendered selections use CSS Custom Highlights.

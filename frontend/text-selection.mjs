@@ -45,7 +45,7 @@ export function updateNativeTextSelection() {
   CSS.highlights.delete('looking-glass-text-selection');
   const selection=window.getSelection();if(!selection?.rangeCount||selection.isCollapsed)return;
   const range=selection.getRangeAt(0);
-  const host=document.querySelector('#surface .markdown-preview')||selection.anchorNode?.parentElement?.closest('#surface .md-table');
+  const host=document.querySelector('#surface .markdown-preview')||selection.anchorNode?.parentElement?.closest('#surface .md-table,#surface .md-formula');
   if(!host||!host.contains(range.startContainer)||!host.contains(range.endContainer))return;
   CSS.highlights.set('looking-glass-text-selection',new Highlight(...selectedTextRanges(range,host)));
 }

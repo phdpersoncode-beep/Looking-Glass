@@ -11,6 +11,7 @@ existing ones; browser sharding changes where tests run, never which cases run.
 | Comments, replies, editing/deletion, attachments, resolution/reopening and quiet polling | `test_discussion_workflow.py`, `test_requested_features.py`, `test_app_integration.py` |
 | Fuzzy thread search, ranking, thread numbers, file/resolved scopes and draft passages | `thread-search.test.mjs`, `test_thread_search_browser.py` |
 | Live/source/preview Markdown, numbered lists/tasks, wide tables, syntax highlighting and local Mermaid | `test_markdown_discussions.py`, `test_requested_features.py`, `test_navigation_browser.py`, `test_context_return_browser.py` |
+| LaTeX delimiters/fences, core notation, local fonts/MathML, math in tables/discussions/context, atomic source annotations, source editing/undo, Review provenance, errors and untrusted commands | `markdown-math.test.mjs`, `test_markdown_math_browser.py`, `tests/fixtures/markdown-math.md` |
 | HTML source mapping, runtime anchors, report interactions and iframe isolation | `html-source.test.mjs`, `test_html_annotations.py`, `test_html_annotations_browser.py`, `test_browser.py` |
 | Stable Edit/review controls, confirmation/cancellation and revision races, JSON/HTML exclusion, quiet autosave, dense-highlight DOM stability, selectable thread cards and passage navigation | `test_interaction_polish_browser.py` |
 | Spotlight, unchanged reading positions, sidebar geometry, zen mode and navigation | `test_discussion_reading_browser.py`, `test_spotlight_navigation_browser.py`, `test_navigation_browser.py` |

@@ -1,4 +1,4 @@
-import {marked} from 'marked';
+import {markdown as marked} from './markdown-math.mjs';
 import DOMPurify from 'dompurify';
 import {tokenPositions} from './markdown-render.mjs';
 

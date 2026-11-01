@@ -14,3 +14,12 @@ for(const match of readFileSync('frontend/newsreader.css','utf8').matchAll(/url\
   copyFileSync('node_modules/@fontsource-variable/newsreader/files/'+match[1],'looking_glass/static/'+match[1]);
 }
 copyFileSync('node_modules/@fontsource-variable/newsreader/LICENSE','looking_glass/static/newsreader-license.txt');
+
+// Keep KaTeX CSS/fonts in the flat static directory included in wheel/sdist.
+// Its standalone stylesheet preserves KaTeX's precise rule ordering.
+let mathCSS=readFileSync('node_modules/katex/dist/katex.min.css','utf8');
+const mathFonts=new Set([...mathCSS.matchAll(/url\(fonts\/([^)]*)\)/g)].map(match=>match[1]));
+for(const font of mathFonts)copyFileSync('node_modules/katex/dist/fonts/'+font,'looking_glass/static/'+font);
+mathCSS=mathCSS.replaceAll('url(fonts/','url(');
+writeFileSync('looking_glass/static/katex.min.css',mathCSS);
+copyFileSync('node_modules/katex/LICENSE','looking_glass/static/katex-license.txt');

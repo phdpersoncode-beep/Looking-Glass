@@ -232,6 +232,28 @@ Bash, JSON, HTML, YAML (`yaml` or `yml`), and TOML blocks have basic syntax
 highlighting in live/source mode and reading preview. Inactive fence markers and
 language labels are hidden in live mode.
 
+LaTeX math renders in live Markdown, reading previews, original context, comments,
+and replies, including formulas inside table cells. Use `$x_i^2$` or `\(x_i^2\)`
+inline; use `$$ … $$` or `\[ … \]` for display equations, on one or multiple lines.
+Fenced `math`, `latex`, and `tex` blocks also render as display equations. KaTeX
+supports fractions, roots, Greek letters, scripts, sums, integrals, limits,
+matrices, `cases`, `aligned`, text, operators, accents, and local macro definitions.
+Its JavaScript, stylesheet, fonts, and license ship with the app for offline use.
+
+In live mode, use **Edit source** above a display formula. For inline formulas,
+double-click or focus the formula and press Enter. **Done editing math** returns
+to rendering; raw source mode always exposes the complete Markdown. Editing keeps
+ordinary undo/save and Review mode behavior. Selecting any portion of a rendered
+formula annotates its complete LaTeX source, including delimiters; source mode
+allows narrower selections. Passage and review colors preserve the equation's
+layout. Invalid or unsupported formulas show their source with an error tooltip.
+Code spans/ordinary code fences and escaped dollars stay literal; currency such
+as `$5 and $10` stays text. For literal pipes in Markdown table formulas, use
+`\vert`, `\Vert`, or an escaped `\|` so the table parser keeps the cell intact.
+KaTeX renders its supported math subset rather than full LaTeX documents; commands
+that load external resources, add HTML, or create links are disabled. Macros are
+local to each formula.
+
 Ctrl+A selects the active editor document. Ctrl+F toggles a compact search box at
 the upper right of the reading pane. Ctrl+H toggles its additional replace row;
 Ctrl+F in replace mode returns to search only. The query and options stay intact
