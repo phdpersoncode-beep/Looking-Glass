@@ -286,14 +286,16 @@ def test_mouse_drag_math_anchors_exact_repeated_source(workspace_page, mode, for
     mark.locator('.katex-html .base').first.click()
     expect(page.locator('.thread.active')).to_have_count(1)
     assert page.evaluate('getSelection().isCollapsed')
-    page.locator('#mode').select_option('preview'); page.reload()
+    page.locator('#mode').select_option('preview')
+    expect(page.locator('.markdown-preview .md-math.passage-highlight .katex')).to_have_count(1)
+    page.reload()
     expect(page.locator('.markdown-preview .md-math.passage-highlight .katex')).to_have_count(1)
     assert (root/'math.md').read_bytes() == original.encode()
 
 
 @pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
 @pytest.mark.parametrize('mode', ['live', 'preview'])
-def test_display_math_has_compact_spacing_and_aligns_with_prose(workspace_page, mode):
+def test_display_math_is_centered_with_compact_spacing(workspace_page, mode):
     from playwright.sync_api import expect
     root, page, url, _ = workspace_page
     (root/'math.md').write_text('Before.\n\n$$\n\\frac{abc}{xyz}=123\n$$\n\nAfter.\n')
@@ -309,13 +311,12 @@ def test_display_math_has_compact_spacing_and_aligns_with_prose(workspace_page, 
             geometry = formula.evaluate('''el=>{
               const box=el.getBoundingClientRect(),bases=[...el.querySelectorAll('.katex-html>.base')].map(n=>n.getBoundingClientRect());
               const left=Math.min(...bases.map(r=>r.left)),right=Math.max(...bases.map(r=>r.right)),top=Math.min(...bases.map(r=>r.top)),bottom=Math.max(...bases.map(r=>r.bottom));
-              const host=el.closest('.md-formula')||el,prose=document.querySelector('#surface .cm-line,#surface .markdown-preview p');
-              const walk=document.createTreeWalker(prose,NodeFilter.SHOW_TEXT),range=document.createRange();range.selectNodeContents(walk.nextNode());
-              return {width:box.width,visibleWidth:right-left,height:host.getBoundingClientRect().height,visibleHeight:bottom-top,left:box.left,proseLeft:range.getBoundingClientRect().left};
+              const widget=el.closest('.md-formula'),host=widget||el.parentElement,container=host.getBoundingClientRect();
+              return {width:box.width,visibleWidth:right-left,height:(widget||el).getBoundingClientRect().height,visibleHeight:bottom-top,center:(box.left+box.right)/2,containerCenter:(container.left+container.right)/2};
             }''')
             assert geometry['width'] <= geometry['visibleWidth']+4
             assert geometry['height'] <= geometry['visibleHeight']+24
-            assert abs(geometry['left']-geometry['proseLeft']) <= 3
+            assert abs(geometry['center']-geometry['containerCenter']) <= 3
             if mode == 'live':
                 for gap in page.locator('.cm-line.md-math-gap').all():
                     assert gap.bounding_box()['height'] <= 20

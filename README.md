@@ -240,7 +240,7 @@ supports fractions, roots, Greek letters, scripts, sums, integrals, limits,
 matrices, `cases`, `aligned`, text, operators, accents, and local macro definitions.
 Its JavaScript, stylesheet, fonts, and license ship with the app for offline use.
 
-Display equations align with the prose and use compact spacing. Wide equations
+Display equations are centered and use compact vertical spacing. Wide equations
 scroll horizontally; short equations keep their natural width. In live mode,
 hover over or focus a display formula to reveal **Edit source**. For inline formulas,
 double-click or focus the formula and press Enter. **Done editing math** returns

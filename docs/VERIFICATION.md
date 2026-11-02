@@ -1,3 +1,20 @@
+# Centered display equations
+
+- Restored horizontal centering in live Markdown, previews, and discussions.
+  Kept the compact vertical spacing, intrinsic short-equation widths, overflow
+  scrolling, gutter edit control, and rendered-math anchoring behavior.
+- Centering and compact-height assertions pass in both themes at 1440- and
+  960-pixel widths. All **10 focused Chromium cases** pass in **69.64 seconds**,
+  including real mouse annotations and wide/nested equations. Wheel/source
+  builds, whitespace checks, and browser-shard completeness checks pass.
+- The previous [full run](https://github.com/phdpersoncode-beep/Looking-Glass/actions/runs/41354238981)
+  on `c8a0bd9` finished with **585 passed, 2 failed**. Both remaining Firefox
+  failures reloaded immediately after choosing preview, before the asynchronous
+  mode transition persisted. The tests now await the rendered preview highlight
+  before reloading and retain the same persistence assertions.
+
+---
+
 # Math spacing and mouse annotations · 2026-11-01
 
 - Checked [browser run 41350268361](https://github.com/phdpersoncode-beep/Looking-Glass/actions/runs/41350268361)
