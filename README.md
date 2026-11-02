@@ -232,6 +232,11 @@ Bash, JSON, HTML, YAML (`yaml` or `yml`), and TOML blocks have basic syntax
 highlighting in live/source mode and reading preview. Inactive fence markers and
 language labels are hidden in live mode.
 
+Markdown thematic breaks (`---`, `***`, and `___`) render as horizontal lines
+in live Markdown, reading previews, and discussions. Live mode reveals their
+source when the caret moves to the rule; raw source remains editable. Standard
+Setext headings, fenced code, and table separators retain their Markdown meaning.
+
 LaTeX math renders in live Markdown, reading previews, original context, comments,
 and replies, including formulas inside table cells. Use `$x_i^2$` or `\(x_i^2\)`
 inline; use `$$ … $$` or `\[ … \]` for display equations, on one or multiple lines.
@@ -240,9 +245,10 @@ supports fractions, roots, Greek letters, scripts, sums, integrals, limits,
 matrices, `cases`, `aligned`, text, operators, accents, and local macro definitions.
 Its JavaScript, stylesheet, fonts, and license ship with the app for offline use.
 
-Display equations are centered and use compact vertical spacing. Wide equations
-scroll horizontally; short equations keep their natural width. In live mode,
-hover over or focus a display formula to reveal **Edit source**. For inline formulas,
+Display equations are centered, use a smaller font and compact vertical spacing,
+and can use the full document width like tables. Equations scroll horizontally
+only when they exceed that available width; short equations keep their natural
+width. In live mode, hover over or focus a display formula to reveal **Edit source**. For inline formulas,
 double-click or focus the formula and press Enter. **Done editing math** returns
 to rendering; raw source mode always exposes the complete Markdown. Editing keeps
 ordinary undo/save and Review mode behavior. Selecting any portion of a rendered
@@ -415,7 +421,10 @@ them in your terminal first. Checkpoints do not push. Saving never commits.
   software fallback. Software previews of large models reduce detail to 12,000
   sampled triangles and are labeled accordingly. Invalid files show an error
   inside the viewer.
-- **HTML:** rendered interactive report or raw editable source. The iframe has
+- **HTML:** rendered interactive report or raw editable source. Open report tabs
+  retain their controls, JavaScript state, and scroll position through tab switches,
+  source inspection, and original-context visits. Closing the tab, reloading the
+  page, or changing report source resets its runtime state. The iframe has
   an opaque sandbox origin, no application API token and no access to parent
   state. Inline scripts and HTTPS report resources are allowed. Use self-contained
   reports; workspace-relative linked assets are not currently served to previews.

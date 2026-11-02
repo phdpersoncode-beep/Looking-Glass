@@ -1,3 +1,26 @@
+# PR18 hotfix verification · 2026-11-02
+
+- Render Markdown thematic breaks in live mode and theme visible rules in previews
+  and discussions. Preserve Setext headings, fenced code, source editing and undo.
+- Display equations use 85% of prose size and the document's available width.
+  Preserve centering and compact spacing; allow glyph overhang before scrolling.
+- Retain connected, sandboxed report iframes across tabs, source inspection and
+  original-context visits. Dispose on tab close or source invalidation, including
+  clean changes while inactive. Hidden reports cannot update the active selection.
+- Update the bottom-left agent instructions with filter, math/source and Git guidance.
+  The top-right Changes & checkpoints browser journey verifies selected disk diffs
+  and a named local commit while preserving unrelated staged, unstaged and untracked files.
+- **84 JavaScript and 140 non-browser Python checks pass.** **74 focused Chromium
+  checks pass**, including new hotfix journeys, existing math/HTML annotations,
+  original context, and resolved selections. The final hotfix journeys are also
+  rerun after lifecycle refinements. Chromium version: **154.0.8037.57**.
+- Both themes and wide/narrow equation layouts were checked; light live and dark
+  preview screenshots were inspected. Build, wheel/source packaging, whitespace,
+  and the **597-case** complete/disjoint browser-shard guard pass. Firefox awaits
+  the final remote Chromium/Firefox run; it was not installed locally.
+
+---
+
 # Centered display equations
 
 - Restored horizontal centering in live Markdown, previews, and discussions.

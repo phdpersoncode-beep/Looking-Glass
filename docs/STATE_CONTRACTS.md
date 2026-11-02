@@ -28,6 +28,7 @@ even when the focused thread does not change.
 | Zen resolve/delete | Advance to next open thread in the pre-mutation queue; retain spotlight if active | Reveal next passage; final completion stays put |
 | Go to top | Preserve selection and document state | Scroll the displayed document surface to its beginning |
 | Original context visit/return | Suspend/resume existing surface | Restore selection, undo, report state and scroll |
+| HTML tab switch | Retain the connected sandboxed iframe per document session; hide inactive reports | Restore runtime controls, selection and scroll |
 | Mode switch | Save pending writes; switch compatible session | Restore that mode's selection and undo |
 
 Navigation promises resolve only after the requested surface is ready, or report
@@ -56,3 +57,10 @@ The existing Chromium and Firefox journeys remain required. Controlled-promise
 tests cover queued/stale completions and writes during saves; pure tests cover
 scope, overlap, ambiguity and Unicode. Browser tests establish scroll, selection,
 undo, copying and interactive-report behavior.
+
+HTML report frames stay connected to their original parent until their tab closes
+or source changes. Removing or reparenting an iframe resets its browsing context.
+Hidden reports may finish initialization, but only the active report can update
+selection, annotations or navigation. Clean external source changes invalidate
+retained reports, including inactive tabs. Runtime state lasts within the current
+page session; it is not serialized across browser reloads.

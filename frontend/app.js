@@ -126,9 +126,11 @@ async function suspendHTMLPreview(){
   const preview=renderedPreview;if(!preview?.ready)return;
   const requestId=crypto.randomUUID();preview.requests??=new Map();
   await new Promise((resolve,reject)=>{
-    const timer=setTimeout(()=>{preview.requests.delete(requestId);reject(new Error('The HTML preview did not respond. Try opening context again.'));},2000);
+    const timer=setTimeout(()=>{preview.requests.delete(requestId);reject(new Error('The HTML preview did not respond. Try opening the report again.'));},2000);
     preview.requests.set(requestId,()=>{clearTimeout(timer);resolve();});previewMessage('suspend',{requestId});
   });
+  const surface=tabs.get(preview.path)?.htmlSurface;
+  if(surface?.preview===preview&&renderedPreview===preview){surface.selection=renderedSelection;surface.jump=renderedJump;}
 }
 function htmlSelection(){
   const source=renderedSelection?.source,text=entry()?.content;
@@ -297,6 +299,9 @@ function tableDecorations(state){
   return Decoration.set(ranges,true);
 }
 const liveTables=[blockEditing,StateField.define({create:tableDecorations,update:(_value,tr)=>tableDecorations(tr.state),provide:field=>EditorView.decorations.from(field)})];
+class MarkdownRule extends WidgetType {
+  toDOM(){const el=document.createElement('hr');el.className='md-rule';return el;}
+}
 class Bullet extends WidgetType {toDOM(){const el=document.createElement('span');el.textContent='• ';return el;}}
 class TaskCheckbox extends WidgetType {
   constructor(checked,from){super();this.checked=checked;this.from=from;}
@@ -334,6 +339,7 @@ function liveDecorations(v, activeRange) {
         ranges.push(Decoration.mark({class:'md-link'}).range(a,b));
       }
       if(isActive) return;
+      if(name==='HorizontalRule'){ranges.push(Decoration.replace({widget:new MarkdownRule()}).range(a,b));return false;}
       if(['HeaderMark','EmphasisMark','CodeMark','CodeInfo','QuoteMark','LinkMark'].includes(name) && doc.lineAt(b).number===line.number)
         ranges.push(Decoration.replace({}).range(a,b));
       if(name==='URL' && doc.lineAt(b).number===line.number) ranges.push(Decoration.replace({}).range(a,b));
@@ -443,9 +449,9 @@ async function closeTab(path,returning=false){
   if(contextVisit?.path===path){contextVisit.surface.dispose();contextVisit=null;}
   if(returning)contextVisit=null;
   if(path===appStore.state.displayedDocument){clearSpotlight();closeComment();syncState();view?.destroy();view=null;cleanup();cleanup=()=>{};appStore.dispatch({type:'DOCUMENT_DISPLAYED',path:null});}
-  e.reviewSync?.dispose();tabs.delete(path);remember();renderTabs();
+  disposeReport(e);e.reviewSync?.dispose();tabs.delete(path);remember();renderTabs();
   if(!appStore.state.displayedDocument&&tabs.size)await openFile([...tabs.keys()].at(-1));
-  else if(!appStore.state.displayedDocument){lastThreadHTML='';lastThreadKey='';$('#surface').innerHTML='<div class="welcome"><h1>Open a file to begin.</h1></div>';$('#threads').replaceChildren();discussionView.reset();appStore.dispatch({type:'THREADS_RECEIVED',threads:[]});$('#thread-count').textContent='0';updateToolbar();await refreshThreads();}
+  else if(!appStore.state.displayedDocument){lastThreadHTML='';lastThreadKey='';clearSurface();const welcome=document.createElement('div');welcome.className='welcome';welcome.innerHTML='<h1>Open a file to begin.</h1>';$('#surface').append(welcome);$('#threads').replaceChildren();discussionView.reset();appStore.dispatch({type:'THREADS_RECEIVED',threads:[]});$('#thread-count').textContent='0';updateToolbar();await refreshThreads();}
 }
 
 function highlightMarkdown(preview){
@@ -529,18 +535,19 @@ async function loadFile(path,request){
     // context, rather than reconstructing the document on return.
     if(e.kind==='original'&&!contextVisit){
       const scroller=view?.scrollDOM||$('#surface');
-      contextVisit={path:appStore.state.displayedDocument,content:entry()?.content,editor:view,cleanup,nodes:[...$('#surface').children],preview:renderedPreview,selection:renderedSelection,jump:renderedJump,thread:appStore.state.focusedThread,top:scroller.scrollTop,left:scroller.scrollLeft,snapshot:view?.scrollSnapshot()};
+      contextVisit={path:appStore.state.displayedDocument,content:entry()?.content,editor:view,cleanup,nodes:[...$('#surface').children].filter(node=>!node.hidden),preview:renderedPreview,selection:renderedSelection,jump:renderedJump,thread:appStore.state.focusedThread,top:scroller.scrollTop,left:scroller.scrollLeft,snapshot:view?.scrollSnapshot()};
       const held=contextVisit;
-      held.surface=createSurfaceSession({suspend:async()=>{await suspendHTMLPreview();held.nodes.forEach(node=>node.hidden=true);},resume:()=>held.nodes.forEach(node=>node.hidden=false),dispose:()=>{held.editor?.destroy();held.cleanup();held.nodes.forEach(node=>node.remove());}});
+      held.surface=createSurfaceSession({suspend:async()=>{await suspendHTMLPreview();held.nodes.forEach(node=>node.hidden=true);},resume:()=>held.nodes.forEach(node=>node.hidden=false),dispose:()=>{held.editor?.destroy();held.cleanup();held.nodes.forEach(node=>{if(node.hasAttribute('data-report-surface')){node.hidden=true;node.removeAttribute('id');}else node.remove();});}});
       await held.surface.suspend();if(!request.current()){held.surface.resume();previewMessage('resume');contextVisit=null;return;}view=null;cleanup=()=>{};
     }
+    if(renderedPreview&&!contextVisit){await suspendHTMLPreview();if(!request.current())return;}
     const held=contextVisit;
     view?.destroy();view=null;cleanup();cleanup=()=>{};
     if(discussions)receiveDiscussions(discussions.data,discussions.key,true,activation,path);
     else appStore.dispatch({type:'DOCUMENT_DISPLAYED',path});
     rememberFileVisit(e,request.context?.fileHistoryIndex);
-    if(held){for(const node of [...$('#surface').children])if(!held.nodes.includes(node))node.remove();}
-    else $('#surface').replaceChildren();
+    if(held){for(const node of [...$('#surface').children])if(!held.nodes.includes(node)&&!node.hasAttribute('data-report-surface'))node.remove();}
+    else clearSurface();
     if(e.kind==='original')for(const [name,tab] of tabs)if(tab.kind==='original'&&name!==path)tabs.delete(name);
     const resume=held&&e.kind!=='original'&&path===held.path&&e.content===held.content;
     if(held&&e.kind!=='original'){
@@ -596,22 +603,47 @@ function mountOriginal(e){
   view=new EditorView({state:e.state||makeState(e),parent});
   if(!e.origin.render_anchor){const from=toUnits(e.content,e.origin.start),to=toUnits(e.content,e.origin.end);if(from<to&&to<=view.state.doc.length)view.dispatch({selection:{anchor:from,head:to},effects:EditorView.scrollIntoView(from,{y:'center'})});}
 }
+function clearSurface(){
+  for(const node of [...$('#surface').children])if(!node.hasAttribute('data-report-surface'))node.remove();
+}
+function disposeReport(e){e?.htmlSurface?.dispose();if(e)e.htmlSurface=null;}
 function mountDocument(e){
-  e.ready=Promise.resolve();
+  if(e.mode!=='rendered')e.ready=Promise.resolve();
   closeComment();contentsController?.reset();
   renderedPreview=null;renderedSelection=null;renderedJump=null;
-  $('#surface').replaceChildren();
+  clearSurface();
   if(e.mode==='rendered'){
-    const frame=document.createElement('iframe');frame.id='html-preview';frame.title='Isolated HTML report';frame.setAttribute('sandbox','allow-scripts allow-forms allow-modals');
-    // A separate preview capability grants no application API access. The
-    // iframe and response sandbox both enforce an opaque report origin.
-    let readyResolve,readyReject;
-    e.ready=new Promise((resolve,reject)=>{readyResolve=resolve;readyReject=reject;});
-    e.ready.catch(()=>{});
-    const timer=setTimeout(()=>readyReject(new Error('The HTML report did not become ready. Try opening it again.')),15000);
-    (async()=>{const prepared=prepareHTMLPreview(e.content,'data-lg-'+crypto.randomUUID());const preview=await api('preview','POST',{path:e.path,content:prepared.content});if(frame.isConnected){renderedPreview={frame,path:e.path,mapping:prepared.mapping,channel:preview.url.split('/').pop(),ready:false,resolveReady:()=>{clearTimeout(timer);readyResolve();}};frame.src=preview.url;}else{clearTimeout(timer);readyResolve();}})().catch(error=>{clearTimeout(timer);readyReject(error);notify(error.message,true);});
-    cleanup=()=>{clearTimeout(timer);readyResolve();renderedPreview=null;renderedSelection=null;renderedJump=null;};
-    $('#surface').append(frame);
+    if(e.htmlSurface?.content!==e.content||e.htmlSurface?.failed)disposeReport(e);
+    let surface=e.htmlSurface;
+    if(!surface){
+      const frame=document.createElement('iframe');frame.title='Isolated HTML report';frame.dataset.reportSurface='';frame.setAttribute('sandbox','allow-scripts allow-forms allow-modals');
+      // Keep the sandboxed browsing context connected for this tab's lifetime.
+      // Detaching and reattaching the same iframe would reset its JavaScript state.
+      let readyResolve,readyReject;
+      const ready=new Promise((resolve,reject)=>{readyResolve=resolve;readyReject=reject;});ready.catch(()=>{});
+      const timer=setTimeout(()=>{surface.failed=true;readyReject(new Error('The HTML report did not become ready. Try opening it again.'));},15000);
+      surface=e.htmlSurface={frame,content:e.content,ready,preview:null,selection:null,jump:null,
+        dispose(){clearTimeout(timer);readyResolve();frame.remove();}};
+      $('#surface').append(frame);
+      (async()=>{
+        const prepared=prepareHTMLPreview(surface.content,'data-lg-'+crypto.randomUUID());
+        const result=await api('preview','POST',{path:e.path,content:prepared.content});
+        if(e.htmlSurface!==surface)return;
+        surface.preview={frame,path:e.path,mapping:prepared.mapping,channel:result.url.split('/').pop(),ready:false,resolveReady:()=>{clearTimeout(timer);readyResolve();}};
+        if(!frame.hidden)renderedPreview=surface.preview;
+        frame.src=result.url;
+      })().catch(error=>{if(e.htmlSurface!==surface)return;surface.failed=true;clearTimeout(timer);readyReject(error);notify(error.message,true);});
+    }
+    const {frame}=surface;frame.hidden=false;frame.id='html-preview';e.ready=surface.ready;
+    renderedPreview=surface.preview;renderedSelection=surface.selection;renderedJump=surface.jump;
+    previewMessage('resume');
+    cleanup=()=>{
+      if(renderedPreview&&renderedPreview===surface.preview){
+        surface.selection=renderedSelection;surface.jump=renderedJump;
+        renderedPreview=null;renderedSelection=null;renderedJump=null;
+      }
+      frame.hidden=true;frame.removeAttribute('id');
+    };
   }else if(e.mode==='preview'){
     const preview=document.createElement('div');preview.className='markdown-preview';$('#surface').append(preview);
     const rendered=mountMappedMarkdown(preview,e.content,0,highlightMarkdown);rendered.setReview(currentReviewRanges());rendered.highlight([],null);markdownViews.add(rendered);markdownDiagrams(preview);cleanup=()=>markdownViews.delete(rendered);
@@ -1164,7 +1196,7 @@ async function poll(){
         if(ext(e.path)==='stl'||isImage(e.path)){
           const disk=await api('stat?'+new URLSearchParams({path:e.path}));
           if(e.version!==requestedVersion||navigation.busy||saving)continue;
-          if(disk.version!==e.version){e.version=disk.version;if(e.path===appStore.state.displayedDocument){cleanup();cleanup=()=>{};$('#surface').replaceChildren();if(isImage(e.path))await mountImage(e);else await mountSTL(e);notify('Reloaded the external viewer change');}}
+          if(disk.version!==e.version){e.version=disk.version;if(e.path===appStore.state.displayedDocument){cleanup();cleanup=()=>{};clearSurface();if(isImage(e.path))await mountImage(e);else await mountSTL(e);notify('Reloaded the external viewer change');}}
           continue;
         }
         const disk=await api('file?'+new URLSearchParams({path:e.path,version:requestedVersion}));
@@ -1172,7 +1204,7 @@ async function poll(){
         if(e.version!==requestedVersion||navigation.busy||saving)continue;
         if(disk.version===e.version)continue;
         if(e.dirty){e.conflict=disk;if(e.path===appStore.state.displayedDocument)notify('External change detected; your draft is preserved.',true);}
-        else{e.content=disk.content;e.diskContent=disk.content;e.version=disk.version;e.state=null;e.conflict=null;if(e.path===appStore.state.displayedDocument){view?.destroy();view=null;cleanup();cleanup=()=>{};$('#surface').replaceChildren();if(ext(e.path)==='jsonl')mountJSONL(e);else mountDocument(e);notify('Reloaded the external change');}}
+        else{disposeReport(e);e.content=disk.content;e.diskContent=disk.content;e.version=disk.version;e.state=null;e.conflict=null;if(e.path===appStore.state.displayedDocument){view?.destroy();view=null;cleanup();cleanup=()=>{};clearSurface();if(ext(e.path)==='jsonl')mountJSONL(e);else mountDocument(e);notify('Reloaded the external change');}}
       }catch(error){if(error.status===404){e.conflict={deleted:true};if(e.path===appStore.state.displayedDocument)notify(error.message,true);}else notify(error.message,true);}
     }
     updateToolbar();
@@ -1203,10 +1235,15 @@ document.addEventListener('htmx:beforeSwap',event=>{
   if(event.detail.xhr.status===200)fileTreeETag=event.detail.xhr.getResponseHeader('ETag');
 });
 window.addEventListener('message',guard(async event=>{
-  const preview=renderedPreview,message=event.data;
-  if(!preview||event.source!==preview.frame.contentWindow||event.origin!=='null'||message?.lookingGlass!==preview.channel)return;
-  if(message.type==='ready'){preview.ready=true;preview.resolveReady?.();previewMessage('initialize',{mapping:preview.mapping});previewThreads();if(renderedJump)previewMessage('jump',{id:renderedJump});}
+  const message=event.data,preview=[...tabs.values()].map(e=>e.htmlSurface?.preview).find(p=>p&&event.source===p.frame.contentWindow&&message?.lookingGlass===p.channel);
+  if(!preview||event.origin!=='null')return;
+  if(message.type==='ready'){
+    preview.ready=true;preview.resolveReady?.();
+    preview.frame.contentWindow.postMessage({lookingGlass:preview.channel,type:'initialize',mapping:preview.mapping},'*');
+    if(preview===renderedPreview){previewThreads();if(renderedJump)previewMessage('jump',{id:renderedJump});}
+  }
   if(message.type==='suspended'){preview.requests?.get(message.requestId)?.();preview.requests?.delete(message.requestId);}
+  if(preview!==renderedPreview)return;
   if(message.type==='selection'){
     const selection=message.selection;
     renderedSelection=selection&&typeof selection.anchor?.quote==='string'&&selection.anchor.quote.length<=50000&&['left','right','top','bottom'].every(key=>Number.isFinite(selection.rect?.[key]))?selection:null;
@@ -1462,7 +1499,7 @@ $('#previous').onclick=guard(()=>navigate(-1));$('#next').onclick=guard(()=>navi
 $('#only-unattached').onchange=()=>{cancelSidebarNavigation();appStore.dispatch({type:'FILTERS_CHANGED',filters:{onlyUnattached:$('#only-unattached').checked}});};
 $('#thread-scope').checked=localStorage.getItem('looking-glass-thread-scope:'+root)==='all';
 $('#thread-scope').onchange=guard(async()=>{cancelSidebarNavigation();appStore.dispatch({type:'FILTERS_CHANGED',filters:{scope:$('#thread-scope').checked?'all':'file'}});clearSpotlight();localStorage.setItem('looking-glass-thread-scope:'+root,threadScope());await refreshThreads(true);});
-async function setMode(value){const e=entry();if(!e||e.mode===value)return;syncState();e.mode=value;view?.destroy();view=null;cleanup();cleanup=()=>{};mountDocument(e);await e.ready;await refreshThreads();remember();}
+async function setMode(value){const e=entry();if(!e||e.mode===value)return;await suspendHTMLPreview();syncState();e.mode=value;view?.destroy();view=null;cleanup();cleanup=()=>{};mountDocument(e);await e.ready;await refreshThreads();remember();}
 $('#mode').onchange=guard(()=>setMode($('#mode').value));
 $('#html-toggle').onclick=guard(()=>setMode(entry().mode==='rendered'?'source':'rendered'));
 $('#theme').onclick=()=>{const value=document.documentElement.dataset.theme==='light'?'dark':'light';document.documentElement.dataset.theme=value;localStorage.setItem('looking-glass-theme',value);$('#theme').textContent=value==='dark'?'Light mode':'Dark mode';if(view)view.dispatch({effects:themeSlot.reconfigure(theme())});$$('.mermaid-diagram').forEach(host=>{const source=host.dataset.diagramSource;if(source)renderMermaid(host,source);});};
@@ -1562,7 +1599,7 @@ $('#author-form').onsubmit=event=>{
 window.addEventListener('resize',placeAuthorPopover);
 $('#author-edit').disabled=false;
 $('#reload-disk').onclick=guard(async()=>{
-  const e=entry();if(!e)return;if(e.dirty&&!confirm('Discard your unsaved edits and reload the current disk file?'))return;const disk=await api('file?'+new URLSearchParams({path:e.path}));e.content=disk.content;e.diskContent=disk.content;e.version=disk.version;e.dirty=false;e.conflict=null;e.state=null;view?.destroy();view=null;mountDocument(e);await refreshThreads();renderTabs();notify('Reloaded from disk');
+  const e=entry();if(!e)return;if(e.dirty&&!confirm('Discard your unsaved edits and reload the current disk file?'))return;const disk=await api('file?'+new URLSearchParams({path:e.path}));disposeReport(e);e.content=disk.content;e.diskContent=disk.content;e.version=disk.version;e.dirty=false;e.conflict=null;e.state=null;view?.destroy();view=null;mountDocument(e);await refreshThreads();renderTabs();notify('Reloaded from disk');
 });
 $('#copy-draft').onclick=guard(async()=>{await navigator.clipboard.writeText(entry().content);notify('Draft copied');});
 $('#merge-disk').onclick=guard(async()=>{const e=entry();const disk=await api('file?'+new URLSearchParams({path:e.path}));pending={mergePath:e.path,disk};$('#disk-text').textContent=disk.content;$('#merge-text').value=e.content;$('#merge-dialog').showModal();});
