@@ -16,6 +16,7 @@ import {formatJSON} from './json-format.mjs';
 import {mountMappedMarkdown,renderMarkdown} from './markdown-render.mjs';
 import {markdownMathRanges} from './markdown-source.mjs';
 import {markdownLinks} from './markdown-links.mjs';
+import {markdownListLines} from './markdown-lists.mjs';
 import {linkThreadReferences} from './thread-references.mjs';
 import {textSelection,updateNativeTextSelection} from './text-selection.mjs';
 import {createThreadSpotlight} from './thread-spotlight.mjs';
@@ -302,7 +303,11 @@ const liveTables=[blockEditing,StateField.define({create:tableDecorations,update
 class MarkdownRule extends WidgetType {
   toDOM(){const el=document.createElement('hr');el.className='md-rule';return el;}
 }
-class Bullet extends WidgetType {toDOM(){const el=document.createElement('span');el.textContent='• ';return el;}}
+class Bullet extends WidgetType {
+  constructor(depth){super();this.depth=depth;}
+  eq(other){return this.depth===other.depth;}
+  toDOM(){const el=document.createElement('span');el.className='md-list-marker';el.textContent=this.depth===1?'•':this.depth===2?'◦':'▪';return el;}
+}
 class TaskCheckbox extends WidgetType {
   constructor(checked,from){super();this.checked=checked;this.from=from;}
   eq(other){return other.checked===this.checked&&other.from===this.from;}
@@ -313,6 +318,15 @@ function liveDecorations(v, activeRange) {
   const ranges=[], doc=v.state.doc, links=markdownLinks(syntaxTree(v.state),doc);
   const math=markdownMathRanges(doc.toString()),editing=v.state.field(blockEditing);
   const {from:activeFrom,to:activeTo}=activeRange;
+  for(const line of markdownListLines(syntaxTree(v.state),doc)){
+    ranges.push(Decoration.line({class:'md-list-line',attributes:{'data-list-depth':String(line.depth),style:`--md-list-depth:${line.depth};--md-list-marker-width:${line.width}em`}}).range(line.from));
+    if(line.indentTo>line.from)ranges.push(Decoration.replace({}).range(line.from,line.indentTo));
+    if(line.markerFrom!==null){
+      ranges.push(Decoration.line({class:'md-list-first'}).range(line.from));
+      const active=doc.lineAt(line.from).to>=activeFrom&&line.from<=activeTo;
+      ranges.push((line.bullet&&!active?Decoration.replace({widget:new Bullet(line.depth)}):Decoration.mark({class:'md-list-marker'})).range(line.markerFrom,line.markerTo));
+    }
+  }
   syntaxTree(v.state).iterate({
     enter(node){
       const name=node.name, a=node.from, b=node.to;
@@ -344,7 +358,7 @@ function liveDecorations(v, activeRange) {
         ranges.push(Decoration.replace({}).range(a,b));
       if(name==='URL' && doc.lineAt(b).number===line.number) ranges.push(Decoration.replace({}).range(a,b));
       if(name==='TaskMarker')ranges.push(Decoration.replace({widget:new TaskCheckbox(doc.sliceString(a+1,a+2).toLowerCase()==='x',a)}).range(a,b));
-      if(name==='ListMark'&&!/^\d+[.)]$/.test(doc.sliceString(a,b))){const task=/^\s*\[[ xX]\]\s/.test(doc.sliceString(b,line.to));ranges.push(Decoration.replace({widget:task?undefined:new Bullet()}).range(a,b));}
+      if(name==='ListMark'&&/^\s*\[[ xX]\]\s/.test(doc.sliceString(b,line.to)))ranges.push(Decoration.replace({}).range(a,b));
     }
   });
   return Decoration.set(ranges,true);

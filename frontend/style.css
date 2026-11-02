@@ -260,3 +260,14 @@ html[data-theme="dark"] { --review-human: #78d49a; --review-agent: #84b4ff; --re
 #author-help{margin:8px 0 0;font-size:10px;color:var(--muted)}.author-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:14px}.author-actions button{padding:4px 9px;font-size:11px}.author-actions button[type=button]{border-color:transparent;color:var(--muted)}
 
 .md-rule,:is(.markdown-preview,.comment-markdown) hr{border:0;border-top:1px solid var(--border);margin:.8em 0;width:100%}
+
+/* List depth is independent of proportional-font source whitespace. Hanging
+   markers keep wrapped and continuation lines aligned with their item text. */
+.live-markdown .cm-editor .cm-line.md-list-line{padding-left:calc(28px + var(--md-list-depth)*1.25em + var(--md-list-marker-width))}
+.live-markdown .cm-line.md-list-first{text-indent:calc(-1 * var(--md-list-marker-width))}
+.md-list-marker{display:inline-block;width:var(--md-list-marker-width);text-indent:0;white-space:pre;font-variant-numeric:tabular-nums}
+:is(.markdown-preview,.comment-markdown) :is(ul,ol){padding-left:2em;list-style-position:outside}
+:is(.markdown-preview,.comment-markdown) li> :is(ul,ol){margin-top:.15em;margin-bottom:.15em}
+:is(.markdown-preview,.comment-markdown) ul ul{list-style-type:circle}
+:is(.markdown-preview,.comment-markdown) ul ul ul{list-style-type:square}
+:is(.markdown-preview,.comment-markdown) li:has(> .md-mapped-text input[type=checkbox]),:is(.markdown-preview,.comment-markdown) li:has(> p input[type=checkbox]){list-style-type:none}

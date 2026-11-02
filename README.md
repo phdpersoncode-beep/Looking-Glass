@@ -227,6 +227,25 @@ Use **A− / A+** in the document toolbar to adjust document text size.
 The setting persists. Toolbar, sidebar, and search controls keep their size.
 Live Markdown task lists display clickable checkboxes. The active line exposes
 ordinary Markdown syntax. Checkbox clicks update the Markdown draft; save to write it.
+Bullet and numbered lists are indented from prose. Nested and mixed lists keep
+clear levels in live Markdown, reading previews, discussions, and original
+context; wrapped lines and continuation paragraphs align beneath the item text.
+Use two spaces per nested bullet level and align nested numbering beneath the
+parent item's text, for example:
+
+```markdown
+- Parent
+  - Child
+    - Grandchild
+
+1. Parent
+   1. Child
+      1. Grandchild
+```
+
+Source bytes, starting numbers, task checkboxes, editing, undo, and passage
+annotations are preserved. Raw source mode shows the original indentation.
+
 Markdown tables render in live mode; click a table to edit its source. Fenced Python,
 Bash, JSON, HTML, YAML (`yaml` or `yml`), and TOML blocks have basic syntax
 highlighting in live/source mode and reading preview. Inactive fence markers and

@@ -314,7 +314,8 @@ def test_display_math_is_centered_with_compact_spacing(workspace_page, mode):
               const widget=el.closest('.md-formula'),host=widget||el.parentElement,container=host.getBoundingClientRect();
               return {width:box.width,visibleWidth:right-left,height:(widget||el).getBoundingClientRect().height,visibleHeight:bottom-top,center:(box.left+box.right)/2,containerCenter:(container.left+container.right)/2};
             }''')
-            assert geometry['width'] <= geometry['visibleWidth']+4
+            # Browser subpixel rounding can differ by a few millionths of a pixel.
+            assert geometry['width']-geometry['visibleWidth'] <= 4.01
             assert geometry['height'] <= geometry['visibleHeight']+24
             assert abs(geometry['center']-geometry['containerCenter']) <= 3
             if mode == 'live':

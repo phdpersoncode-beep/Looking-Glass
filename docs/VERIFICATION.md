@@ -1,3 +1,26 @@
+# Nested Markdown lists · 2026-11-02
+
+- Indent bullet, numbered, mixed and task lists from surrounding prose, with
+  distinct sub- and sub-sub-list levels. Live mode uses parser-owned depth,
+  hanging markers and aligned wrapped/continuation lines, without rewriting files.
+  Reading previews, discussions and original context retain native nested lists.
+- **88 JavaScript and 140 non-browser Python checks pass.** **37 focused Chromium
+  browser checks pass**, covering lists, table/prose annotations, task toggles,
+  editing/undo, Unicode/CRLF original context, code/quotes, previous hotfixes,
+  numbered markers, and the prior CI's HTML journey. Both themes and wide/narrow
+  panes were checked; live light and preview dark screenshots were inspected.
+- The previous full run on `b3f08fc` completed with **594 passed and 3 failed**:
+  two Firefox checks exceeded the exact four-pixel padding limit by 0.00003px,
+  and an HTML journey expected source inspection to reset runtime text. The
+  geometry check now allows 0.01px of rounding; the HTML journey explicitly checks
+  retained state and then changes the passage to exercise missing/ambiguous anchors.
+- Rebuild consistency, wheel/source packaging, whitespace and the **605-case**
+  complete/disjoint browser-shard guard are checked for the final commit.
+  A fresh full Chromium/Firefox run follows the final push; local browser checks
+  use Chromium **154.0.8037.57**. Firefox is not installed locally.
+
+---
+
 # PR18 hotfix verification · 2026-11-02
 
 - Render Markdown thematic breaks in live mode and theme visible rules in previews
