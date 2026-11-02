@@ -29,10 +29,17 @@ Supply the exact version you read. A stale edit is rejected; reread and reconsid
 History includes inserted/removed text, author, role, and UTC edit times, including human edits.
 Use list/search/read/create/reply --review REVIEW_ID for draft discussions and reply context.
 Only the human approves a reviewed version in the browser; approval writes the accepted text.
+Saving and approval do not commit. Changes & checkpoints inspects disk changes and creates
+an explicit local Git commit for selected saved files; it does not push. Do not create a
+checkpoint or commit unless requested. Preserve unrelated staged and unstaged work.
 
 For Markdown, prefer --body-file FILE or --body-stdin. With --body, use single shell quotes: double quotes execute backticks and $(...).
 
 List and search return paginated JSON summaries. Use --offset and --limit for more results.
+The sidebar's Only unattached, Show resolved, and Across files filters only affect the browser;
+use CLI list/search status, path, and review options to choose the intended scope.
+In Markdown, preserve formula delimiters/LaTeX and table source when editing prose.
+HTML reports run sandboxed; edit their source files rather than transient report DOM state.
 Read each thread and its current passage context before responding. Use IDs from list or search.
 Reply in the existing thread. When an anchor needs reattachment, read its discussion and original review context.
 Reattach only when the intended replacement is clear; otherwise ask for guidance. Use --occurrence N for a repeated quote.

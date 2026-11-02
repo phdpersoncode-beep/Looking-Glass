@@ -185,14 +185,17 @@ def test_rendered_html_discussions(tmp_path, browser_pool):
             page.locator('[data-action=reattach]').click()
             expect(page.locator('.anchor-warning')).to_have_count(0)
             assert ws.get_thread(t['id'])['quote']=='Replacement passage.'
-            # Source mode retains the rendered thread; navigation opens its report.
+            # Source inspection keeps the live report and its replacement text.
             page.locator('#html-toggle').click()
             expect(page.locator('#editor')).to_be_visible()
             assert page.locator('.passage-highlight').count()==0
-            page.locator('.thread .jump').click()
-            expect(frame.locator('#passage')).to_be_visible()
+            page.locator('#html-toggle').click()
+            expect(frame.locator('#passage')).to_have_text('Replacement passage.')
+            expect(frame.locator('#result')).to_have_text('Clicked')
+            expect(page.locator('.anchor-warning')).to_have_count(0)
+            # Returning to the original passage is an explicit runtime change.
+            frame.locator('#passage').evaluate("el=>el.innerHTML='Hello <strong>world</strong> &amp; friends.'")
             expect(page.locator('.anchor-warning')).to_be_visible()
-            # Return the disk report to its original passage and reattach.
             select('#passage');page.locator('[data-action=reattach]').click()
             expect(page.locator('.anchor-warning')).to_have_count(0)
             frame.locator('#passage').evaluate("el=>{el.textContent='Unrelated.';const first=document.createElement('p'),second=document.createElement('p');first.textContent=second.textContent='Hello world & friends.';document.body.replaceChildren(first,second)}")
@@ -246,7 +249,7 @@ def test_end_to_end(tmp_path, browser_pool):
             page.locator('.cm-content').click()
             page.keyboard.press('Control+f')
             page.get_by_role('textbox',name='Find',exact=True).fill(quote)
-            page.get_by_role('button',name='next',exact=True).click()
+            page.get_by_role('button',name='Next match (Enter)',exact=True).click()
             page.keyboard.press('Escape')
 
         def drag_passage(start,end=None,reverse=False):
@@ -356,7 +359,7 @@ def test_end_to_end(tmp_path, browser_pool):
         page.keyboard.press('Control+h')
         page.get_by_role('textbox',name='Find',exact=True).fill('box_volume')
         page.get_by_role('textbox',name='Replace',exact=True).fill('solid_volume')
-        page.get_by_role('button',name='replace all',exact=True).click()
+        page.get_by_role('button',name='Replace all',exact=True).click()
         page.keyboard.press('Escape')
         page.keyboard.press('Control+s')
         expect(page.locator('#dirty')).to_have_text('')

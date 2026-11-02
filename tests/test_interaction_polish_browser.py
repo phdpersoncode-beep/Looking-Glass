@@ -147,7 +147,9 @@ def test_approval_confirmation_cancel_and_layout(workspace_page):
         assert 0 <= pane['x'] + pane['width'] - box['x'] - box['width'] <= 20
         assert 0 <= pane['y'] + pane['height'] - box['y'] - box['height'] <= 15
         top = page.locator('#go-to-top').bounding_box(); approve = button.bounding_box()
-        assert approve['x'] + approve['width'] < top['x']
+        toolbar = page.locator('.document-toolbar').bounding_box()
+        assert toolbar['y'] <= top['y'] < toolbar['y'] + toolbar['height']
+        assert approve['y'] > top['y'] + top['height']
         assert button.locator('svg').count() == 1
         assert button.evaluate("el=>getComputedStyle(el).borderTopColor===getComputedStyle(el).color")
         toggle.click(); expect(toggle).to_have_attribute('aria-checked', 'false')

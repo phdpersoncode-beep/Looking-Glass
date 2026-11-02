@@ -112,6 +112,11 @@ def test_copy_path_tracks_current_file_and_layout_controls_do_not_overlap(worksp
             top = page.locator('#go-to-top').bounding_box()
             approve = page.locator('#approve-review').bounding_box()
             pane = page.locator('.reading-pane').bounding_box()
-            assert approve['x'] + approve['width'] + 4 <= top['x']
+            toolbar = page.locator('.document-toolbar').bounding_box()
+            smaller = page.locator('#font-smaller').bounding_box()
+            assert top['x'] + top['width'] <= smaller['x']
+            assert toolbar['y'] <= top['y'] < toolbar['y'] + toolbar['height']
             assert top['x'] + top['width'] <= pane['x'] + pane['width']
-            assert top['y'] + top['height'] < pane['y'] + pane['height']
+            assert approve['y'] > pane['y']
+            assert approve['x'] + approve['width'] <= pane['x'] + pane['width']
+            assert page.locator('#surface').evaluate('el=>getComputedStyle(el).paddingBottom') == '0px'

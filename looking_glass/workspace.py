@@ -7,6 +7,9 @@ import tempfile
 import threading
 from pathlib import Path
 
+from pathspec import GitIgnoreSpec
+from pathspec.patterns.gitignore import GitIgnorePatternError
+
 
 MAX_TEXT = 8 * 1024 * 1024
 MAX_BINARY = 64 * 1024 * 1024
@@ -111,6 +114,18 @@ class Workspace:
         return key
 
     def files(self):
+        # Reload once per scan so the existing refresh action also reloads rules.
+        # Keep this separate from path(): ignore rules control discovery, not
+        # access to open tabs, explicit paths, or persistent discussions.
+        ignore_file = self.root / '.looking.ignore'
+        if ignore_file.is_symlink():
+            raise Problem('.looking.ignore must not be a symlink.', 403)
+        content = self.text('.looking.ignore')[0] if ignore_file.exists() else ''
+        try:
+            ignored = GitIgnoreSpec.from_lines(content.splitlines())
+        except GitIgnorePatternError as error:
+            raise Problem(f'Invalid .looking.ignore pattern: {error}') from error
+
         found = []
         def scan_error(error):
             # A failed scan is not an empty workspace. Let the client retain
@@ -118,13 +133,22 @@ class Workspace:
             raise error
 
         for directory, dirs, names in os.walk(self.root, onerror=scan_error):
-            dirs[:] = sorted(d for d in dirs if d not in EXCLUDED and not (Path(directory)/d).is_symlink())
+            relative = Path(directory).relative_to(self.root)
+            # Test directories with a trailing slash and prune them before
+            # walking: their contents must never consume the file-list cap.
+            dirs[:] = sorted(d for d in dirs if d not in EXCLUDED
+                             and not (Path(directory) / d).is_symlink()
+                             and not ignored.match_file((relative / d).as_posix() + '/'))
             for name in sorted(names):
+                key = (relative / name).as_posix()
+                # Always leave the root rules file reachable from the explorer.
+                if key != '.looking.ignore' and ignored.match_file(key):
+                    continue
                 file = Path(directory) / name
                 if not file.is_symlink() and file.is_file():
-                    found.append(file.relative_to(self.root).as_posix())
+                    found.append(key)
                 if len(found) >= 10000:
-                    return found
+                    return sorted(found)
         return sorted(found)
 
     def bytes(self, path):

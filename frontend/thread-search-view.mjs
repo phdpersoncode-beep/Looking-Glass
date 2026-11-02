@@ -1,4 +1,5 @@
 import {createThreadSearch} from './thread-search.mjs';
+import {threadEligible} from './app-state.mjs';
 
 export function createThreadSearchView(sidebar,{onInput,onOpen,onRefresh,loadIndex}) {
   const input=sidebar.querySelector('#thread-search'),clear=sidebar.querySelector('#thread-search-clear');
@@ -21,10 +22,10 @@ export function createThreadSearchView(sidebar,{onInput,onOpen,onRefresh,loadInd
     }catch{/* Hint discovery should never interrupt the local search. */}
     finally{if(context===requestedContext)hintLoading=false;}
   }
-  function hint(count,label,enableScope,enableResolved){
+  function hint(count,label,enableScope,enableResolved,disableOnlyUnattached=false){
     if(!count)return;
     const button=document.createElement('button');button.type='button';button.textContent=`${count} ${count===1?'match':'matches'} ${label}`;
-    button.onclick=()=>{if(enableResolved&&!resolved.checked)resolved.click();if(enableScope&&!scope.checked)scope.click();};hints.append(button);
+    button.onclick=()=>{if(enableResolved&&!resolved.checked)resolved.click();if(enableScope&&!scope.checked)scope.click();if(disableOnlyUnattached)sidebar.querySelector('#only-unattached').click();};hints.append(button);
   }
   function changed(){
     const next=!!input.value.trim();
@@ -55,12 +56,12 @@ export function createThreadSearchView(sidebar,{onInput,onOpen,onRefresh,loadInd
     const button=event.target.closest('.thread-search-match');
     if(button){event.preventDefault();onOpen(Number(button.closest('.thread').dataset.thread));}
   });
-  function update(threads,spotlight,showResolved,nextContext=null){
+  function update(threads,spotlight,showResolved,nextContext=null,onlyUnattached=false){
     if(context!==nextContext){context=nextContext;globalThreads=[];globalSearch=()=>[];hintTag=null;hintTime=0;hintLoading=false;}
     if(indexed!==threads){indexed=threads;search=createThreadSearch(threads);}
     const query=input.value.trim(),enabled=!!query&&!spotlight;
     const back=sidebar.querySelector('#all-discussions');back.firstChild.textContent=query?'Search results ':'All discussions ';back.title=(query?'Search results':'All discussions')+' (Esc)';
-    const ids=new Set(threads.filter(t=>showResolved||!t.resolved).map(t=>t.id));
+    const ids=new Set(threads.filter(t=>threadEligible(t,{showResolved,onlyUnattached})).map(t=>t.id));
     results=query?search(query).filter(result=>ids.has(result.id)):[];
     clear.hidden=!input.value;status.hidden=!enabled;empty.hidden=!enabled||!!results.length;
     status.textContent=`${results.length} ${results.length===1?'match':'matches'} · Best matches first`;
@@ -71,11 +72,18 @@ export function createThreadSearchView(sidebar,{onInput,onOpen,onRefresh,loadInd
       const byId=new Map(all.map(t=>[t.id,t]));
       // The current scope is authoritative even while the global hint cache loads.
       const found=new Set([...search(query).map(r=>r.id),...(!scope.checked?globalSearch(query).filter(r=>!localIds.has(r.id)).map(r=>r.id):[])]);
-      let elsewhere=0,closed=0,both=0;
-      for(const id of found){const t=byId.get(id);if(!t)continue;const outside=!scope.checked&&!localIds.has(id),hiddenResolved=t.resolved&&!showResolved;
-        if(outside&&hiddenResolved)both++;else if(outside)elsewhere++;else if(hiddenResolved)closed++;
+      const counts=new Map();
+      for(const id of found){
+        const t=byId.get(id);if(!t)continue;
+        const mask=(!scope.checked&&!localIds.has(id)?1:0)|(t.resolved&&!showResolved?2:0)|(onlyUnattached&&t.anchor_status==='attached'?4:0);
+        if(mask)counts.set(mask,(counts.get(mask)||0)+1);
       }
-      hint(elsewhere,'in other files',true,false);hint(closed,'in resolved threads',false,true);hint(both,'in resolved threads in other files',true,true);
+      for(const [mask,count] of counts){
+        const outside=!!(mask&1),closed=!!(mask&2),attached=!!(mask&4);
+        const label=attached?`in ${closed?'resolved attached':'attached'} threads${outside?' in other files':''}`
+          :closed?`in resolved threads${outside?' in other files':''}`:'in other files';
+        hint(count,label,outside,closed,attached);
+      }
       if(!scope.checked)refreshHints();
     }
     sidebar.classList.toggle('thread-searching',enabled);

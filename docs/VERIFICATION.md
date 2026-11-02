@@ -1,3 +1,142 @@
+# Nested Markdown lists · 2026-11-02
+
+- Indent bullet, numbered, mixed and task lists from surrounding prose, with
+  distinct sub- and sub-sub-list levels. Live mode uses parser-owned depth,
+  hanging markers and aligned wrapped/continuation lines, without rewriting files.
+  Reading previews, discussions and original context retain native nested lists.
+- **88 JavaScript and 140 non-browser Python checks pass.** **37 focused Chromium
+  browser checks pass**, covering lists, table/prose annotations, task toggles,
+  editing/undo, Unicode/CRLF original context, code/quotes, previous hotfixes,
+  numbered markers, and the prior CI's HTML journey. Both themes and wide/narrow
+  panes were checked; live light and preview dark screenshots were inspected.
+- The previous full run on `b3f08fc` completed with **594 passed and 3 failed**:
+  two Firefox checks exceeded the exact four-pixel padding limit by 0.00003px,
+  and an HTML journey expected source inspection to reset runtime text. The
+  geometry check now allows 0.01px of rounding; the HTML journey explicitly checks
+  retained state and then changes the passage to exercise missing/ambiguous anchors.
+- Rebuild consistency, wheel/source packaging, whitespace and the **605-case**
+  complete/disjoint browser-shard guard are checked for the final commit.
+  A fresh full Chromium/Firefox run follows the final push; local browser checks
+  use Chromium **154.0.8037.57**. Firefox is not installed locally.
+
+---
+
+# PR18 hotfix verification · 2026-11-02
+
+- Render Markdown thematic breaks in live mode and theme visible rules in previews
+  and discussions. Preserve Setext headings, fenced code, source editing and undo.
+- Display equations use 85% of prose size and the document's available width.
+  Preserve centering and compact spacing; allow glyph overhang before scrolling.
+- Retain connected, sandboxed report iframes across tabs, source inspection and
+  original-context visits. Dispose on tab close or source invalidation, including
+  clean changes while inactive. Hidden reports cannot update the active selection.
+- Update the bottom-left agent instructions with filter, math/source and Git guidance.
+  The top-right Changes & checkpoints browser journey verifies selected disk diffs
+  and a named local commit while preserving unrelated staged, unstaged and untracked files.
+- **84 JavaScript and 140 non-browser Python checks pass.** **74 focused Chromium
+  checks pass**, including new hotfix journeys, existing math/HTML annotations,
+  original context, and resolved selections. The final hotfix journeys are also
+  rerun after lifecycle refinements. Chromium version: **154.0.8037.57**.
+- Both themes and wide/narrow equation layouts were checked; light live and dark
+  preview screenshots were inspected. Build, wheel/source packaging, whitespace,
+  and the **597-case** complete/disjoint browser-shard guard pass. Firefox awaits
+  the final remote Chromium/Firefox run; it was not installed locally.
+
+---
+
+# Centered display equations
+
+- Restored horizontal centering in live Markdown, previews, and discussions.
+  Kept the compact vertical spacing, intrinsic short-equation widths, overflow
+  scrolling, gutter edit control, and rendered-math anchoring behavior.
+- Centering and compact-height assertions pass in both themes at 1440- and
+  960-pixel widths. All **10 focused Chromium cases** pass in **69.64 seconds**,
+  including real mouse annotations and wide/nested equations. Wheel/source
+  builds, whitespace checks, and browser-shard completeness checks pass.
+- The previous [full run](https://github.com/phdpersoncode-beep/Looking-Glass/actions/runs/41354238981)
+  on `c8a0bd9` finished with **585 passed, 2 failed**. Both remaining Firefox
+  failures reloaded immediately after choosing preview, before the asynchronous
+  mode transition persisted. The tests now await the rendered preview highlight
+  before reloading and retain the same persistence assertions.
+
+---
+
+# Math spacing and mouse annotations · 2026-11-01
+
+- Checked [browser run 41350268361](https://github.com/phdpersoncode-beep/Looking-Glass/actions/runs/41350268361)
+  against the unchanged PR head `4ccc178`: **568 passed, 3 failed**. The two math
+  failures read SQLite immediately after clicking Submit, before the asynchronous
+  request finished. Those tests now wait for the second discussion and closed
+  composer. The Firefox ignore-refresh test sent Ctrl+S while Refresh held focus;
+  it now focuses the editor before sending its document shortcut. All source,
+  persistence, and UI assertions remain in place; no cases are skipped or retried.
+- Independently reproduced the reported product bug with a real mouse drag over
+  a fraction: browser caret hit testing collapsed the selection onto the adjacent
+  equals sign. A drag contained in mapped math now recovers the visible equation
+  selection when native selection fails. Valid native selections, normal clicks,
+  and horizontal scrolling retain their ordinary behavior and exact source maps.
+- Display equations align with prose, short equation regions use intrinsic width,
+  and wide equations remain constrained to a horizontal scroll region. Removed
+  stacked display margins and the reserved source-edit row; a small edit control
+  appears in the gutter on hover/focus without covering the equation. Live-mode
+  blank separators remain tall enough for readable source line numbers.
+- A representative fraction with 49 pixels of visible math previously occupied
+  a **134.6-pixel live widget** and an **826.6-pixel equation region**. It now uses
+  roughly **70 pixels of widget height** and its natural **101.9-pixel width**.
+  Inspected the supplied reconstruction example in both themes at 1440×1100 and
+  960×800, across live Markdown, preview, and discussion rendering.
+- Added **16 Chromium/Firefox cases** for real forward/reverse mouse drags through
+  inline math, fractions, and cases; repeated equations with Unicode/CRLF source;
+  background polling, toolbar/keyboard comments, reload, and ordinary highlight
+  clicks; plus compact/aligned layout and non-overlapping line numbers. Existing
+  wide-equation checks also ensure that the edit control does not obscure math.
+- Local fast checks: **84 JavaScript** and **140 non-browser Python** checks pass.
+  All **44 focused Chromium browser cases** pass in **144.39 seconds**, covering
+  math, existing Markdown discussions, thread references, and ignore refresh.
+  Wheel/source builds and archive checks pass; packaged frontend assets match the
+  current build. The complete browser collection has **587 cases**, partitioned
+  into complete/disjoint shards **[147, 147, 147, 146]**.
+- Local Firefox installation failed during the browser download. New Firefox
+  behavior requires validation in the hosted full-suite run on the final PR head.
+
+---
+
+# LaTeX Markdown rendering · 2026-11-01
+
+Runtime implementation: `8c39df38851a8235b54e8f9d9d80e6a63327e537`, added to
+[PR #18](https://github.com/phdpersoncode-beep/Looking-Glass/pull/18).
+
+- **84 JavaScript checks** and **140 non-browser Python checks** pass. Seven new
+  JavaScript checks cover the supplied reconstruction example, core notation,
+  delimiter/fence parsing, adjacent formulas, literal code/currency, inert
+  commands, macro isolation/expansion limits, and exact Unicode/CRLF coordinates.
+- **35 focused Chromium journeys** pass in 108.91 seconds: all Chromium cases in
+  `test_markdown_math_browser.py`, `test_markdown_discussions.py`, and
+  `test_thread_reference_polish_browser.py`. Eleven new journeys exercise live
+  and preview equations/tables, source editing/undo, widget layout transitions,
+  discussion/reply rendering, stable KaTeX nodes through polling, immutable
+  context, source annotations/reload, Review provenance, error fallback, and
+  authored-markup isolation. Local browser: Chromium **154.0.8037.57**.
+- Inspected the supplied example in live Markdown and preview at **1440×1100**
+  in light/dark themes and **960×800** narrow panes. Equations retain their
+  layout; wide math/table regions scroll horizontally. Passage highlights cover
+  formula content, preserving margins and the current theme. MathML accompanies
+  the visible KaTeX HTML.
+- `uv sync --locked`, `npm ci`, frontend build, whitespace checks, and wheel/source
+  builds pass. Rebuilding after the runtime commit leaves committed static assets
+  unchanged. Archive inspection verifies that final wheel assets match the build,
+  all **60 referenced font files** plus KaTeX CSS/license are present, and the
+  source distribution includes the supplied Markdown fixture.
+- The complete browser collection contains **571 cases**, including **22 new
+  Chromium/Firefox math cases**, in complete/disjoint shards **[143, 143, 143,
+  142]**. Local results cover Chromium; check the full hosted run against the
+  current PR head before treating Firefox or the entire collection as validated.
+- Rendering uses KaTeX's math subset, with external-resource/HTML/link commands
+  disabled and formula-local macros. Unsupported expressions remain readable as
+  source with an error tooltip; this is not a full LaTeX document processor.
+
+---
+
 # Architecture refactor · 2026-10-11
 
 Implemented on `refactor/improve-app-architecture`, in
@@ -676,3 +815,47 @@ an overlay so the reading surface remains usable.
 - Per the user's instruction, the full browser suite was **not rerun** for
   these additions. The historical 505-case hosted pass above validates the
   selection-hotfix checkpoint, not this later feature head.
+
+### Toolbar navigation and compact document search (PR #18)
+
+The Go to top button now sits before the toolbar's text-size controls. Removing
+the floating button's reserved surface padding restores the full document height,
+including rendered HTML. Review approval remains an overlay at the bottom right.
+
+Document search is a compact upper-right overlay: Ctrl+F toggles search and
+Ctrl+H toggles its replacement row. Query/options/replacement drafts survive row
+toggles; icon buttons expose accessible names and hover tips. Keyboard navigation,
+regex errors, all-match selection, replacement undo and read-only contexts remain
+supported. Search closes before Escape can leave an original context.
+
+- All **77 JavaScript** and **118 non-browser Python** checks pass.
+- **28 focused browser cases** pass: 14 each in Chromium 141 headless shell and
+  Firefox 155. They cover Edit/Review replacement and undo, search options/regex,
+  keyboard toggles, read-only context, live table shortcuts, every Go to top
+  surface, approval placement, and frame-sampled toolbar stability through modes.
+- Inspected light/dark search and replacement layouts at 1440/900 pixels. Search
+  does not shrink the scroller, move its reading position, or overflow narrow panes.
+- The four shards cover all **547 browser cases**, without omissions/duplicates.
+  Asset and Python distribution builds and whitespace checks pass. The full suite
+  remains a final hosted gate; focused checks do not claim a complete suite pass.
+- Local Playwright uses the locked 1.63.0 driver. The full Chromium executable
+  could not create its singleton socket in this container; its headless shell
+  works. Firefox uses `MOZ_DISABLE_CONTENT_SANDBOX=1` locally. These environment
+  accommodations do not change repository dependencies or hosted test settings.
+
+## Workspace ignore hotfix (2026-10-31)
+
+- Added root `.looking.ignore` discovery filtering through the locked `pathspec`
+  dependency, with directory pruning before traversal and the 10,000-file cap.
+- All **140 non-browser Python checks** and **77 JavaScript checks** pass.
+  The 22 new Python cases cover patterns, exceptions, built-in exclusions,
+  symlinks, workspace switching, explorer revalidation, and preserved open files
+  and discussions. A real 10,005-file output directory reproduces source-file
+  starvation; an instrumented scan then confirms that an ignored directory is
+  never entered.
+- Locked dependency sync, source/wheel builds, whitespace checks, and rebuilding
+  frontend assets without differences pass. All **549 browser cases** form four
+  complete, disjoint shards, including two new Chromium/Firefox refresh journeys.
+- Local browser execution is unavailable: Playwright's Chromium and headless-shell
+  downloads both returned truncated ZIPs. The hosted browser run must validate
+  the new journeys; collection alone does not establish browser correctness.

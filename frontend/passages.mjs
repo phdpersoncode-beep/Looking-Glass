@@ -7,7 +7,7 @@ export function passageGroup(threads, passage) {
   const from = Math.max(...source.map(t => t.start)), to = Math.min(...source.map(t => t.end));
   return threads.filter(t => t.path === passage.path && (
     seeds.some(seed => seed.id === t.id) ||
-    t.anchor_kind === 'source' && t.anchor_status === 'attached' && from < to && t.start < to && t.end > from ||
+    t.anchor_kind === 'source' && t.anchor_status === 'attached' && source.length > 0 && from < to && t.start < to && t.end > from ||
     t.anchor_kind === 'rendered' && seeds.some(seed => seed.anchor_kind === 'rendered' && JSON.stringify(seed.render_anchor) === JSON.stringify(t.render_anchor))
   )).map(t => t.id);
 }

@@ -3,7 +3,7 @@ import {threadDestination,createRequestGate} from './navigation.mjs';
 // This controller chooses destinations. Surfaces only reveal resolved targets.
 export function createThreadNavigator(ports) {
   const requests = createRequestGate();
-  async function activate(id, target = null, spotlight = false, focusEditor = true) {
+  async function activate(id, target = null, spotlight = false, focusEditor = true, {openUnavailable = false} = {}) {
     let thread = target || ports.find(id);
     if (!thread) return;
     const key = String(id), request = requests.begin(key), current = () => requests.accepts(request, key);
@@ -20,7 +20,13 @@ export function createThreadNavigator(ports) {
       return;
     }
     if (destination.surface === 'removed' && ports.revealRemoved(thread)) {show(); return;}
-    if (['unavailable', 'removed'].includes(destination.surface)) {show(false); return;}
+    if (['unavailable', 'removed'].includes(destination.surface)) {
+      if (openUnavailable && thread.path !== ports.displayed()) {
+        const opened = await open(thread.path);
+        if (opened.status !== 'ready' || !current()) return;
+      }
+      show(false); return;
+    }
     if (thread.path !== ports.displayed()) {
       try {
         const opened = await open(thread.path);

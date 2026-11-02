@@ -65,6 +65,14 @@ test('a missing current file focuses its thread without opening immutable contex
  assert.deepEqual(effects,['open:missing','focus:1:false']);
 });
 
+test('an explicit reference opens an unattached thread file without revealing a guessed passage',async()=>{
+ const thread={id:1,path:'target',anchor_kind:'source',anchor_status:'needs_reattachment'},effects=[];
+ const navigator=createThreadNavigator({find:()=>thread,session:()=>null,displayed:()=> 'other',paths:{historyPath:'history'},
+  open:async path=>{effects.push(['open',path]);return {status:'ready'};},focus:(id,spotlight,target,reveal)=>effects.push(['focus',id,reveal])});
+ await navigator.activate(1,thread,true,false,{openUnavailable:true});
+ assert.deepEqual(effects,[['open','target'],['focus',1,false]]);
+});
+
 test('unanchored and unavailable threads focus without any document open or reveal',async()=>{
  for(const thread of [{id:1,path:'a',anchor_kind:'source',anchor_status:'needs_reattachment'},
    {id:2,path:'a',anchor_kind:'rendered',anchor_status:'needs_reattachment'},

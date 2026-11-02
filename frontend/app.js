@@ -6,7 +6,7 @@ import {sourceSpans,resolveSourcePassage} from './passages.mjs';
 import {createThreadNavigator} from './thread-navigation.mjs';
 import {createNavigationController,createRequestGate,createFrameNavigator} from './navigation.mjs';
 import {createDocumentSession,createSurfaceSession} from './document-session.mjs';
-import {createAppStore,selectVisibleThreads,selectThreadSequence} from './app-state.mjs';
+import {createAppStore,selectVisibleThreads,selectThreadSequence,threadEligible} from './app-state.mjs';
 import {apply as applyReview,accepted as acceptedReview,ranges as reviewRanges,label as reviewLabel,pointLength} from './review-model.mjs';
 import {reviewTracking,reviewEffect,remoteReview,operationsFor} from './review-editor.mjs';
 import {prepareHTMLPreview,sourceOffsets} from './html-source.mjs';
@@ -14,18 +14,22 @@ import {createComposers} from './composer.mjs';
 import {mountHistory} from './history.mjs';
 import {formatJSON} from './json-format.mjs';
 import {mountMappedMarkdown,renderMarkdown} from './markdown-render.mjs';
+import {markdownMathRanges} from './markdown-source.mjs';
+import {markdownLinks} from './markdown-links.mjs';
+import {markdownListLines} from './markdown-lists.mjs';
+import {linkThreadReferences} from './thread-references.mjs';
 import {textSelection,updateNativeTextSelection} from './text-selection.mjs';
 import {createThreadSpotlight} from './thread-spotlight.mjs';
 import {createThreadSearchView} from './thread-search-view.mjs';
 import {mountMarkdownContents} from './markdown-contents.mjs';
 import {createFileHistory,mountFileHistory} from './file-history.mjs';
+import {documentSearch,documentSearchShortcut} from './document-search.mjs';
 import {basicSetup} from 'codemirror';
 import {EditorState, StateEffect, StateField, Compartment, Text, RangeSet, Transaction} from '@codemirror/state';
 import {EditorView, Decoration, ViewPlugin, keymap, WidgetType, gutter, GutterMarker} from '@codemirror/view';
 import {Chunk,diff} from '@codemirror/merge';
 import {TaskList, Table} from '@lezer/markdown';
 import {undo, redo, indentWithTab, isolateHistory} from '@codemirror/commands';
-import {openSearchPanel} from '@codemirror/search';
 import {markdown} from '@codemirror/lang-markdown';
 import {python} from '@codemirror/lang-python';
 import {html} from '@codemirror/lang-html';
@@ -42,6 +46,8 @@ import {SVGRenderer} from 'three/addons/renderers/SVGRenderer.js';
 const $ = selector => document.querySelector(selector);
 const token = $('meta[name=looking-glass-token]').content;
 const root = $('.root-label').textContent;
+const authorKey='looking-glass-author:'+root;
+let authorName=localStorage.getItem(authorKey)?.trim()||'User';
 const appStore=createAppStore({zen:localStorage.getItem('looking-glass-zen')==='true',reviewPreference:localStorage.getItem('looking-glass-review-mode:'+root)==='true',scope:localStorage.getItem('looking-glass-thread-scope:'+root)||'file'});
 const threadSpotlight=createThreadSpotlight($('.discussion-sidebar'),()=>appStore.state);
 function clearSpotlight(){appStore.dispatch({type:'SPOTLIGHT_CLEARED'});}
@@ -121,9 +127,11 @@ async function suspendHTMLPreview(){
   const preview=renderedPreview;if(!preview?.ready)return;
   const requestId=crypto.randomUUID();preview.requests??=new Map();
   await new Promise((resolve,reject)=>{
-    const timer=setTimeout(()=>{preview.requests.delete(requestId);reject(new Error('The HTML preview did not respond. Try opening context again.'));},2000);
+    const timer=setTimeout(()=>{preview.requests.delete(requestId);reject(new Error('The HTML preview did not respond. Try opening the report again.'));},2000);
     preview.requests.set(requestId,()=>{clearTimeout(timer);resolve();});previewMessage('suspend',{requestId});
   });
+  const surface=tabs.get(preview.path)?.htmlSurface;
+  if(surface?.preview===preview&&renderedPreview===preview){surface.selection=renderedSelection;surface.jump=renderedJump;}
 }
 function htmlSelection(){
   const source=renderedSelection?.source,text=entry()?.content;
@@ -240,6 +248,20 @@ class MarkdownSourceControl extends WidgetType {
   toDOM(v){const el=document.createElement('div');el.className='markdown-source-controls';const done=document.createElement('button');done.textContent='Done editing '+this.kind;done.onclick=()=>{v.dispatch({effects:blockSourceEffect.of(null)});v.focus();};el.append(done);return el;}
   ignoreEvent(){return true;}
 }
+class MarkdownMath extends MarkdownTable {
+  constructor(source,from,spans,review=[],block=false,formula=null){super(source,from,spans,review);this.block=block;this.formula=formula;}
+  eq(other){return this.block===other.block&&this.formula?.text===other.formula?.text&&super.eq(other);}
+  updateDOM(el,v,previous){return this.block===previous.block&&this.formula?.text===previous.formula?.text&&super.updateDOM(el,v,previous);}
+  toDOM(v){
+    const el=document.createElement(this.block?'div':'span');el.className='md-formula'+(this.block?'':' md-formula-inline');el.tabIndex=0;
+    const edit=()=>{v.dispatch({effects:blockSourceEffect.of({from:this.from,to:this.from+this.source.length,kind:'math'}),selection:{anchor:this.from}});v.focus();};
+    if(this.block){const button=document.createElement('button');button.className='markdown-source-edit';button.title='Edit math source';button.setAttribute('aria-label','Edit math source');button.innerHTML='<svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 4 4 4M4 12l9-9a2.1 2.1 0 0 1 3 3l-9 9-4 1z"/></svg>';button.onclick=edit;el.append(button);}
+    else{el.title='Double-click or press Enter to edit math source';el.setAttribute('role','group');el.setAttribute('aria-label','Math formula; press Enter to edit source');el.ondblclick=edit;el.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();edit();}};}
+    const body=document.createElement(this.block?'div':'span');el.append(body);
+    const rendered=mountMappedMarkdown(body,this.source,this.from,()=>{},this.formula);rendered.setReview(this.review);rendered.highlight(this.spans,this.focused);markdownViews.add(rendered);el._markdown=rendered;
+    return el;
+  }
+}
 let diagramsModule=null;
 function renderMermaid(host,source){
   host.dataset.diagramSource=source;host.classList.add('mermaid-diagram');host.setAttribute('role','img');host.setAttribute('aria-label','Mermaid diagram');host.textContent='Rendering diagram…';
@@ -254,18 +276,38 @@ class MermaidDiagram extends WidgetType {
 function markdownDiagrams(preview){for(const code of preview.querySelectorAll('pre code.language-mermaid')){const source=code.textContent;renderMermaid(code.parentElement,source);}}
 function tableDecorations(state){
   const ranges=[],editing=state.field(blockEditing),spans=state.field(spanField),e=entry(),review=e?.reviewField&&state.field(e.reviewField,false)?reviewRanges(state.field(e.reviewField).segments,true):[];
-  if(editing)ranges.push(Decoration.widget({block:true,side:-1,widget:new MarkdownSourceControl(editing.kind||'table')}).range(Math.min(editing.from,state.doc.length)));
+  const math=markdownMathRanges(state.doc.toString()),occupied=[],mathGaps=new Set();
+  if(editing)ranges.push(Decoration.widget({block:true,side:-1,widget:new MarkdownSourceControl(editing.kind||'table')}).range(state.doc.lineAt(Math.min(editing.from,state.doc.length)).from));
   syntaxTree(state).iterate({enter(node){
+    if(math.some(m=>m.from<=node.from&&m.to>=node.to))return false;
     const diagram=node.name==='FencedCode'&&/^(`{3,}|~{3,})\s*mermaid\s*$/i.test(state.doc.lineAt(node.from).text.trim());
     if(node.name!=='Table'&&!diagram)return;
+    occupied.push({from:node.from,to:node.to});
     if(editing&&editing.from<=node.to&&editing.to>=node.from)return false;
     if(diagram){const first=state.doc.lineAt(node.from),last=state.doc.lineAt(node.to);const closed=/^(`{3,}|~{3,})\s*$/.test(last.text.trim());const source=state.doc.sliceString(Math.min(first.to+1,state.doc.length),closed?last.from:node.to);ranges.push(Decoration.replace({block:true,widget:new MermaidDiagram(source,node.from,node.to)}).range(node.from,node.to));return false;}
     ranges.push(Decoration.replace({block:true,widget:new MarkdownTable(state.doc.sliceString(node.from,node.to),node.from,spans.filter(s=>s.from<node.to&&s.to>node.from),review)}).range(node.from,node.to));return false;
   }});
+  for(const formula of math){
+    if(occupied.some(r=>r.from<formula.to&&r.to>formula.from)||editing&&editing.from<=formula.to&&editing.to>=formula.from)continue;
+    const source=state.doc.sliceString(formula.from,formula.to),block=source.includes('\n')||formula.display&&state.doc.lineAt(formula.from).from===formula.from&&state.doc.lineAt(formula.to).to===formula.to;
+    ranges.push(Decoration.replace({block,widget:new MarkdownMath(source,formula.from,spans.filter(s=>s.from<formula.to&&s.to>formula.from),review,block,formula)}).range(formula.from,formula.to));
+    if(block)for(const number of [state.doc.lineAt(formula.from).number-1,state.doc.lineAt(formula.to).number+1]){
+      if(number<1||number>state.doc.lines)continue;
+      const line=state.doc.line(number);if(!line.text.trim())mathGaps.add(line.from);
+    }
+  }
+  for(const from of mathGaps)ranges.push(Decoration.line({class:'md-math-gap'}).range(from));
   return Decoration.set(ranges,true);
 }
 const liveTables=[blockEditing,StateField.define({create:tableDecorations,update:(_value,tr)=>tableDecorations(tr.state),provide:field=>EditorView.decorations.from(field)})];
-class Bullet extends WidgetType {toDOM(){const el=document.createElement('span');el.textContent='• ';return el;}}
+class MarkdownRule extends WidgetType {
+  toDOM(){const el=document.createElement('hr');el.className='md-rule';return el;}
+}
+class Bullet extends WidgetType {
+  constructor(depth){super();this.depth=depth;}
+  eq(other){return this.depth===other.depth;}
+  toDOM(){const el=document.createElement('span');el.className='md-list-marker';el.textContent=this.depth===1?'•':this.depth===2?'◦':'▪';return el;}
+}
 class TaskCheckbox extends WidgetType {
   constructor(checked,from){super();this.checked=checked;this.from=from;}
   eq(other){return other.checked===this.checked&&other.from===this.from;}
@@ -273,11 +315,22 @@ class TaskCheckbox extends WidgetType {
   ignoreEvent(){return true;}
 }
 function liveDecorations(v, activeRange) {
-  const ranges=[], doc=v.state.doc;
+  const ranges=[], doc=v.state.doc, links=markdownLinks(syntaxTree(v.state),doc);
+  const math=markdownMathRanges(doc.toString()),editing=v.state.field(blockEditing);
   const {from:activeFrom,to:activeTo}=activeRange;
+  for(const line of markdownListLines(syntaxTree(v.state),doc)){
+    ranges.push(Decoration.line({class:'md-list-line',attributes:{'data-list-depth':String(line.depth),style:`--md-list-depth:${line.depth};--md-list-marker-width:${line.width}em`}}).range(line.from));
+    if(line.indentTo>line.from)ranges.push(Decoration.replace({}).range(line.from,line.indentTo));
+    if(line.markerFrom!==null){
+      ranges.push(Decoration.line({class:'md-list-first'}).range(line.from));
+      const active=doc.lineAt(line.from).to>=activeFrom&&line.from<=activeTo;
+      ranges.push((line.bullet&&!active?Decoration.replace({widget:new Bullet(line.depth)}):Decoration.mark({class:'md-list-marker'})).range(line.markerFrom,line.markerTo));
+    }
+  }
   syntaxTree(v.state).iterate({
     enter(node){
       const name=node.name, a=node.from, b=node.to;
+      if(math.some(m=>m.from<=a&&m.to>=b&&!(editing&&editing.from<=m.to&&editing.to>=m.from)))return false;
       if(name==='Table'||name==='FencedCode'&&/^(`{3,}|~{3,})\s*mermaid\s*$/i.test(doc.lineAt(a).text.trim()))return false;
       if(b<=a) return;
       const line=doc.lineAt(a), isActive=line.from<=activeTo && line.to>=activeFrom;
@@ -295,13 +348,17 @@ function liveDecorations(v, activeRange) {
       if(name==='StrongEmphasis') ranges.push(Decoration.mark({class:'md-strong'}).range(a,b));
       if(name==='Emphasis') ranges.push(Decoration.mark({class:'md-emphasis'}).range(a,b));
       if(name==='InlineCode') ranges.push(Decoration.mark({class:'md-code'}).range(a,b));
-      if(name==='Link') ranges.push(Decoration.mark({class:'md-link'}).range(a,b));
+      if(name==='Link'){
+        if(!links.has(a)){ranges.push(Decoration.mark({class:'md-literal-brackets'}).range(a,b));return false;}
+        ranges.push(Decoration.mark({class:'md-link'}).range(a,b));
+      }
       if(isActive) return;
+      if(name==='HorizontalRule'){ranges.push(Decoration.replace({widget:new MarkdownRule()}).range(a,b));return false;}
       if(['HeaderMark','EmphasisMark','CodeMark','CodeInfo','QuoteMark','LinkMark'].includes(name) && doc.lineAt(b).number===line.number)
         ranges.push(Decoration.replace({}).range(a,b));
       if(name==='URL' && doc.lineAt(b).number===line.number) ranges.push(Decoration.replace({}).range(a,b));
       if(name==='TaskMarker')ranges.push(Decoration.replace({widget:new TaskCheckbox(doc.sliceString(a+1,a+2).toLowerCase()==='x',a)}).range(a,b));
-      if(name==='ListMark'&&!/^\d+[.)]$/.test(doc.sliceString(a,b))){const task=/^\s*\[[ xX]\]\s/.test(doc.sliceString(b,line.to));ranges.push(Decoration.replace({widget:task?undefined:new Bullet()}).range(a,b));}
+      if(name==='ListMark'&&/^\s*\[[ xX]\]\s/.test(doc.sliceString(b,line.to)))ranges.push(Decoration.replace({}).range(a,b));
     }
   });
   return Decoration.set(ranges,true);
@@ -406,9 +463,9 @@ async function closeTab(path,returning=false){
   if(contextVisit?.path===path){contextVisit.surface.dispose();contextVisit=null;}
   if(returning)contextVisit=null;
   if(path===appStore.state.displayedDocument){clearSpotlight();closeComment();syncState();view?.destroy();view=null;cleanup();cleanup=()=>{};appStore.dispatch({type:'DOCUMENT_DISPLAYED',path:null});}
-  e.reviewSync?.dispose();tabs.delete(path);remember();renderTabs();
+  disposeReport(e);e.reviewSync?.dispose();tabs.delete(path);remember();renderTabs();
   if(!appStore.state.displayedDocument&&tabs.size)await openFile([...tabs.keys()].at(-1));
-  else if(!appStore.state.displayedDocument){lastThreadHTML='';lastThreadKey='';$('#surface').innerHTML='<div class="welcome"><h1>Open a file to begin.</h1></div>';$('#threads').replaceChildren();discussionView.reset();appStore.dispatch({type:'THREADS_RECEIVED',threads:[]});$('#thread-count').textContent='0';updateToolbar();await refreshThreads();}
+  else if(!appStore.state.displayedDocument){lastThreadHTML='';lastThreadKey='';clearSurface();const welcome=document.createElement('div');welcome.className='welcome';welcome.innerHTML='<h1>Open a file to begin.</h1>';$('#surface').append(welcome);$('#threads').replaceChildren();discussionView.reset();appStore.dispatch({type:'THREADS_RECEIVED',threads:[]});$('#thread-count').textContent='0';updateToolbar();await refreshThreads();}
 }
 
 function highlightMarkdown(preview){
@@ -433,13 +490,13 @@ function highlightMarkdown(preview){
 function language(path){switch(ext(path)){case'md':case'markdown':return markdown({extensions:[TaskList,Table],codeLanguages:codeLanguage});case'py':return python();case'sh':case'bash':return shellLanguage;case'html':case'htm':return html();case'json':return json();case'yaml':case'yml':case'toml':return codeLanguage(ext(path));default:return [];}}
 function makeState(e){
   const tracked=e.workMode==='review'&&e.review;
-  if(tracked)e.reviewField=reviewTracking({...e.review,segments:e.reviewSegments||e.review.segments},()=>({author:$('#author').value||'Altay',role:'human',at:new Date().toISOString()}));
+  if(tracked)e.reviewField=reviewTracking({...e.review,segments:e.reviewSegments||e.review.segments},()=>({author:authorName,role:'human',at:new Date().toISOString()}));
   const docPath=e.sourcePath||e.path,prose=['md','markdown','txt'].includes(ext(docPath));
-  return EditorState.create({doc:e.content,extensions:[EditorState.lineSeparator.of(e.diskContent.includes('\r\n')?'\r\n':'\n'),basicSetup,language(docPath),workLockSlot.of(EditorState.readOnly.of(changingWorkMode)),...(tracked?[e.reviewField]:[]),...(e.kind==='original'?[EditorState.readOnly.of(true),EditorView.editable.of(false)]:[]),syntaxHighlighting(colors),spanField,threadFocusField,gitField,gitSlot.of([]),
+  return EditorState.create({doc:e.content,extensions:[EditorState.lineSeparator.of(e.diskContent.includes('\r\n')?'\r\n':'\n'),basicSetup,documentSearch,language(docPath),workLockSlot.of(EditorState.readOnly.of(changingWorkMode)),...(tracked?[e.reviewField]:[]),...(e.kind==='original'?[EditorState.readOnly.of(true),EditorView.editable.of(false)]:[]),syntaxHighlighting(colors),spanField,threadFocusField,gitField,gitSlot.of([]),
     themeSlot.of(theme()),liveSlot.of(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables,textSelection]:[]),
     ...(prose?[EditorView.lineWrapping,EditorView.theme({'.cm-scroller':{fontFamily:'var(--prose)',fontSize:'var(--prose-font-size)'},'.cm-content':{maxWidth:'850px',margin:'0 auto',width:'100%',minWidth:'0'},'.cm-foldGutter':{display:'none'}})]:[]),
     EditorView.scrollHandler.of(editor=>passagePosition?.editor===editor),
-    keymap.of([{key:'Mod-s',run:()=>{guard(saveActive)();return true;}},{key:'Mod-Enter',run:()=>{guard(startComment)();return true;}},{key:'Mod-f',run:openSearchPanel},{key:'Mod-h',run:openSearchPanel},indentWithTab]),
+    keymap.of([{key:'Mod-s',run:()=>{guard(saveActive)();return true;}},{key:'Mod-Enter',run:()=>{guard(startComment)();return true;}},indentWithTab]),
     EditorView.updateListener.of(u=>{if(u.docChanged){if(tracked){if(!u.transactions.some(t=>t.effects.some(effect=>effect.is(remoteReview)))){for(const tr of u.transactions)if(tr.docChanged)queueReviewOperations(e,operationsFor(tr),u.state.field(e.reviewField).segments);scheduleReviewSave(e);}}e.content=u.state.sliceDoc();e.dirty=e.content!==e.diskContent;e.state=u.state;contentsController?.update();updateToolbar();renderTabs();}if(u.selectionSet)updateToolbar();if(u.selectionSet||u.docChanged||u.viewportChanged||u.geometryChanged)scheduleSelectionTools();})
   ]});
 }
@@ -456,9 +513,9 @@ historyControls=mountFileHistory($('#file-navigation'),fileHistory,{
   navigate:guard(target=>{cancelSidebarNavigation();return navigation.open(target.path,{fileHistoryIndex:target.index});}),
   save:snapshot=>localStorage.setItem('looking-glass-file-history:'+root,JSON.stringify(snapshot))
 });
-const discussionRequests=createRequestGate(),indexRequests=createRequestGate();
+const discussionRequests=createRequestGate(),indexRequests=createRequestGate(),referenceRequests=createRequestGate();
 function cancelSidebarNavigation(){
-  arrowNavigation.invalidate();threadNavigator.invalidate();
+  arrowNavigation.invalidate();threadNavigator.invalidate();referenceRequests.invalidate();
   if(appStore.state.requestedThread!==null)navigation.invalidate();
   appStore.dispatch({type:'THREAD_NAVIGATION_CANCELLED'});
 }
@@ -492,18 +549,19 @@ async function loadFile(path,request){
     // context, rather than reconstructing the document on return.
     if(e.kind==='original'&&!contextVisit){
       const scroller=view?.scrollDOM||$('#surface');
-      contextVisit={path:appStore.state.displayedDocument,content:entry()?.content,editor:view,cleanup,nodes:[...$('#surface').children],preview:renderedPreview,selection:renderedSelection,jump:renderedJump,thread:appStore.state.focusedThread,top:scroller.scrollTop,left:scroller.scrollLeft,snapshot:view?.scrollSnapshot()};
+      contextVisit={path:appStore.state.displayedDocument,content:entry()?.content,editor:view,cleanup,nodes:[...$('#surface').children].filter(node=>!node.hidden),preview:renderedPreview,selection:renderedSelection,jump:renderedJump,thread:appStore.state.focusedThread,top:scroller.scrollTop,left:scroller.scrollLeft,snapshot:view?.scrollSnapshot()};
       const held=contextVisit;
-      held.surface=createSurfaceSession({suspend:async()=>{await suspendHTMLPreview();held.nodes.forEach(node=>node.hidden=true);},resume:()=>held.nodes.forEach(node=>node.hidden=false),dispose:()=>{held.editor?.destroy();held.cleanup();held.nodes.forEach(node=>node.remove());}});
+      held.surface=createSurfaceSession({suspend:async()=>{await suspendHTMLPreview();held.nodes.forEach(node=>node.hidden=true);},resume:()=>held.nodes.forEach(node=>node.hidden=false),dispose:()=>{held.editor?.destroy();held.cleanup();held.nodes.forEach(node=>{if(node.hasAttribute('data-report-surface')){node.hidden=true;node.removeAttribute('id');}else node.remove();});}});
       await held.surface.suspend();if(!request.current()){held.surface.resume();previewMessage('resume');contextVisit=null;return;}view=null;cleanup=()=>{};
     }
+    if(renderedPreview&&!contextVisit){await suspendHTMLPreview();if(!request.current())return;}
     const held=contextVisit;
     view?.destroy();view=null;cleanup();cleanup=()=>{};
     if(discussions)receiveDiscussions(discussions.data,discussions.key,true,activation,path);
     else appStore.dispatch({type:'DOCUMENT_DISPLAYED',path});
     rememberFileVisit(e,request.context?.fileHistoryIndex);
-    if(held){for(const node of [...$('#surface').children])if(!held.nodes.includes(node))node.remove();}
-    else $('#surface').replaceChildren();
+    if(held){for(const node of [...$('#surface').children])if(!held.nodes.includes(node)&&!node.hasAttribute('data-report-surface'))node.remove();}
+    else clearSurface();
     if(e.kind==='original')for(const [name,tab] of tabs)if(tab.kind==='original'&&name!==path)tabs.delete(name);
     const resume=held&&e.kind!=='original'&&path===held.path&&e.content===held.content;
     if(held&&e.kind!=='original'){
@@ -559,22 +617,47 @@ function mountOriginal(e){
   view=new EditorView({state:e.state||makeState(e),parent});
   if(!e.origin.render_anchor){const from=toUnits(e.content,e.origin.start),to=toUnits(e.content,e.origin.end);if(from<to&&to<=view.state.doc.length)view.dispatch({selection:{anchor:from,head:to},effects:EditorView.scrollIntoView(from,{y:'center'})});}
 }
+function clearSurface(){
+  for(const node of [...$('#surface').children])if(!node.hasAttribute('data-report-surface'))node.remove();
+}
+function disposeReport(e){e?.htmlSurface?.dispose();if(e)e.htmlSurface=null;}
 function mountDocument(e){
-  e.ready=Promise.resolve();
+  if(e.mode!=='rendered')e.ready=Promise.resolve();
   closeComment();contentsController?.reset();
   renderedPreview=null;renderedSelection=null;renderedJump=null;
-  $('#surface').replaceChildren();
+  clearSurface();
   if(e.mode==='rendered'){
-    const frame=document.createElement('iframe');frame.id='html-preview';frame.title='Isolated HTML report';frame.setAttribute('sandbox','allow-scripts allow-forms allow-modals');
-    // A separate preview capability grants no application API access. The
-    // iframe and response sandbox both enforce an opaque report origin.
-    let readyResolve,readyReject;
-    e.ready=new Promise((resolve,reject)=>{readyResolve=resolve;readyReject=reject;});
-    e.ready.catch(()=>{});
-    const timer=setTimeout(()=>readyReject(new Error('The HTML report did not become ready. Try opening it again.')),15000);
-    (async()=>{const prepared=prepareHTMLPreview(e.content,'data-lg-'+crypto.randomUUID());const preview=await api('preview','POST',{path:e.path,content:prepared.content});if(frame.isConnected){renderedPreview={frame,path:e.path,mapping:prepared.mapping,channel:preview.url.split('/').pop(),ready:false,resolveReady:()=>{clearTimeout(timer);readyResolve();}};frame.src=preview.url;}else{clearTimeout(timer);readyResolve();}})().catch(error=>{clearTimeout(timer);readyReject(error);notify(error.message,true);});
-    cleanup=()=>{clearTimeout(timer);readyResolve();renderedPreview=null;renderedSelection=null;renderedJump=null;};
-    $('#surface').append(frame);
+    if(e.htmlSurface?.content!==e.content||e.htmlSurface?.failed)disposeReport(e);
+    let surface=e.htmlSurface;
+    if(!surface){
+      const frame=document.createElement('iframe');frame.title='Isolated HTML report';frame.dataset.reportSurface='';frame.setAttribute('sandbox','allow-scripts allow-forms allow-modals');
+      // Keep the sandboxed browsing context connected for this tab's lifetime.
+      // Detaching and reattaching the same iframe would reset its JavaScript state.
+      let readyResolve,readyReject;
+      const ready=new Promise((resolve,reject)=>{readyResolve=resolve;readyReject=reject;});ready.catch(()=>{});
+      const timer=setTimeout(()=>{surface.failed=true;readyReject(new Error('The HTML report did not become ready. Try opening it again.'));},15000);
+      surface=e.htmlSurface={frame,content:e.content,ready,preview:null,selection:null,jump:null,
+        dispose(){clearTimeout(timer);readyResolve();frame.remove();}};
+      $('#surface').append(frame);
+      (async()=>{
+        const prepared=prepareHTMLPreview(surface.content,'data-lg-'+crypto.randomUUID());
+        const result=await api('preview','POST',{path:e.path,content:prepared.content});
+        if(e.htmlSurface!==surface)return;
+        surface.preview={frame,path:e.path,mapping:prepared.mapping,channel:result.url.split('/').pop(),ready:false,resolveReady:()=>{clearTimeout(timer);readyResolve();}};
+        if(!frame.hidden)renderedPreview=surface.preview;
+        frame.src=result.url;
+      })().catch(error=>{if(e.htmlSurface!==surface)return;surface.failed=true;clearTimeout(timer);readyReject(error);notify(error.message,true);});
+    }
+    const {frame}=surface;frame.hidden=false;frame.id='html-preview';e.ready=surface.ready;
+    renderedPreview=surface.preview;renderedSelection=surface.selection;renderedJump=surface.jump;
+    previewMessage('resume');
+    cleanup=()=>{
+      if(renderedPreview&&renderedPreview===surface.preview){
+        surface.selection=renderedSelection;surface.jump=renderedJump;
+        renderedPreview=null;renderedSelection=null;renderedJump=null;
+      }
+      frame.hidden=true;frame.removeAttribute('id');
+    };
   }else if(e.mode==='preview'){
     const preview=document.createElement('div');preview.className='markdown-preview';$('#surface').append(preview);
     const rendered=mountMappedMarkdown(preview,e.content,0,highlightMarkdown);rendered.setReview(currentReviewRanges());rendered.highlight([],null);markdownViews.add(rendered);markdownDiagrams(preview);cleanup=()=>markdownViews.delete(rendered);
@@ -629,7 +712,7 @@ async function saveActive(){
 }
 
 function reviewSync(e){
-  return e.reviewSync??=createReviewSync(e,{api,metadata:()=>({author:$('#author').value||'Altay',role:'human',at:new Date().toISOString()}),changed:()=>{updateToolbar();renderTabs();},error:error=>notify('Review draft preserved locally: '+error.message,true),
+  return e.reviewSync??=createReviewSync(e,{api,metadata:()=>({author:authorName,role:'human',at:new Date().toISOString()}),changed:()=>{updateToolbar();renderTabs();},error:error=>notify('Review draft preserved locally: '+error.message,true),
     saved:async segments=>{if(e.path===appStore.state.displayedDocument&&view&&e.reviewField){view.dispatch({effects:reviewEffect.of(segments)});e.state=view.state;}else if(e.state&&e.reviewField)e.state=e.state.update({effects:reviewEffect.of(segments)}).state;if(e.path===appStore.state.displayedDocument){refreshMarkdownHighlights();await refreshThreads();}},
     remote:(draft,before)=>applyRemoteReview(e,draft,before),concluded:async()=>{if(entry()===e)return setWorkMode('edit');const change=await prepareWorkMode(e,'edit',modePorts);change.commit();renderTabs();}});
 }
@@ -692,7 +775,7 @@ async function showReviewHistory(){
 
 function threadScope(){return appStore.state.scope;}
 const discussionCache=new Map();let lastThreadHTML='',lastThreadKey='',navigationIndex=[],indexTime=0;
-const discussionView=createDiscussionView($('#threads'),{composers,renderBody:(host,source)=>{renderMarkdown(host,source,highlightMarkdown);markdownDiagrams(host);}});
+const discussionView=createDiscussionView($('#threads'),{composers,renderBody:(host,source)=>{renderMarkdown(host,source,highlightMarkdown);linkThreadReferences(host);markdownDiagrams(host);}});
 const discussionRetention=createDiscussionRetention();
 async function readDiscussions(path,scope,review){
   const key=scope+':'+(path||'')+':'+(review||''),cached=discussionCache.get(key);
@@ -719,8 +802,8 @@ function receiveDiscussions(data,key,authoritative=true,activation=null,displaye
   const retained=authoritative?discussionRetention.accept(discussionReview()?'pending-reviews':'ordinary',data.index.map(thread=>thread.id)):null;
   if(retained)composers.prune(retained);
   $('#thread-count').textContent=appStore.state.threads.filter(t=>!t.resolved).length;
-  const total=appStore.state.threads.length;
-  const totalText=`${total} ${total===1?'thread':'threads'} total`;if($('#thread-total').textContent!==totalText)$('#thread-total').textContent=totalText;
+  const total=appStore.state.threads.length,closed=appStore.state.threads.filter(t=>t.resolved).length;
+  const totalText=`${total} ${total===1?'thread':'threads'} · ${total-closed} open · ${closed} closed`;if($('#thread-total').textContent!==totalText)$('#thread-total').textContent=totalText;
   if(view&&e&&e.kind!=='original'){
     const old=view.state.field(spanField),byId=new Map(appStore.state.threads.map(t=>[t.id,t]));
     const spans=e.dirty?old.filter(s=>byId.has(s.id)).map(s=>({...s,resolved:byId.get(s.id).resolved})):spansFor(appStore.state.threads,e.content);
@@ -771,7 +854,7 @@ async function getNavigationIndex(){
   return navigationIndex;
 }
 function filterThreads(){
-  threadSearch.update(appStore.state.threads,threadSpotlight.active,$('#show-resolved').checked,discussionReview());
+  threadSearch.update(appStore.state.threads,threadSpotlight.active,$('#show-resolved').checked,discussionReview(),appStore.state.onlyUnattached);
   const visible=new Set(selectVisibleThreads(appStore.state).map(t=>t.id));
   $$('.thread').forEach(t=>{
     const id=Number(t.dataset.thread);
@@ -783,7 +866,7 @@ function filterThreads(){
   });
 }
 appStore.subscribe((state,previous,event)=>{
-  if(state.threads===previous.threads&&state.focusedThread===previous.focusedThread&&state.spotlight===previous.spotlight&&state.zen===previous.zen&&state.searchQuery===previous.searchQuery&&state.scope===previous.scope&&state.showResolved===previous.showResolved)return;
+  if(state.threads===previous.threads&&state.focusedThread===previous.focusedThread&&state.spotlight===previous.spotlight&&state.zen===previous.zen&&state.searchQuery===previous.searchQuery&&state.scope===previous.scope&&state.showResolved===previous.showResolved&&state.onlyUnattached===previous.onlyUnattached)return;
   if(state.focusedThread!==previous.focusedThread)zenCollapsed=false;
   threadSpotlight.capture();filterThreads();threadSpotlight.render();
   if(state.focusedThread!==previous.focusedThread){zenCollapsed=false;previewThreads();refreshMarkdownHighlights();if(view&&event.origin!=='sidebar-navigation'&&!event.activation)view.dispatch({effects:threadFocusEffect.of(state.focusedThread)});}
@@ -826,7 +909,7 @@ function passageIds(node){
   return [...ids];
 }
 function showPassage(ids){
-  arrowNavigation.invalidate();threadNavigator.invalidate();navigation.invalidate();
+  arrowNavigation.invalidate();threadNavigator.invalidate();referenceRequests.invalidate();navigation.invalidate();
   const threads=ids.map(id=>appStore.state.threads.find(t=>t.id===id&&t.path===appStore.state.displayedDocument)).filter(Boolean);
   if(!threads.length)return;
   const selected=threads.find(t=>t.id===appStore.state.focusedThread)||threads.reduce((a,b)=>b.anchor_kind==='source'&&b.end-b.start<(a.anchor_kind==='source'?a.end-a.start:Infinity)?b:a);
@@ -861,16 +944,16 @@ const threadNavigator=createThreadNavigator({
   revealRendered:async(thread,current,focusEditor)=>{if(entry().mode!=='rendered'){await setMode('rendered');if(!current())return;}renderedJump=thread.id;previewMessage('jump',{id:thread.id,behavior:focusEditor?'smooth':'instant'});},
   revealSource:revealSourcePassage
 });
-function jump(id,target=null,spotlight=false,focusEditor=true){
+function jump(id,target=null,spotlight=false,focusEditor=true,options={}){
   cancelSidebarNavigation();
-  return activateThread(id,target,spotlight,focusEditor);
+  return activateThread(id,target,spotlight,focusEditor,options);
 }
-function activateThread(id,target=null,spotlight=false,focusEditor=true){
+function activateThread(id,target=null,spotlight=false,focusEditor=true,options={}){
   const thread=target||appStore.state.threads.find(t=>t.id===id);if(!thread)return Promise.resolve();
   zenCollapsed=false;if(!appStore.state.zen){collapsedThreads.delete(id);rememberCollapsed();}
   if(discussionsHidden)setDiscussionsHidden(false);
   appStore.dispatch({type:'THREAD_NAVIGATION_REQUESTED',threadId:id});
-  return threadNavigator.activate(id,thread,spotlight,focusEditor).catch(error=>{if(appStore.state.requestedThread===id)appStore.dispatch({type:'THREAD_NAVIGATION_CANCELLED'});throw error;});
+  return threadNavigator.activate(id,thread,spotlight,focusEditor,options).catch(error=>{if(appStore.state.requestedThread===id)appStore.dispatch({type:'THREAD_NAVIGATION_CANCELLED'});throw error;});
 }
 function revealSourcePassage(t,focusEditor){
   const id=t.id;
@@ -899,7 +982,7 @@ function navigate(direction,{spotlight=false,sidebarFocus=false}={}){
     return arrowNavigation.request(threads[(at<0?(direction>0?0:threads.length-1):(at+direction+threads.length)%threads.length)]);
   }
   navigationQueue=navigationQueue.catch(()=>{}).then(async()=>{
-    const threads=spotlight?selectThreadSequence(appStore.state):appStore.state.searchQuery?threadSearch.results.map(r=>appStore.state.threads.find(t=>t.id===r.id)).filter(Boolean):(await getNavigationIndex()).filter(t=>!t.resolved||$('#show-resolved').checked).sort((a,b)=>(a.path>b.path)-(a.path<b.path)||a.start-b.start||a.id-b.id);
+    const threads=spotlight?selectThreadSequence(appStore.state):appStore.state.searchQuery?threadSearch.results.map(r=>appStore.state.threads.find(t=>t.id===r.id)).filter(Boolean):(await getNavigationIndex()).filter(t=>threadEligible(t,appStore.state)).sort((a,b)=>(a.path>b.path)-(a.path<b.path)||a.start-b.start||a.id-b.id);
     if(!threads.length)return;
     let at=threads.findIndex(t=>t.id===appStore.state.focusedThread);
     if(at<0){const local=threads.map((t,i)=>t.path===appStore.state.displayedDocument?i:-1).filter(i=>i>=0);at=local.length?(direction>0?local[0]:local.at(-1)):(direction>0?0:threads.length-1);}
@@ -946,7 +1029,7 @@ async function startComment(){
 }
 async function submitComment(event){
   event.preventDefault();if(!pending||postingComment)return;
-  const selection=pending,body=$('#comment-body').value,author=$('#author').value;
+  const selection=pending,body=$('#comment-body').value,author=authorName;
   if(selection.path!==appStore.state.displayedDocument||selection.content!==selectedContent(selection))throw new Error('The document changed. Select the passage again before commenting.');
   postingComment=true;composers.setSending($('#comment-form'),true);
   try{
@@ -1127,7 +1210,7 @@ async function poll(){
         if(ext(e.path)==='stl'||isImage(e.path)){
           const disk=await api('stat?'+new URLSearchParams({path:e.path}));
           if(e.version!==requestedVersion||navigation.busy||saving)continue;
-          if(disk.version!==e.version){e.version=disk.version;if(e.path===appStore.state.displayedDocument){cleanup();cleanup=()=>{};$('#surface').replaceChildren();if(isImage(e.path))await mountImage(e);else await mountSTL(e);notify('Reloaded the external viewer change');}}
+          if(disk.version!==e.version){e.version=disk.version;if(e.path===appStore.state.displayedDocument){cleanup();cleanup=()=>{};clearSurface();if(isImage(e.path))await mountImage(e);else await mountSTL(e);notify('Reloaded the external viewer change');}}
           continue;
         }
         const disk=await api('file?'+new URLSearchParams({path:e.path,version:requestedVersion}));
@@ -1135,7 +1218,7 @@ async function poll(){
         if(e.version!==requestedVersion||navigation.busy||saving)continue;
         if(disk.version===e.version)continue;
         if(e.dirty){e.conflict=disk;if(e.path===appStore.state.displayedDocument)notify('External change detected; your draft is preserved.',true);}
-        else{e.content=disk.content;e.diskContent=disk.content;e.version=disk.version;e.state=null;e.conflict=null;if(e.path===appStore.state.displayedDocument){view?.destroy();view=null;cleanup();cleanup=()=>{};$('#surface').replaceChildren();if(ext(e.path)==='jsonl')mountJSONL(e);else mountDocument(e);notify('Reloaded the external change');}}
+        else{disposeReport(e);e.content=disk.content;e.diskContent=disk.content;e.version=disk.version;e.state=null;e.conflict=null;if(e.path===appStore.state.displayedDocument){view?.destroy();view=null;cleanup();cleanup=()=>{};clearSurface();if(ext(e.path)==='jsonl')mountJSONL(e);else mountDocument(e);notify('Reloaded the external change');}}
       }catch(error){if(error.status===404){e.conflict={deleted:true};if(e.path===appStore.state.displayedDocument)notify(error.message,true);}else notify(error.message,true);}
     }
     updateToolbar();
@@ -1166,10 +1249,15 @@ document.addEventListener('htmx:beforeSwap',event=>{
   if(event.detail.xhr.status===200)fileTreeETag=event.detail.xhr.getResponseHeader('ETag');
 });
 window.addEventListener('message',guard(async event=>{
-  const preview=renderedPreview,message=event.data;
-  if(!preview||event.source!==preview.frame.contentWindow||event.origin!=='null'||message?.lookingGlass!==preview.channel)return;
-  if(message.type==='ready'){preview.ready=true;preview.resolveReady?.();previewMessage('initialize',{mapping:preview.mapping});previewThreads();if(renderedJump)previewMessage('jump',{id:renderedJump});}
+  const message=event.data,preview=[...tabs.values()].map(e=>e.htmlSurface?.preview).find(p=>p&&event.source===p.frame.contentWindow&&message?.lookingGlass===p.channel);
+  if(!preview||event.origin!=='null')return;
+  if(message.type==='ready'){
+    preview.ready=true;preview.resolveReady?.();
+    preview.frame.contentWindow.postMessage({lookingGlass:preview.channel,type:'initialize',mapping:preview.mapping},'*');
+    if(preview===renderedPreview){previewThreads();if(renderedJump)previewMessage('jump',{id:renderedJump});}
+  }
   if(message.type==='suspended'){preview.requests?.get(message.requestId)?.();preview.requests?.delete(message.requestId);}
+  if(preview!==renderedPreview)return;
   if(message.type==='selection'){
     const selection=message.selection;
     renderedSelection=selection&&typeof selection.anchor?.quote==='string'&&selection.anchor.quote.length<=50000&&['left','right','top','bottom'].every(key=>Number.isFinite(selection.rect?.[key]))?selection:null;
@@ -1232,19 +1320,20 @@ document.addEventListener('focusin',event=>{if(appStore.state.requestedThread!==
 document.addEventListener('scroll',scheduleSelectionTools,true);
 window.addEventListener('resize',()=>{scheduleSelectionTools();if($('#comment-dialog').open){const location=selectionLocation();if(location)placeNearSelection($('#comment-dialog'),location);}});
 document.addEventListener('keydown',event=>{
+  if(event.target.closest?.('#author-popover'))return;
   passagePosition=null;
   if(event.key==='Escape'){passageActivation++;pressedPassage=null;}
   // Let the focused navigation panel consume Escape before context/spotlight.
   if(event.key==='Escape'&&event.target.closest?.('#file-history[open],#code-outline[open]'))return;
   if((event.ctrlKey||event.metaKey)&&event.altKey&&!event.shiftKey&&event.key.toLowerCase()==='z'){event.preventDefault();event.stopPropagation();toggleZen();return;}
+  if(view&&event.target.closest?.('.document-panel')&&!document.querySelector('dialog:modal')&&documentSearchShortcut(view,event)){event.preventDefault();event.stopPropagation();return;}
   // Focusable table regions keep native cell selection/copying, while editor
   // commands still target the document rather than the browser page.
-  if(view&&event.target.closest?.('.md-table')&&(event.ctrlKey||event.metaKey)&&!event.altKey){
+  if(view&&event.target.closest?.('.md-table,.md-formula')&&(event.ctrlKey||event.metaKey)&&!event.altKey){
     const key=event.key.toLowerCase();
-    if((!event.shiftKey&&['a','f','h','s','y'].includes(key))||key==='z'){
+    if((!event.shiftKey&&['a','s','y'].includes(key))||key==='z'){
       event.preventDefault();
-      if(key==='f'||key==='h')openSearchPanel(view);
-      else if(key==='s')guard(saveActive)();
+      if(key==='s')guard(saveActive)();
       else{view.focus();if(key==='a')view.dispatch({selection:{anchor:0,head:view.state.doc.length},userEvent:'select'});else if(key==='y'||event.shiftKey)redo(view);else undo(view);}
       return;
     }
@@ -1260,7 +1349,7 @@ document.addEventListener('pointerdown',event=>{
   passageActivation++;
   const mark=event.button===0&&event.target.closest?.('#surface [data-anchor]');
   passagePosition=mark?capturePassagePosition(mark,{x:event.clientX,y:event.clientY}):null;
-  pressedPassage=mark?{ids:passageIds(mark),path:appStore.state.displayedDocument,native:!!mark.closest('.md-table,.markdown-preview'),x:event.clientX,y:event.clientY}:null;
+  pressedPassage=mark?{ids:passageIds(mark),path:appStore.state.displayedDocument,native:!!mark.closest('.md-table,.md-formula,.markdown-preview'),x:event.clientX,y:event.clientY}:null;
 },true);
 document.addEventListener('pointermove',event=>{if(pressedPassage&&Math.hypot(event.clientX-pressedPassage.x,event.clientY-pressedPassage.y)>4){pressedPassage=null;passagePosition=null;}},true);
 document.addEventListener('pointerup',event=>{
@@ -1294,8 +1383,21 @@ document.addEventListener('keydown',event=>{
   }
 });
 document.addEventListener('click',guard(async event=>{
+  const reference=event.target.closest('a[data-thread-reference]');
+  if(reference){
+    event.preventDefault();
+    cancelSidebarNavigation();
+    const id=Number(reference.dataset.threadReference),request=referenceRequests.begin(id);
+    let thread;
+    try{thread=await api('threads/'+id+(discussionReview()?'?review='+discussionReview():''));}
+    catch(error){if(!referenceRequests.accepts(request,id))return;if(error.status===404){notify('Thread #'+id+' is unavailable.',true);return;}throw error;}
+    if(!referenceRequests.accepts(request,id))return;
+    await jump(id,thread,true,false,{openUnavailable:true});
+    if(appStore.state.focusedThread===id)$(`.thread[data-thread="${id}"]`)?.focus({preventScroll:true});
+    return;
+  }
   const anchor=event.target.closest('#surface [data-anchor]'),passage=anchor?Number(anchor.dataset.anchor):null;
-  if(passage&&event.detail===1&&!window.getSelection()?.toString()&&(anchor.closest('.md-table,.markdown-preview')||!view||view.state.selection.main.empty)){showPassage(passageIds(anchor));return;}
+  if(passage&&event.detail===1&&!window.getSelection()?.toString()&&(anchor.closest('.md-table,.md-formula,.markdown-preview')||!view||view.state.selection.main.empty)){showPassage(passageIds(anchor));return;}
   const file=event.target.closest('.file-entry');if(file)await openFile(file.dataset.path);
   const close=event.target.closest('[data-close]');if(close)close.closest('dialog').close();
   const card=event.target.closest('.thread');
@@ -1310,6 +1412,7 @@ document.addEventListener('click',guard(async event=>{
   if(action.tagName==='BLOCKQUOTE'&&selecting)return;
   const id=Number(action.closest('.thread').dataset.thread),t=appStore.state.threads.find(t=>t.id===id);
   if(!['jump','expand-thread'].includes(action.dataset.action))cancelSidebarNavigation();
+  if(action.dataset.action==='copy-thread'){await navigator.clipboard.writeText('#'+id);notify('Thread reference copied');return;}
   if(action.dataset.action==='edit-message'){const message=t.messages.find(m=>m.id===Number(action.dataset.message));$('#edit-comment-body').value=message.body;$('#edit-comment-form').dataset.thread=id;$('#edit-comment-form').dataset.message=message.id;$('#edit-comment-dialog').showModal();return;}
   if(action.dataset.action==='collapse-thread'){if(contextVisit&&entry()?.threadId===id)await returnFromOriginal();if(appStore.state.zen)zenCollapsed=true;else collapsedThreads.add(id);rememberCollapsed();filterThreads();return;}
   if(action.dataset.action==='expand-thread'){await focusSidebarThread(id);return;}
@@ -1354,7 +1457,7 @@ document.addEventListener('submit',event=>{
     const id=Number(form.closest('.thread').dataset.thread),field=form.querySelector('textarea'),body=field.value;
     composers.setSending(form,true);composers.status(form,'Sending…');
     try{
-      await composers.post('threads/'+id+'/replies',{author:$('#author').value,body,...(discussionReview()?{review_id:discussionReview()}: {})},form);
+      await composers.post('threads/'+id+'/replies',{author:authorName,body,...(discussionReview()?{review_id:discussionReview()}: {})},form);
       composers.complete(form,body);
       await refreshThreads();filterThreads();notify('Reply added');
     }catch(error){composers.status(form,error.message,true);throw error;}
@@ -1395,7 +1498,7 @@ $('#review-merge-form').onsubmit=event=>{
   event.preventDefault();const form=event.currentTarget;guard(async()=>{const e=entry(),latest=form._draft;
   if(latest.id!==e.review?.id)throw new Error('Open the reviewed file before finishing this comparison.');
   const content=$('#merged-review').value,operations=differenceOperations(latest.content,content);
-  const saved=operations.length?await api('reviews/'+latest.id,'PATCH',{version:latest.version,operations,author:$('#author').value||'Altay',role:'human'}):latest;
+  const saved=operations.length?await api('reviews/'+latest.id,'PATCH',{version:latest.version,operations,author:authorName,role:'human'}):latest;
   reviewSync(e).adopt(saved);e.state=null;
   view?.destroy();view=null;cleanup();cleanup=()=>{};mountDocument(e);$('#review-merge-dialog').close();await refreshThreads();updateToolbar();renderTabs();
 })();};
@@ -1407,9 +1510,10 @@ function visibleThreadIds(){return $$('.thread').filter(t=>!t.hidden).map(t=>Num
 $('#collapse-threads').onclick=guard(async()=>{if(contextVisit)await returnFromOriginal();if(appStore.state.zen)zenCollapsed=true;else for(const id of visibleThreadIds())collapsedThreads.add(id);rememberCollapsed();filterThreads();});
 $('#expand-threads').onclick=()=>{for(const id of visibleThreadIds())collapsedThreads.delete(id);rememberCollapsed();filterThreads();};
 $('#previous').onclick=guard(()=>navigate(-1));$('#next').onclick=guard(()=>navigate(1));$('#show-resolved').onchange=()=>{cancelSidebarNavigation();appStore.dispatch({type:'FILTERS_CHANGED',filters:{showResolved:$('#show-resolved').checked}});};
+$('#only-unattached').onchange=()=>{cancelSidebarNavigation();appStore.dispatch({type:'FILTERS_CHANGED',filters:{onlyUnattached:$('#only-unattached').checked}});};
 $('#thread-scope').checked=localStorage.getItem('looking-glass-thread-scope:'+root)==='all';
 $('#thread-scope').onchange=guard(async()=>{cancelSidebarNavigation();appStore.dispatch({type:'FILTERS_CHANGED',filters:{scope:$('#thread-scope').checked?'all':'file'}});clearSpotlight();localStorage.setItem('looking-glass-thread-scope:'+root,threadScope());await refreshThreads(true);});
-async function setMode(value){const e=entry();if(!e||e.mode===value)return;syncState();e.mode=value;view?.destroy();view=null;cleanup();cleanup=()=>{};mountDocument(e);await e.ready;await refreshThreads();remember();}
+async function setMode(value){const e=entry();if(!e||e.mode===value)return;await suspendHTMLPreview();syncState();e.mode=value;view?.destroy();view=null;cleanup();cleanup=()=>{};mountDocument(e);await e.ready;await refreshThreads();remember();}
 $('#mode').onchange=guard(()=>setMode($('#mode').value));
 $('#html-toggle').onclick=guard(()=>setMode(entry().mode==='rendered'?'source':'rendered'));
 $('#theme').onclick=()=>{const value=document.documentElement.dataset.theme==='light'?'dark':'light';document.documentElement.dataset.theme=value;localStorage.setItem('looking-glass-theme',value);$('#theme').textContent=value==='dark'?'Light mode':'Dark mode';if(view)view.dispatch({effects:themeSlot.reconfigure(theme())});$$('.mermaid-diagram').forEach(host=>{const source=host.dataset.diagramSource;if(source)renderMermaid(host,source);});};
@@ -1457,6 +1561,7 @@ $('#explorer-toggle').onclick=()=>setExplorerHidden(!explorerHidden,true);
 setExplorerHidden(explorerHidden);
 let discussionsHidden=localStorage.getItem('looking-glass-discussions-hidden')==='true';
 function setDiscussionsHidden(hidden,focus=false){
+  if(hidden&&$('#author-popover').matches(':popover-open'))$('#author-popover').hidePopover();
   if(hidden&&contextVisit)guard(returnFromOriginal)();
   if(hidden){cancelSidebarNavigation();clearSpotlight();}
   discussionsHidden=hidden;document.body.classList.toggle('discussions-hidden',hidden);
@@ -1486,9 +1591,29 @@ $('#quick-query').oninput=()=>{quickIndex=0;renderQuickResults();};
 $('#quick-query').onkeydown=event=>{if(['ArrowDown','ArrowUp'].includes(event.key)){event.preventDefault();quickIndex=(quickIndex+(event.key==='ArrowDown'?1:-1)+quickMatches.length)%Math.max(1,quickMatches.length);renderQuickResults();}if(event.key==='Enter'){event.preventDefault();$('#quick-results .selected')?.click();}};
 $('#agent-open').onclick=guard(async()=>{const result=await api('agent-instructions');$('#agent-instructions').value=result.instructions;$('#agent-dialog').showModal();});
 $('#agent-copy').onclick=guard(async()=>{await navigator.clipboard.writeText($('#agent-instructions').value);notify('Agent instructions copied');$('#agent-dialog').close();});
-$('#author').value=localStorage.getItem('looking-glass-author')||'Altay';$('#author').onchange=()=>localStorage.setItem('looking-glass-author',$('#author').value);
+function placeAuthorPopover(){
+  const popover=$('#author-popover');if(!popover.matches(':popover-open'))return;
+  const button=$('#author-edit').getBoundingClientRect(),sidebar=$('#discussion-sidebar').getBoundingClientRect(),width=popover.getBoundingClientRect().width;
+  popover.style.left=Math.max(12,Math.min(sidebar.right-width-12,innerWidth-width-12))+'px';
+  popover.style.top=Math.max(12,Math.min(button.bottom+8,innerHeight-popover.getBoundingClientRect().height-12))+'px';
+}
+$('#author-popover').addEventListener('beforetoggle',event=>{if(event.newState==='open')$('#author').value=authorName;});
+$('#author-edit').onclick=event=>{
+  event.preventDefault();
+  const popover=$('#author-popover');
+  if(popover.matches(':popover-open')){popover.hidePopover();return;}
+  // Position in the opening task: toggle is queued after native autofocus and
+  // can otherwise expose the previous position when reopening after a resize.
+  popover.showPopover();placeAuthorPopover();$('#author').focus({preventScroll:true});$('#author').select();
+};
+$('#author-form').onsubmit=event=>{
+  event.preventDefault();authorName=$('#author').value.trim()||'User';
+  localStorage.setItem(authorKey,authorName);$('#author-popover').hidePopover();$('#author-edit').focus({preventScroll:true});
+};
+window.addEventListener('resize',placeAuthorPopover);
+$('#author-edit').disabled=false;
 $('#reload-disk').onclick=guard(async()=>{
-  const e=entry();if(!e)return;if(e.dirty&&!confirm('Discard your unsaved edits and reload the current disk file?'))return;const disk=await api('file?'+new URLSearchParams({path:e.path}));e.content=disk.content;e.diskContent=disk.content;e.version=disk.version;e.dirty=false;e.conflict=null;e.state=null;view?.destroy();view=null;mountDocument(e);await refreshThreads();renderTabs();notify('Reloaded from disk');
+  const e=entry();if(!e)return;if(e.dirty&&!confirm('Discard your unsaved edits and reload the current disk file?'))return;const disk=await api('file?'+new URLSearchParams({path:e.path}));disposeReport(e);e.content=disk.content;e.diskContent=disk.content;e.version=disk.version;e.dirty=false;e.conflict=null;e.state=null;view?.destroy();view=null;mountDocument(e);await refreshThreads();renderTabs();notify('Reloaded from disk');
 });
 $('#copy-draft').onclick=guard(async()=>{await navigator.clipboard.writeText(entry().content);notify('Draft copied');});
 $('#merge-disk').onclick=guard(async()=>{const e=entry();const disk=await api('file?'+new URLSearchParams({path:e.path}));pending={mergePath:e.path,disk};$('#disk-text').textContent=disk.content;$('#merge-text').value=e.content;$('#merge-dialog').showModal();});
