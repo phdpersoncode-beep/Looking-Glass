@@ -33,6 +33,9 @@ class DiscussionReconciler:
             if name.startswith('looking-glass://git/'):
                 continue
             try:
+                if name.lower().endswith('.pdf'):
+                    self.ws.pdfs.reconcile(db, name, self.ws.pdfs.document(name)['version'])
+                    continue
                 content, _ = self.ws.text(name)
                 self.reconcile(db, name, content)
             except Problem as error:

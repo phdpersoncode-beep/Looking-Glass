@@ -41,6 +41,7 @@ export function createThreadNavigator(ports) {
     thread = ports.find(id) || thread;
     if (!current()) return;
     show();
+    if (thread.anchor_kind === 'pdf') {await ports.revealPDF(thread); return;}
     if (thread.anchor_kind === 'rendered' || ports.session(thread.path)?.mode === 'rendered' && thread.anchor_kind === 'source') {
       await ports.revealRendered(thread, current, focusEditor); return;
     }

@@ -9,6 +9,7 @@ description = "A local file editor with anchored discussions for people and codi
 requires-python = ">=3.10"
 dependencies = [
     "Flask>=3.1,<4",
+    "pypdf>=6,<7",
     "pathspec>=1.1,<2",
 ]
 
@@ -22,7 +23,7 @@ looking-glass = "looking_glass.cli:main"
 include = ["looking_glass*"]
 
 [tool.setuptools.package-data]
-looking_glass = ["templates/*.html", "static/*"]
+looking_glass = ["templates/*.html", "static/*", "static/pdf-cmaps/*", "static/pdf-fonts/*", "static/pdf-wasm/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

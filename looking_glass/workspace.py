@@ -71,6 +71,8 @@ class Workspace:
         self.origins = Origins(self)
         from .reviews import Reviews
         self.reviews = Reviews(self)
+        from .pdfs import PDFs
+        self.pdfs = PDFs(self)
 
     def connection(self):
         return self.store.connection()
@@ -163,6 +165,8 @@ class Workspace:
         return raw
 
     def text(self, path):
+        if self.path(path).suffix.lower() == '.pdf':
+            raise Problem('PDF files are read only. Use the PDF reader and database bookmarks.', 415)
         raw = self.bytes(path)
         if b'\x00' in raw:
             raise Problem('This binary file is not a text document.', 415)
@@ -257,6 +261,8 @@ class Workspace:
             t = self.get_thread(identifier,review=review)
             if t['git_target']:
                 t['context'] = dict(t['git_target'],content=self.origins.read(identifier)['content'])
+            elif t['anchor_kind'] == 'pdf':
+                t['context'] = dict(kind='pdf', **t['render_anchor'])
             elif t['anchor_kind'] == 'rendered':
                 t['context'] = dict(kind='rendered', **t['render_anchor'])
             elif t['anchor_kind'] == 'review_removed':
@@ -376,13 +382,18 @@ class Workspace:
                 return self.get_thread(identifier)
             provenance='captured'
             try:
-                if t['anchor_kind']=='review_removed':
+                start,end,quote,render_anchor = t['start'],t['end'],t['quote'],t['render_anchor']
+                if t['anchor_kind']=='pdf':
+                    if t['anchor_status'] != 'attached':
+                        raise Problem('Missing passage.',404)
+                    content = f"PDF page {render_anchor['page']}\n\n{quote}"
+                    start,end = len(content)-len(quote),len(content)
+                elif t['anchor_kind']=='review_removed':
                     content=self.origins.read(identifier)['content']
                 elif t.get('review_id') or t.get('review_context'):
                     content = self.reviews.read(t.get('review_context') or t['review_id'])['content']
                 else:
                     content, _ = self.text(t['path'])
-                start,end,quote,render_anchor = t['start'],t['end'],t['quote'],t['render_anchor']
                 if t['anchor_kind']=='source' and content[start:end]!=quote:
                     raise Problem('Missing passage.',404)
             except Problem as error:

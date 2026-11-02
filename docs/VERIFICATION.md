@@ -843,6 +843,45 @@ supported. Search closes before Escape can leave an original context.
   works. Firefox uses `MOZ_DISABLE_CONTENT_SANDBOX=1` locally. These environment
   accommodations do not change repository dependencies or hosted test settings.
 
+
+## PDF reading and database bookmarks (2026-10-31)
+
+Based on PR #18 at `437b16c7a339cc3eacd4a5c9946819f47257454f`.
+
+- **80 JavaScript** and **131 non-browser Python** tests pass. New coverage
+  checks outline import, edits/deletion/reordering, empty-outline restart
+  persistence, concurrent writers, stale file versions, invalid pages and
+  hierarchy, PDF passage lifecycle/context/reattachment, authentication,
+  malformed/encrypted/oversized files, and unchanged original PDF bytes.
+- **24 distinct focused Chromium/Firefox cases** pass across PDF reading,
+  document search, and file navigation/outline. The **eight PDF cases** were
+  repeated after the final PDF selection/navigation changes. They use real
+  mouse selection, preserve reply drafts and highlight nodes through polling,
+  resume original context, save/reload/cancel outlines, reject concurrent
+  bookmark writes without losing drafts, retain bookmark drafts through tabs,
+  and verify normalized highlight geometry after zoom and explicit reattachment
+  after file replacement. A 20-page fixture checks lazy canvas rendering.
+- The Contents list and editor were inspected in light/dark themes at
+  900/1440 pixels. PDF pages retain their original colors in both themes.
+- The full collection contains **555 browser cases**, with four complete,
+  disjoint shards of 139/139/139/138. The full hosted suite is a separate final
+  gate; the focused checks do not establish that it passed.
+- Wheel and source distributions build successfully; the wheel contains the
+  PDF renderer/worker, CMaps, standard fonts, decoder WASM, and license notices.
+  Committed frontend assets rebuild reproducibly; whitespace checks pass.
+- Local tests use Node 24.19, Python 3.12.14, the locked Playwright 1.63 driver,
+  Chromium headless shell 153, and Firefox 155. The restricted executor requires
+  network-enabled test execution for local sockets and Node test child IPC.
+  Firefox uses `MOZ_DISABLE_CONTENT_SANDBOX=1`, disposable XDG directories, and
+  permission to create its local Mozilla cache/profile metadata. None of these
+  local runner settings change application or hosted CI security settings.
+
+PDFs are limited to 64 MiB, are read only, and have single-page selectable-text
+anchors. No OCR or password-protected PDF support is claimed. Bookmark targets
+are page-level, and immutable original context retains selected text/page
+metadata rather than original PDF bytes or visual layout. Database outlines do
+not automatically follow file renames.
+
 ## Workspace ignore hotfix (2026-10-31)
 
 - Added root `.looking.ignore` discovery filtering through the locked `pathspec`
@@ -859,3 +898,40 @@ supported. Search closes before Escape can leave an original context.
 - Local browser execution is unavailable: Playwright's Chromium and headless-shell
   downloads both returned truncated ZIPs. The hosted browser run must validate
   the new journeys; collection alone does not establish browser correctness.
+
+## PDF integration with merged PR #18 (2026-11-02)
+
+PR #18 merged to `main` as `ee4cfd2bbe55be849e0b37930a8f18504e734a2e`,
+after its fast checks and all four hosted browser shards passed on
+`3eed11299dfd494e67d4775da9ec1055be542fb3`
+([full run](https://github.com/phdpersoncode-beep/Looking-Glass/actions/runs/41472152138)).
+PR #19 is retargeted to `main` and integrates that entire history.
+
+- Retained every PR #18 test unchanged, along with its Markdown math/list/rule
+  modules, workspace ignore rules, reading controls, filters, and sidebar work.
+  Resolved build/dependency/style conflicts by retaining both KaTeX and PDF.js,
+  and retained the connected HTML report lifecycle alongside PDF version checks.
+- Fixed PDF external reloads removing hidden report frames. The new Chromium
+  regression failed before the fix at the retained-frame assertion, then passed.
+  It covers PDF original-context return, file replacement, and unchanged HTML
+  input/button state and iframe identity.
+- Addressed PDF review findings: binary requests hash and serve the same bounded
+  snapshot against the requested version; cached PDF tabs refresh metadata and
+  retry once if bytes change during loading. Superseded mounts discard their
+  resources without overwriting a newer document's cleanup. Replies after PDF
+  reattachment capture the current passage while earlier origins stay immutable.
+- **91 JavaScript** and **155 non-browser Python** tests pass. **62 focused
+  Chromium cases** passed across PDF, math, lists, HTML/report hotfixes, document
+  search, sidebar controls, thread references, workspace ignore, and reading
+  controls. After the final PDF lifecycle changes, **all eight Chromium PDF
+  cases** passed, including three additional cached/binary-request/navigation
+  race cases: **65 distinct focused Chromium cases** overall.
+- Inspected the PDF bookmark editor in light/dark themes at 900/1440 pixels.
+  Local Chromium is **154.0.8037.57**, Node **24.19.0**, Python **3.12**.
+  Firefox is not installed locally; the final hosted Chromium/Firefox collection
+  remains required before merging the updated PDF branch.
+- The full **621-case** browser collection forms complete/disjoint shards of
+  **156/155/155/155**. Wheel/source builds pass; inspected both archives for
+  KaTeX CSS/fonts and PDF renderer/worker, CMaps, fonts, and decoder resources.
+  Frontend assets are rebuilt from the combined sources. The earlier PDF-only
+  full run does not validate this integration commit.

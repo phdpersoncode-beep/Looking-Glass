@@ -325,3 +325,36 @@ attachments, deletion, search, and original-context endpoints work as usual.
 Commit discussions preserve that exact commit. Branch discussions stay on the
 branch reference as it moves; each reply captures the current tip when available.
 Saved context survives branch deletion and does not require a live file.
+
+
+## PDF reading and database bookmarks
+
+`GET /api/pdf?path=paper.pdf` returns `version` (SHA-256 of original bytes),
+`pages`, `bookmarks`, `bookmark_revision`, and `bookmarks_stale`. Optional
+`version` and `bookmark_revision` query parameters return 304 when both match.
+`GET /api/binary?path=paper.pdf` streams the original, token-authenticated bytes.
+PDFs cannot be saved as text or used for review drafts.
+
+`PUT /api/pdf/bookmarks` accepts `path`, current `version`, `bookmark_revision`,
+and the complete ordered `bookmarks` list. Each entry is
+`{"id":"stable-id","title":"Introduction","page":1,"level":0}`.
+Pages are one-based; levels are a flat preorder starting at zero with no gaps.
+IDs must be unique. The limit is 2,000 entries, 500 characters per title, and
+32 levels of nesting. A stale file hash or bookmark revision returns 409.
+An empty list persists removal of all bookmarks, including across restarts.
+Saving confirms bookmark targets for the current PDF version. This operation
+only updates `.looking-glass/state.sqlite3`, never the PDF.
+
+`POST /api/threads` accepts the usual `path`, `body`, `author`, `version`, plus
+`pdf_anchor: {"page":1,"quote":"selected text","rects":[[0.1,0.2,0.3,0.02]]}`.
+Rectangles use normalized `[left, top, width, height]` coordinates of the rendered
+page, including its rotation. The reader supplies these from actual text
+selection. There may be 1–1,000 rectangles and up to 50,000 quote characters.
+The stored thread has `anchor_kind: "pdf"` and its `render_anchor` also records
+the exact PDF version. Replies, attachments, editing/deleting comments,
+resolution, search, and original-context endpoints work as usual.
+`GET /api/threads/<id>?context_lines=10` includes `context.kind: "pdf"`, page,
+quote, rectangles, and version. `PATCH /api/threads/<id>` with `pdf_anchor` and
+current `version` explicitly reattaches a PDF passage while retaining its
+immutable original quote. PDF CLI creation/reattachment currently requires
+these API calls; the source-offset CLI commands apply to text files.
