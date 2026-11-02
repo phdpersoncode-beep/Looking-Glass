@@ -1,5 +1,6 @@
 import gzip
 import hashlib
+import io
 import secrets
 import time
 import json
@@ -274,6 +275,16 @@ def create_app(root):
             raise Problem('Choose an STL, PNG, JPEG, SVG, or PDF file.')
         if p.stat().st_size > MAX_BINARY:
             raise Problem('Binary viewer files are limited to 64 MiB.',413)
+        if p.suffix.lower() == '.pdf' and request.args.get('version'):
+            # Hash and serve the same bounded snapshot, even if an external
+            # writer replaces the file after metadata was read.
+            with p.open('rb') as stream:
+                raw = stream.read(MAX_BINARY + 1)
+            if len(raw) > MAX_BINARY:
+                raise Problem('Binary viewer files are limited to 64 MiB.',413)
+            if hashlib.sha256(raw).hexdigest() != request.args['version']:
+                raise Problem('PDF changed. Reload before displaying passages.',409)
+            return send_file(io.BytesIO(raw), mimetype='application/pdf', as_attachment=True, download_name=p.name)
         return send_file(p, mimetype=types[p.suffix.lower()], as_attachment=True)
 
     @app.get('/api/stat')

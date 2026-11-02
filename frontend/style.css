@@ -106,6 +106,14 @@ dialog:modal{margin:auto}.directory-list{height:260px;overflow:auto;margin-top:8
 .md-table{position:relative;user-select:text}.markdown-source-edit{display:block;margin:4px 0 8px auto;font:10px var(--font-sans);color:var(--muted);border:0}.markdown-source-controls{padding:6px 28px;text-align:right;font:11px var(--font-sans)}.md-table .passage-highlight,:is(.markdown-preview,.comment-markdown) .passage-highlight{box-decoration-break:clone}.md-mapped-text{white-space:inherit}
 
 .md-diagram{padding:12px 28px}.mermaid-diagram{padding:16px;overflow:auto;text-align:center;color:var(--muted);font:11px var(--font-sans);min-height:70px}.mermaid-diagram svg{display:block;margin:auto;max-width:100%;height:auto}.diagram-error{text-align:left;color:#c08340}.diagram-error pre{white-space:pre-wrap;font:11px var(--mono)}
+.md-formula{position:relative;padding:2px 28px;width:100%;max-width:none;min-width:0;margin:0 auto;white-space:normal;line-height:normal}.md-formula-inline{display:inline;width:auto;padding:0;cursor:text;line-height:inherit}.md-formula-inline:focus-visible{outline:1px solid var(--purple);outline-offset:3px;border-radius:3px}
+.md-formula>.markdown-source-edit{position:absolute;top:2px;left:4px;z-index:1;display:grid;place-items:center;width:20px;height:20px;margin:0;padding:2px;background:var(--paper);opacity:0}.md-formula:hover>.markdown-source-edit,.md-formula:focus-within>.markdown-source-edit{opacity:1}
+/* Compact blank separators while retaining enough height for source line numbers. */
+.live-markdown .cm-line.md-math-gap{line-height:18px}
+.md-math{white-space:normal;overflow-wrap:normal;user-select:text}.md-math-display{font-size:.85em;display:block;width:fit-content;max-width:100%;overflow-x:auto;overflow-y:hidden;margin:.25em auto;padding:2px;line-height:normal}.md-math-display>.md-math-content{display:block}.md-math-display .katex-display{margin:0;text-align:center}.md-math-display .katex-display>.katex{min-width:max-content;padding:2px 0;text-align:center}.md-math-display:has(.tag){width:100%}.md-math.math-error{font:.85em/1.6 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;color:#c08340}.md-math>.review-deletion{font:.8em/1.5 var(--mono);white-space:pre-wrap}
+.md-formula .passage-highlight{box-decoration-break:clone}.comment-markdown .md-math-display{font-size:.85em}.md-math .katex{color:inherit}
+.md-math-display.passage-highlight{background:transparent;border-bottom:0}.md-math-display.passage-highlight .katex-html>.base{background:var(--highlight);border-bottom:1px solid var(--purple)}.md-math-display.focused-highlight .katex-html>.base{background:var(--selection)}.md-math-display.resolved-passage .katex-html>.base{background:transparent;border-bottom-color:color-mix(in srgb,var(--muted) 28%,transparent)}
+#surface .md-formula::selection,#surface .md-formula ::selection{background:var(--selection);color:inherit}
 
 .history-target-bar{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 0;border-bottom:1px solid var(--border)}.history-target-bar>span{overflow-wrap:anywhere}.history-target-bar button{font-size:11px}.history-view .commit-row{cursor:pointer;border:0;background:transparent;color:inherit;font:inherit;text-align:left;box-shadow:inset 0 -1px var(--border)}.history-view .commit-row:hover{background:var(--selection)}.history-view .commit-row:focus-visible{outline:2px solid var(--purple);outline-offset:-2px}.history-view button.branch-badge{font-size:9px;padding:3px 7px;cursor:pointer}.branch-options label .discuss-branch{margin-left:auto;min-width:28px;font-size:16px;border:0;padding:0 5px}.history-discussion-count{font:9px var(--font-sans);color:var(--purple);white-space:nowrap;margin-left:5px}
 
@@ -127,7 +135,8 @@ dialog:modal{margin:auto}.directory-list{height:260px;overflow:auto;margin-top:8
 
 .live-markdown .cm-editor .cm-content{max-width:none;margin:0;width:100%;padding:20px 0}.live-markdown .cm-editor .cm-line{max-width:850px;margin:0 auto;padding-left:28px;padding-right:28px}.live-markdown .md-diagram,.live-markdown .markdown-source-controls{padding-left:16px;padding-right:16px}
 /* Keep the former prose measure without constraining rendered table regions. */
-:is(.markdown-preview,.comment-markdown)>:not(.markdown-table-scroll){max-width:760px;margin-left:auto;margin-right:auto}
+:is(.markdown-preview,.comment-markdown)>:not(.markdown-table-scroll):not(.md-math-display){max-width:760px;margin-left:auto;margin-right:auto}
+:is(.markdown-preview,.comment-markdown)>.md-math-display{max-width:100%;margin-left:auto;margin-right:auto}
 /* Override CodeMirror's important native-selection fallback for focused widgets. */
 #surface .md-table::selection,#surface .md-table ::selection,:is(.markdown-preview,.comment-markdown)::selection,:is(.markdown-preview,.comment-markdown) ::selection{background-color:var(--selection)!important;color:inherit}
 .markdown-table-scroll{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin;scrollbar-color:var(--border) var(--panel);padding-bottom:4px}.markdown-table-scroll:focus-visible{outline:1px solid var(--purple);outline-offset:2px}.markdown-table-scroll::-webkit-scrollbar{height:7px}.markdown-table-scroll::-webkit-scrollbar-track{background:var(--panel)}.markdown-table-scroll::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
@@ -139,7 +148,7 @@ dialog:modal{margin:auto}.directory-list{height:260px;overflow:auto;margin-top:8
 .cm-text-selectionLayer{pointer-events:none}
 .cm-text-selection{background:var(--selection);border-radius:1px}
 @supports selector(::highlight(looking-glass-text-selection)){
-  #surface :is(.markdown-preview,.comment-markdown)::selection,#surface :is(.markdown-preview,.comment-markdown) ::selection,#surface .md-table::selection,#surface .md-table ::selection{background:transparent!important}
+  #surface :is(.markdown-preview,.comment-markdown)::selection,#surface :is(.markdown-preview,.comment-markdown) ::selection,#surface :is(.md-table,.md-formula)::selection,#surface :is(.md-table,.md-formula) ::selection{background:transparent!important}
   ::highlight(looking-glass-text-selection){background:var(--selection);color:inherit}
 }
 
@@ -271,3 +280,15 @@ html[data-theme="dark"] { --review-human: #78d49a; --review-agent: #84b4ff; --re
 .pdf-contents nav .pdf-bookmark-row button,.pdf-contents nav .pdf-bookmark-editor>button{display:inline-block;width:auto;padding:4px 6px;font-size:10px}.pdf-contents nav .pdf-bookmark-row{--heading-level:0}
 
 .pdf-reader{align-items:flex-start}.pdf-page{margin-inline:auto}.pdf-contents nav{--heading-level:0}.pdf-contents nav>button:nth-last-child(2){border-top:1px solid var(--border);margin-top:6px;padding-top:10px}
+.md-rule,:is(.markdown-preview,.comment-markdown) hr{border:0;border-top:1px solid var(--border);margin:.8em 0;width:100%}
+
+/* List depth is independent of proportional-font source whitespace. Hanging
+   markers keep wrapped and continuation lines aligned with their item text. */
+.live-markdown .cm-editor .cm-line.md-list-line{padding-left:calc(28px + var(--md-list-depth)*1.25em + var(--md-list-marker-width))}
+.live-markdown .cm-line.md-list-first{text-indent:calc(-1 * var(--md-list-marker-width))}
+.md-list-marker{display:inline-block;width:var(--md-list-marker-width);text-indent:0;white-space:pre;font-variant-numeric:tabular-nums}
+:is(.markdown-preview,.comment-markdown) :is(ul,ol){padding-left:2em;list-style-position:outside}
+:is(.markdown-preview,.comment-markdown) li> :is(ul,ol){margin-top:.15em;margin-bottom:.15em}
+:is(.markdown-preview,.comment-markdown) ul ul{list-style-type:circle}
+:is(.markdown-preview,.comment-markdown) ul ul ul{list-style-type:square}
+:is(.markdown-preview,.comment-markdown) li:has(> .md-mapped-text input[type=checkbox]),:is(.markdown-preview,.comment-markdown) li:has(> p input[type=checkbox]){list-style-type:none}

@@ -23,6 +23,87 @@ def select_pdf_text(page, number=1):
 
 
 @pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_pdf_context_and_external_reload_preserve_hidden_html_report(workspace_page):
+    root, page, url, ws = workspace_page
+    (root/'report.html').write_text('<p>Report.</p><input id="value"><button onclick="this.textContent=++window.count">Count</button><script>window.count=0</script>')
+    make_pdf(root/'paper.pdf')
+    metadata = ws.pdfs.read('paper.pdf')
+    ws.pdfs.create_thread('paper.pdf', dict(page=1, quote='A passage', rects=[[.1,.1,.2,.03]]), 'PDF feedback', 'User', metadata['version'])
+    page.goto(url); open_file(page, 'report.html')
+    frame = page.frame_locator('#html-preview')
+    frame.locator('#value').fill('Retained report state'); frame.locator('button').click()
+    page.evaluate('window.retainedReport=document.querySelector("#html-preview")')
+    open_file(page, 'paper.pdf')
+    expect(page.locator('.pdf-page[data-page="1"][data-ready=true]')).to_be_visible()
+    page.locator('[data-action=original]').first.click()
+    expect(page.locator('.original-banner')).to_be_visible()
+    page.locator('#context-return').click()
+    expect(page.locator('.pdf-page[data-page="1"][data-ready=true]')).to_be_visible()
+    assert page.evaluate('window.retainedReport.isConnected && window.retainedReport.hidden')
+    make_pdf(root/'paper.pdf', 'Replacement PDF')
+    expect(page.locator('.thread')).to_contain_text('reattach', timeout=10000)
+    expect(page.locator('.pdf-page[data-page="1"][data-ready=true] .textLayer')).to_contain_text('Replacement PDF')
+    assert page.evaluate('window.retainedReport.isConnected && window.retainedReport.hidden')
+    page.locator('.tab[data-path="report.html"] .tab-name').click()
+    expect(frame.locator('#value')).to_have_value('Retained report state')
+    expect(frame.locator('button')).to_have_text('1')
+    assert page.evaluate('window.retainedReport===document.querySelector("#html-preview")')
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+@pytest.mark.parametrize('replacement', ['cached', 'binary_request'])
+def test_pdf_replacements_never_display_stale_geometry(workspace_page, replacement):
+    root, page, url, ws = workspace_page
+    make_pdf(root/'paper.pdf'); (root/'notes.md').write_text('# Notes')
+    metadata = ws.pdfs.read('paper.pdf')
+    ws.pdfs.create_thread('paper.pdf', dict(page=1, quote='A passage', rects=[[.1,.1,.2,.03]]), 'Old passage', 'User', metadata['version'])
+    page.goto(url); open_file(page, 'paper.pdf')
+    expect(page.locator('.pdf-passage')).to_have_count(1)
+    open_file(page, 'notes.md')
+    if replacement == 'cached':
+        make_pdf(root/'paper.pdf', 'New document')
+    else:
+        replaced = False
+        def replace_at_binary(route):
+            nonlocal replaced
+            if not replaced:
+                make_pdf(root/'paper.pdf', 'New document')
+                replaced = True
+            route.continue_()
+        page.route('**/api/binary?*', replace_at_binary)
+    open_file(page, 'paper.pdf')
+    expect(page.locator('.pdf-page[data-page="1"][data-ready=true] .textLayer')).to_contain_text('New document')
+    expect(page.locator('.pdf-passage')).to_have_count(0)
+    expect(page.locator('.thread')).to_contain_text('reattach')
+    select_pdf_text(page)
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_polling_pdf_reload_cannot_replace_newer_markdown_navigation(workspace_page):
+    root, page, url, _ = workspace_page
+    make_pdf(root/'paper.pdf'); (root/'notes.md').write_text('# Notes\n\nKeep editing.')
+    page.goto(url); open_file(page, 'paper.pdf')
+    expect(page.locator('.pdf-page[data-page="1"][data-ready=true]')).to_be_visible()
+    held = []
+    page.route('**/api/binary?*', lambda route: held.append(route))
+    with page.expect_request(lambda request: '/api/binary?' in request.url):
+        make_pdf(root/'paper.pdf', 'External replacement')
+    open_file(page, 'notes.md')
+    expect(page.locator('.cm-content')).to_contain_text('Keep editing.')
+    page.evaluate('window.retainedEditor=document.querySelector(".cm-content")')
+    for route in held:
+        route.continue_()
+    page.unroute('**/api/binary?*')
+    # The next text-file poll starts only after the stale PDF mount has settled.
+    with page.expect_response(lambda response: '/api/file?' in response.url and 'notes.md' in response.url and 'version=' in response.url):
+        pass
+    expect(page.locator('.pdf-reader')).to_have_count(0)
+    assert page.evaluate('window.retainedEditor===document.querySelector(".cm-content")')
+    page.locator('.cm-content').click(); page.keyboard.press('Control+End'); page.keyboard.insert_text(' Still editable.')
+    expect(page.locator('.cm-content')).to_contain_text('Still editable.')
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
 def test_pdf_selection_comments_highlights_context_and_poll_stability(workspace_page):
     root, page, url, ws = workspace_page
     make_pdf(root/'paper.pdf'); original = (root/'paper.pdf').read_bytes()

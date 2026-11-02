@@ -2,7 +2,7 @@
 // untouched, and generated controls never come from authored HTML attributes.
 export function linkThreadReferences(host) {
   const walker = document.createTreeWalker(host, NodeFilter.SHOW_TEXT, {
-    acceptNode: node => node.parentElement.closest('a,code,pre,button') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT
+    acceptNode: node => node.parentElement.closest('a,code,pre,button,.md-math') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT
   });
   const nodes = []; let node;
   while ((node = walker.nextNode())) nodes.push(node);

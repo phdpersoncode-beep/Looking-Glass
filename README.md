@@ -71,6 +71,39 @@ Agents use `looking-glass agent review` instead of writing the source file.
 See [the review contract](docs/REVIEW_MODE.md) and
 [agent commands](docs/AGENT_API.md#non-destructive-review-drafts).
 
+## Ignore generated files
+
+Create `.looking.ignore` in the directory opened as your workspace to hide build
+outputs, logs, datasets, or other clutter from the file explorer:
+
+```gitignore
+# Directory names match at any depth; / anchors a pattern to the workspace root.
+outputs/
+/build/
+*.log
+**/checkpoints/
+
+# Keep one file from an otherwise filtered directory.
+reports/*
+!reports/summary.md
+```
+
+Rules use Git ignore syntax: `*`, `?`, character ranges, `**`, `#` comments,
+escaped characters, and `!` exceptions; later matching rules take precedence.
+As with Git, an exception cannot restore a file inside an excluded parent
+directory; exclude its contents instead, as in the `reports/*` example.
+Only the workspace-root `.looking.ignore` is read. `.gitignore` remains independent.
+
+Ignored folders are skipped before scanning their contents, and ignored files
+do not count toward the 10,000-file explorer limit. Click **Refresh files** in the
+left sidebar after adding, editing, or removing rules; no server restart is needed.
+The root `.looking.ignore` stays visible so you can edit it in Looking Glass.
+It must be a regular UTF-8 file, not a symlink.
+
+These rules only filter discovery. Already-open tabs, explicit **Open file** paths,
+and saved discussions remain accessible. Built-in exclusions such as `.git/`,
+`.looking-glass/`, `node_modules/`, and `.venv/` still apply and cannot be unignored.
+
 ## Review a file
 
 1. Open Markdown, text or code from the left sidebar.
@@ -194,10 +227,62 @@ Use **A− / A+** in the document toolbar to adjust document text size.
 The setting persists. Toolbar, sidebar, and search controls keep their size.
 Live Markdown task lists display clickable checkboxes. The active line exposes
 ordinary Markdown syntax. Checkbox clicks update the Markdown draft; save to write it.
+Bullet and numbered lists are indented from prose. Nested and mixed lists keep
+clear levels in live Markdown, reading previews, discussions, and original
+context; wrapped lines and continuation paragraphs align beneath the item text.
+Use two spaces per nested bullet level and align nested numbering beneath the
+parent item's text, for example:
+
+```markdown
+- Parent
+  - Child
+    - Grandchild
+
+1. Parent
+   1. Child
+      1. Grandchild
+```
+
+Source bytes, starting numbers, task checkboxes, editing, undo, and passage
+annotations are preserved. Raw source mode shows the original indentation.
+
 Markdown tables render in live mode; click a table to edit its source. Fenced Python,
 Bash, JSON, HTML, YAML (`yaml` or `yml`), and TOML blocks have basic syntax
 highlighting in live/source mode and reading preview. Inactive fence markers and
 language labels are hidden in live mode.
+
+Markdown thematic breaks (`---`, `***`, and `___`) render as horizontal lines
+in live Markdown, reading previews, and discussions. Live mode reveals their
+source when the caret moves to the rule; raw source remains editable. Standard
+Setext headings, fenced code, and table separators retain their Markdown meaning.
+
+LaTeX math renders in live Markdown, reading previews, original context, comments,
+and replies, including formulas inside table cells. Use `$x_i^2$` or `\(x_i^2\)`
+inline; use `$$ … $$` or `\[ … \]` for display equations, on one or multiple lines.
+Fenced `math`, `latex`, and `tex` blocks also render as display equations. KaTeX
+supports fractions, roots, Greek letters, scripts, sums, integrals, limits,
+matrices, `cases`, `aligned`, text, operators, accents, and local macro definitions.
+Its JavaScript, stylesheet, fonts, and license ship with the app for offline use.
+
+Display equations are centered, use a smaller font and compact vertical spacing,
+and can use the full document width like tables. Equations scroll horizontally
+only when they exceed that available width; short equations keep their natural
+width. In live mode, hover over or focus a display formula to reveal **Edit source**. For inline formulas,
+double-click or focus the formula and press Enter. **Done editing math** returns
+to rendering; raw source mode always exposes the complete Markdown. Editing keeps
+ordinary undo/save and Review mode behavior. Selecting any portion of a rendered
+formula annotates its complete LaTeX source, including delimiters; source mode
+allows narrower selections. Passage and review colors preserve the equation's
+layout. Invalid or unsupported formulas show their source with an error tooltip.
+Mouse drags within fractions and other positioned math also select an equation
+when the browser cannot place a text caret; ordinary clicks still open its
+anchored discussion, and horizontal scrolling keeps working.
+Code spans/ordinary code fences and escaped dollars stay literal; currency such
+as `$5 and $10` stays text. For literal pipes in Markdown table formulas, use
+`\vert`, `\Vert`, or an escaped `\|` so the table parser keeps the cell intact.
+KaTeX renders its supported math subset rather than full LaTeX documents; commands
+that load external resources, add HTML, or create links are disabled. Macros are
+local to each formula.
 
 Ctrl+A selects the active editor document. Ctrl+F toggles a compact search box at
 the upper right of the reading pane. Ctrl+H toggles its additional replace row;
@@ -370,7 +455,10 @@ them in your terminal first. Checkpoints do not push. Saving never commits.
   software fallback. Software previews of large models reduce detail to 12,000
   sampled triangles and are labeled accordingly. Invalid files show an error
   inside the viewer.
-- **HTML:** rendered interactive report or raw editable source. The iframe has
+- **HTML:** rendered interactive report or raw editable source. Open report tabs
+  retain their controls, JavaScript state, and scroll position through tab switches,
+  source inspection, and original-context visits. Closing the tab, reloading the
+  page, or changing report source resets its runtime state. The iframe has
   an opaque sandbox origin, no application API token and no access to parent
   state. Inline scripts and HTTPS report resources are allowed. Use self-contained
   reports; workspace-relative linked assets are not currently served to previews.

@@ -1,13 +1,14 @@
 import {mountPDFContents} from './pdf-bookmarks.mjs';
 
-export async function mountPDF(host,contents,session,{token,api,onPassage,onError,onSelection}){
+export async function mountPDF(host,contents,session,{token,api,onPassage,onError,onSelection,current=()=>true}){
   const pdfjs=await import('/static/pdfjs.mjs');
+  if(!current())return null;
   pdfjs.GlobalWorkerOptions.workerSrc='/static/pdf.worker.mjs';
-  const loading=pdfjs.getDocument({url:'/api/binary?'+new URLSearchParams({path:session.path}),httpHeaders:{'X-Looking-Glass-Token':token},
+  const loading=pdfjs.getDocument({url:'/api/binary?'+new URLSearchParams({path:session.path,version:session.version}),httpHeaders:{'X-Looking-Glass-Token':token},
     cMapUrl:'/static/pdf-cmaps/',cMapPacked:true,standardFontDataUrl:'/static/pdf-fonts/',wasmUrl:'/static/pdf-wasm/',isEvalSupported:false});
   let pdf;
-  try{pdf=await loading.promise;}catch(error){await loading.destroy();throw new Error('Unable to display this PDF: '+error.message);}
-  if(!host.isConnected){await loading.destroy();return ()=>{};}
+  try{pdf=await loading.promise;}catch(error){await loading.destroy();if(!current())return null;throw Object.assign(new Error('Unable to display this PDF: '+error.message),{status:error.status});}
+  if(!host.isConnected||!current()){await loading.destroy();return null;}
   const wrapper=document.createElement('div');wrapper.className='pdf-reader';host.append(wrapper);
   const pages=new Map();let disposed=false,threads=[],active=null,signature='';
   const resize=new ResizeObserver(entries=>{for(const {target,contentRect} of entries){const page=pages.get(Number(target.dataset.page));if(page)page.sheet.style.transform=`scale(${contentRect.width/page.width})`;}});
@@ -27,15 +28,16 @@ export async function mountPDF(host,contents,session,{token,api,onPassage,onErro
       const viewport=page.source.getViewport({scale:1}),ratio=Math.min(devicePixelRatio||1,2);
       const canvas=document.createElement('canvas');canvas.width=Math.ceil(viewport.width*ratio);canvas.height=Math.ceil(viewport.height*ratio);canvas.style.width=viewport.width+'px';canvas.style.height=viewport.height+'px';page.sheet.prepend(canvas);
       page.task=page.source.render({canvasContext:canvas.getContext('2d'),viewport,transform:[ratio,0,0,ratio,0,0]});await page.task.promise;
-      if(disposed)return;
+      if(disposed||!current())return;
       page.layer=new pdfjs.TextLayer({textContentSource:page.source.streamTextContent(),container:page.text,viewport});await page.layer.render();
       if(!page.text.textContent.trim()){const note=document.createElement('span');note.className='pdf-scan-note';note.textContent='No selectable text on this page';page.links.append(note);}
       page.node.dataset.ready='true';
-    }catch(error){if(!disposed&&error.name!=='RenderingCancelledException')onError('Unable to render PDF page '+page.number+': '+error.message);}
+    }catch(error){if(!disposed&&current()&&error.name!=='RenderingCancelledException')onError('Unable to render PDF page '+page.number+': '+error.message);}
   }
   const observer=new IntersectionObserver(entries=>{for(const entry of entries)if(entry.isIntersecting)render(pages.get(Number(entry.target.dataset.page)));},{root:host,rootMargin:'800px'});
   for(let number=1;number<=pdf.numPages;number++){
     const source=await pdf.getPage(number),viewport=source.getViewport({scale:1});
+    if(!current()){observer.disconnect();resize.disconnect();for(const page of pages.values()){page.task?.cancel();page.layer?.cancel();}wrapper.remove();await loading.destroy();return null;}
     const node=document.createElement('section');node.className='pdf-page';node.dataset.page=number;node.setAttribute('aria-label','PDF page '+number);node.style.width=viewport.width+'px';node.style.aspectRatio=viewport.width+'/'+viewport.height;
     const sheet=document.createElement('div');sheet.className='pdf-sheet';sheet.style.width=viewport.width+'px';sheet.style.height=viewport.height+'px';sheet.style.setProperty('--total-scale-factor','1');
     const text=document.createElement('div');text.className='textLayer';

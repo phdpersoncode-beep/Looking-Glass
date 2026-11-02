@@ -20,3 +20,11 @@ copyFileSync('node_modules/pdfjs-dist/build/pdf.mjs','looking_glass/static/pdfjs
 copyFileSync('node_modules/pdfjs-dist/build/pdf.worker.mjs','looking_glass/static/pdf.worker.mjs');
 for(const [source,target] of [['cmaps','pdf-cmaps'],['standard_fonts','pdf-fonts'],['wasm','pdf-wasm']])cpSync('node_modules/pdfjs-dist/'+source,'looking_glass/static/'+target,{recursive:true});
 copyFileSync('node_modules/pdfjs-dist/LICENSE','looking_glass/static/pdfjs-license.txt');
+// Keep KaTeX CSS/fonts in the flat static directory included in wheel/sdist.
+// Its standalone stylesheet preserves KaTeX's precise rule ordering.
+let mathCSS=readFileSync('node_modules/katex/dist/katex.min.css','utf8');
+const mathFonts=new Set([...mathCSS.matchAll(/url\(fonts\/([^)]*)\)/g)].map(match=>match[1]));
+for(const font of mathFonts)copyFileSync('node_modules/katex/dist/fonts/'+font,'looking_glass/static/'+font);
+mathCSS=mathCSS.replaceAll('url(fonts/','url(');
+writeFileSync('looking_glass/static/katex.min.css',mathCSS);
+copyFileSync('node_modules/katex/LICENSE','looking_glass/static/katex-license.txt');

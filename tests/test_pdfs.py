@@ -118,6 +118,38 @@ def test_api_security_pdf_reads_annotations_and_no_file_writes(tmp_path):
     assert (tmp_path/'paper.PDF').read_bytes() == raw
 
 
+def test_pdf_binary_serves_only_the_requested_snapshot(tmp_path):
+    make_pdf(tmp_path/'paper.pdf')
+    app = create_app(tmp_path); client = app.test_client()
+    headers = {'X-Looking-Glass-Token': app.extensions['workspace'].token}
+    version = client.get('/api/pdf?path=paper.pdf', headers=headers).json['version']
+    query = dict(path='paper.pdf', version=version)
+    response = client.get('/api/binary', query_string=query, headers=headers)
+    assert response.status_code == 200
+    import hashlib
+    assert hashlib.sha256(response.data).hexdigest() == version
+    make_pdf(tmp_path/'paper.pdf', 'Replacement text')
+    assert client.get('/api/binary', query_string=query, headers=headers).status_code == 409
+
+
+def test_pdf_reply_captures_reattached_passage_without_changing_earlier_context(pdf_workspace):
+    ws = pdf_workspace; version = ws.pdfs.read('paper.pdf')['version']
+    anchor = dict(page=1, quote='Original passage', rects=[[.1,.1,.2,.03]])
+    thread = ws.pdfs.create_thread('paper.pdf', anchor, 'First', 'User', version)
+    identifier = thread['id']
+    first = ws.reply(identifier, 'Before reattachment', 'Agent')['messages'][-1]['id']
+    ws.pdfs.reattach(identifier, dict(anchor, page=2, quote='Current passage'), version)
+    reply = ws.reply(identifier, 'After reattachment', 'Agent')['messages'][-1]['id']
+    original = ws.origins.read(identifier)
+    earlier = ws.origins.read(identifier, first)
+    current = ws.origins.read(identifier, reply)
+    assert original['origin']['render_anchor']['page'] == earlier['origin']['render_anchor']['page'] == 1
+    assert current['origin']['render_anchor']['page'] == 2
+    assert current['content'] == 'PDF page 2\n\nCurrent passage'
+    assert current['content'][current['origin']['start']:current['origin']['end']] == 'Current passage'
+    assert current['origin']['provenance'] == 'captured'
+
+
 def test_malformed_encrypted_and_oversized_pdf(tmp_path):
     ws = Workspace(tmp_path)
     (tmp_path/'bad.pdf').write_bytes(b'not a PDF')
