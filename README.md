@@ -543,3 +543,5 @@ clipboard screenshot with **Ctrl+V**. Small pending chips can be renamed or
 removed before sending. Files belong to the posted comment; image-only comments
 are supported. Click an image filename to preview it, or use **⋯** for download,
 rename, and removal. Text and files stay in the composer if sending fails.
+Reply progress clears after a successful send; text typed while sending stays
+as the next unsent draft.

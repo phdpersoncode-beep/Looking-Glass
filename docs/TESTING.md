@@ -9,6 +9,7 @@ existing ones; browser sharding changes where tests run, never which cases run.
 | Non-destructive review, human/agent provenance, removed text, autosave, approval and concurrent edits | `test_reviews.py`, `review-model.test.mjs`, `test_review_mode_browser.py` |
 | Passage anchors, reattachment, immutable context and restart persistence | `test_anchors.py`, `test_origins.py`, `test_context_return_browser.py`, `test_cli.py` |
 | Comments, replies, editing/deletion, attachments, resolution/reopening and quiet polling | `test_discussion_workflow.py`, `test_requested_features.py`, `test_app_integration.py` |
+| Reply progress clears after success, preserves text typed during a send, and retains errors/drafts/attachments for retry | `test_reply_sending_browser.py` |
 | Fuzzy thread search, ranking, thread numbers, file/resolved scopes and draft passages | `thread-search.test.mjs`, `test_thread_search_browser.py` |
 | Live/source/preview Markdown, numbered lists/tasks, wide tables, syntax highlighting and local Mermaid | `test_markdown_discussions.py`, `test_requested_features.py`, `test_navigation_browser.py`, `test_context_return_browser.py` |
 | LaTeX delimiters/fences, core notation, local fonts/MathML, math in tables/discussions/context, real mouse drags and exact repeated/Unicode/CRLF source annotations, centered equations with compact vertical spacing, source editing/undo, Review provenance, errors and untrusted commands | `markdown-math.test.mjs`, `test_markdown_math_browser.py`, `tests/fixtures/markdown-math.md` |

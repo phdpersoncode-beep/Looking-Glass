@@ -1495,6 +1495,7 @@ document.addEventListener('submit',event=>{
     try{
       await composers.post('threads/'+id+'/replies',{author:authorName,body,...(discussionReview()?{review_id:discussionReview()}: {})},form);
       composers.complete(form,body);
+      composers.status(form,'');
       await refreshThreads();filterThreads();notify('Reply added');
     }catch(error){composers.status(form,error.message,true);throw error;}
     finally{composers.setSending(form,false);}
