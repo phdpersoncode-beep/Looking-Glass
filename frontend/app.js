@@ -1378,7 +1378,13 @@ document.addEventListener('keydown',event=>{
   if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='f'&&jsonlSearch&&!document.querySelector('dialog:modal')){event.preventDefault();jsonlSearch();}
   if(event.key==='Escape'&&$('#comment-dialog').open){event.preventDefault();closeComment();view?.focus();}
   else if(event.key==='Escape'&&contextVisit&&!document.querySelector('dialog:modal')){event.preventDefault();guard(returnFromOriginal)();}
-  else if(event.key==='Escape'&&threadSpotlight.active){event.preventDefault();cancelSidebarNavigation();clearSpotlight();}
+  else if(event.key==='Escape'&&threadSpotlight.active){
+    event.preventDefault();cancelSidebarNavigation();
+    const card=$(`.thread[data-thread="${appStore.state.focusedThread}"]`);
+    // Leave text entry before leaving the passage's focused discussion view.
+    if(event.target.matches('#thread-search,.reply-form textarea')&&card&&!card.hidden&&!document.querySelector('dialog:modal')){event.stopPropagation();card.focus({preventScroll:true});}
+    else clearSpotlight();
+  }
 },true);
 document.addEventListener('pointerdown',event=>{
   passageActivation++;
@@ -1495,6 +1501,7 @@ document.addEventListener('submit',event=>{
     try{
       await composers.post('threads/'+id+'/replies',{author:authorName,body,...(discussionReview()?{review_id:discussionReview()}: {})},form);
       composers.complete(form,body);
+      composers.status(form,'');
       await refreshThreads();filterThreads();notify('Reply added');
     }catch(error){composers.status(form,error.message,true);throw error;}
     finally{composers.setSending(form,false);}
