@@ -112,6 +112,8 @@ def test_sidebar_icon_navigates_and_spotlights(workspace_page,mode):
         r=target.bounding_box();bounds=page.locator('#surface').bounding_box()
         assert bounds['y']+40<r['y']<bounds['y']+bounds['height']-40
     page.locator('.thread.active textarea').fill('Draft after navigation')
+    page.keyboard.press('Escape');expect(heading).to_be_visible()
+    expect(page.locator('.thread.active')).to_be_focused()
     page.keyboard.press('Escape');expect(heading).not_to_be_visible()
     assert abs(sidebar.evaluate('el=>el.scrollTop')-saved)<2
     expect(page.locator('.thread.active textarea')).to_have_value('Draft after navigation')

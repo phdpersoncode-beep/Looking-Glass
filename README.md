@@ -124,7 +124,8 @@ painting the side margins. Discussion messages render Markdown with compact
 prose, tables, highlighted code, and diagrams; their stored text stays Markdown.
 Clicking a highlight focuses the sidebar on that passage's discussions without
 scrolling the document. A small “This passage” header shows the thread count;
-**All discussions**, with its small Esc hint, or Escape restores the list's previous scroll position.
+**All discussions**, with its small Esc hint, or Escape from the thread card
+restores the list's previous scroll position.
 Cards keep their original order, and the focused view stays open while you read,
 collapse threads, or write replies. Click the quoted passage, thread number, or
 navigation arrows when you want to move the document to a discussion. Clicking a
@@ -134,7 +135,10 @@ and embedded controls keep their normal behavior. Search stays in the same posit
 above the spotlight header, with a total thread count for the selected file scope.
 While spotlight is open and the sidebar or a thread has focus, **←/→** moves through
 the scoped, filtered thread list, **↑** focuses search, and **↓** focuses the current
-reply. Text fields keep their native arrow keys. Navigation preserves reply drafts.
+reply. Text fields keep their native arrow keys. Escape from the reply or search
+field returns keyboard focus to the current thread, keeping spotlight, the search
+query, and unsent replies/attachments intact. Arrow shortcuts work immediately;
+press Escape again from the card to return to the list. Navigation preserves reply drafts.
 These shortcuts are shown below the spotlight heading. Thread numbers, quotes,
 comment icons, and general card clicks all enter spotlight and retain sidebar
 keyboard focus. Repeated arrows choose the latest requested thread without flashing

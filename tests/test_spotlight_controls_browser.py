@@ -64,6 +64,65 @@ def test_spotlight_arrows_keep_sidebar_focus_drafts_and_search_position(workspac
 
 
 @pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+@pytest.mark.parametrize('control', ['reply', 'search', 'filtered-search'])
+def test_escape_from_spotlight_fields_returns_to_current_thread_shortcuts(workspace_page, control):
+    from playwright.sync_api import expect
+    root, page, url, ws = workspace_page
+    threads = discussions(root, ws)
+    page.goto(url); open_file(page, 'note.md')
+    search = page.locator('#thread-search')
+    if control == 'filtered-search':
+        page.locator('#theme').click()
+        page.set_viewport_size({'width': 900, 'height': 960})
+        search.fill('Queue')
+        expect(page.locator('#thread-search-status')).to_contain_text('3 matches')
+        page.locator(f'.thread[data-thread="{threads[1]["id"]}"] .thread-search-match').click()
+    else:
+        page.locator(f'.thread[data-thread="{threads[1]["id"]}"] .thread-heading [data-action=jump]').click()
+    card = page.locator(f'.thread[data-thread="{threads[1]["id"]}"]')
+    field = card.locator('.reply-form textarea')
+    field.fill('Unsent café reply')
+    card.locator('.attach-files').set_input_files([
+        {'name': 'notes.txt', 'mimeType': 'text/plain', 'buffer': b'Keep attachment'}])
+    target = field if control == 'reply' else search
+    target.focus()
+    # Escape only changes keyboard focus: keep the same nodes and reading position.
+    field.evaluate('el=>window.escapeReply=el')
+    settle(page)
+    pane = page.locator('.cm-scroller')
+    scroll = pane.evaluate('el=>el.scrollTop')
+    sidebar = page.locator('.discussion-content')
+    side_scroll = sidebar.evaluate('el=>el.scrollTop')
+    query = search.input_value()
+    target.press('Escape')
+    expect(card).to_be_focused()
+    expect(card).to_have_class('thread active')
+    expect(page.locator('#passage-spotlight')).to_be_visible()
+    expect(field).to_have_value('Unsent café reply')
+    expect(card.locator('.pending-files')).to_contain_text('notes.txt')
+    expect(search).to_have_value(query)
+    assert field.evaluate('el=>el===window.escapeReply')
+    assert abs(pane.evaluate('el=>el.scrollTop') - scroll) < 2
+    assert abs(sidebar.evaluate('el=>el.scrollTop') - side_scroll) < 2
+    # All four shortcuts work immediately, with no click or manual card focus.
+    page.keyboard.press('ArrowUp'); expect(search).to_be_focused()
+    search.press('Escape'); expect(card).to_be_focused()
+    page.keyboard.press('ArrowDown'); expect(field).to_be_focused()
+    field.press('Escape'); expect(card).to_be_focused()
+    page.keyboard.press('ArrowRight')
+    expect(page.locator('.thread.active')).to_have_attribute('data-thread', str(threads[2]['id']))
+    expect(page.locator('.thread.active')).to_be_focused()
+    page.keyboard.press('ArrowLeft'); expect(card).to_be_focused()
+    expect(field).to_have_value('Unsent café reply')
+    expect(search).to_have_value(query)
+    # Once the card itself has focus, Escape still returns to the full list.
+    page.keyboard.press('Escape')
+    expect(page.locator('#passage-spotlight')).to_be_hidden()
+    expect(field).to_have_value('Unsent café reply')
+    expect(search).to_have_value(query)
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
 @pytest.mark.parametrize('action', ['resolve', 'delete-thread', 'delete-message'])
 @pytest.mark.parametrize('spotlight', [False, True])
 def test_zen_completion_advances_and_wraps_in_both_views(workspace_page, action, spotlight):
