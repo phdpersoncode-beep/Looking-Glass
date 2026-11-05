@@ -292,3 +292,20 @@ html[data-theme="dark"] { --review-human: #78d49a; --review-agent: #84b4ff; --re
 :is(.markdown-preview,.comment-markdown) ul ul{list-style-type:circle}
 :is(.markdown-preview,.comment-markdown) ul ul ul{list-style-type:square}
 :is(.markdown-preview,.comment-markdown) li:has(> .md-mapped-text input[type=checkbox]),:is(.markdown-preview,.comment-markdown) li:has(> p input[type=checkbox]){list-style-type:none}
+
+/* Markdown image controls remain outside the image pixels and source mapping. */
+.markdown-image { position:relative; display:inline-block; max-width:100%; line-height:0; vertical-align:middle; }
+.markdown-image img { max-width:100%; height:auto; border-radius:4px; }
+.image-pencil,.image-comment-marker { position:absolute; z-index:2; line-height:1.3; background:var(--paper); color:var(--text); border:1px solid var(--border); border-radius:4px; padding:4px 7px; cursor:pointer; }
+.image-pencil { top:6px; right:6px; }
+.image-comment-marker { transform:translate(-50%,-50%); color:#9463d5; }
+.image-comment-marker.resolved { opacity:.55; }
+.image-editor { max-width:min(1100px,95vw); max-height:95vh; width:90vw; padding:16px; background:var(--paper); color:var(--text); border:1px solid var(--border); border-radius:8px; overflow:auto; }
+.image-editor::backdrop { background:#0008; }
+.image-toolbar { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
+.image-toolbar button,.image-comment-box button { border:1px solid var(--border); border-radius:4px; padding:5px 10px; }
+.image-toolbar button[aria-pressed=true] { outline:2px solid #9463d5; }
+.image-stage { position:relative; width:fit-content; max-width:100%; margin:auto; line-height:0; }
+.image-stage canvas { max-width:100%; max-height:70vh; width:auto; height:auto; touch-action:none; cursor:crosshair; }
+.image-comment-box { position:absolute; top:0; left:0; z-index:4; padding:10px; line-height:1.5; background:var(--paper); color:var(--text); border:1px solid var(--border); width:min(320px,80vw); white-space:pre-wrap; }
+.image-comment-box textarea { display:block; width:100%; min-height:80px; margin:8px 0; background:var(--paper); color:var(--text); border:1px solid var(--border); }

@@ -1,3 +1,4 @@
+import {createImageTools,imageRanges,imageID,imageLink} from './markdown-images.mjs';
 import {mountPDF} from './pdf-reader.mjs';
 import {createDiscussionView} from './discussion-view.mjs';
 import {createDiscussionRetention} from './discussion-lifetime.mjs';
@@ -105,7 +106,7 @@ const markdownViews=new Set();
 function markdownSelection(){for(const rendered of markdownViews){if(rendered.host.isConnected){const selection=rendered.selection();if(selection)return selection;}}return null;}
 function markdownSpans(){const e=entry();return view?view.state.field(spanField):e?(e.dirty&&e.state?e.state.field(spanField):spansFor(appStore.state.threads,e.content)).map(span=>({...span,from:toRawUnits(e.content,span.from),to:toRawUnits(e.content,span.to)})):[];}
 function currentReviewRanges(normalized=false){const e=entry();return e?.review&&e.workMode==='review'?reviewRanges(e.reviewSegments||e.review.segments,normalized):[];}
-function refreshMarkdownHighlights(){if(entry()?.kind==='original')return;const spans=markdownSpans();for(const rendered of markdownViews){if(rendered.host.isConnected)rendered.highlight(spans,appStore.state.focusedThread);else markdownViews.delete(rendered);}}
+function refreshMarkdownHighlights(){imageTools.refresh();if(entry()?.kind==='original')return;const spans=markdownSpans();for(const rendered of markdownViews){if(rendered.host.isConnected)rendered.highlight(spans,appStore.state.focusedThread);else markdownViews.delete(rendered);}}
 
 
 function previewMessage(type,data={}){const preview=renderedPreview;if(preview?.ready)preview.frame.contentWindow.postMessage({lookingGlass:preview.channel,type,...data},'*');}
@@ -238,7 +239,7 @@ class MarkdownTable extends WidgetType {
     const edit=document.createElement('button');edit.className='markdown-source-edit';edit.textContent='Edit source';edit.setAttribute('aria-label','Edit table source');
     edit.onclick=()=>{v.dispatch({effects:blockSourceEffect.of({from:this.from,to:this.from+this.source.length,kind:'table'}),selection:{anchor:this.from}});v.focus();};
     const table=document.createElement('div');el.append(edit,table);
-    const rendered=mountMappedMarkdown(table,this.source,this.from);rendered.setReview(this.review);rendered.highlight(this.spans,this.focused);markdownViews.add(rendered);el._markdown=rendered;
+    const rendered=mountMappedMarkdown(table,this.source,this.from,highlightMarkdown);rendered.setReview(this.review);rendered.highlight(this.spans,this.focused);markdownViews.add(rendered);el._markdown=rendered;
     return el;
   }
   destroy(el){markdownViews.delete(el._markdown);}
@@ -289,6 +290,10 @@ function tableDecorations(state){
     if(diagram){const first=state.doc.lineAt(node.from),last=state.doc.lineAt(node.to);const closed=/^(`{3,}|~{3,})\s*$/.test(last.text.trim());const source=state.doc.sliceString(Math.min(first.to+1,state.doc.length),closed?last.from:node.to);ranges.push(Decoration.replace({block:true,widget:new MermaidDiagram(source,node.from,node.to)}).range(node.from,node.to));return false;}
     ranges.push(Decoration.replace({block:true,widget:new MarkdownTable(state.doc.sliceString(node.from,node.to),node.from,spans.filter(s=>s.from<node.to&&s.to>node.from),review)}).range(node.from,node.to));return false;
   }});
+  for(const image of imageRanges(state.doc.toString())){
+    if(occupied.some(r=>r.from<image.to&&r.to>image.from)||editing&&editing.from<=image.to&&editing.to>=image.from)continue;
+    ranges.push(Decoration.replace({widget:new MarkdownImage(state.doc.sliceString(image.from,image.to),image.href,image.alt)}).range(image.from,image.to));
+  }
   for(const formula of math){
     if(occupied.some(r=>r.from<formula.to&&r.to>formula.from)||editing&&editing.from<=formula.to&&editing.to>=formula.from)continue;
     const source=state.doc.sliceString(formula.from,formula.to),block=source.includes('\n')||formula.display&&state.doc.lineAt(formula.from).from===formula.from&&state.doc.lineAt(formula.to).to===formula.to;
@@ -471,7 +476,55 @@ async function closeTab(path,returning=false){
   else if(!appStore.state.displayedDocument){lastThreadHTML='';lastThreadKey='';clearSurface();const welcome=document.createElement('div');welcome.className='welcome';welcome.innerHTML='<h1>Open a file to begin.</h1>';$('#surface').append(welcome);$('#threads').replaceChildren();discussionView.reset();appStore.dispatch({type:'THREADS_RECEIVED',threads:[]});$('#thread-count').textContent='0';updateToolbar();await refreshThreads();}
 }
 
+const imageTools=createImageTools({token,api,context:()=>({path:entry()?.sourcePath||entry()?.path,readonly:!!entry()?.kind,threads:appStore.state.threads}),
+  error:message=>notify(message,true),changed:id=>imageTools.refresh(id),focus:id=>showThread(id),
+  renamed:(id,reference,meta)=>{
+    const e=entry();if(!e||e.kind)return;
+    const changes=imageRanges(e.content).filter(r=>imageID(r.href)===id||r.href===reference).map(r=>({from:r.from,to:r.to,insert:e.content.slice(r.from,r.to).replace(r.href,imageID(r.href)?imageLink(meta):r.href.replace(/[^/]+$/,encodeURIComponent(meta.name)))}));
+    if(!changes.length)return;
+    applyImageChanges(e,changes);
+  },
+  comment:async(id,point,body,thread)=>{
+    const e=entry();if(!e||e.kind)throw new Error('Open the current document to comment.');
+    if(thread){await api(`threads/${thread.id}/replies`,'POST',{body,author:authorName});}
+    else{
+      await saveActive();if(entry()!==e)throw new Error('Document changed. Reopen the image.');
+      const ranges=imageRanges(e.content).filter(r=>imageID(r.href)===id||r.href===imageTools.reference(id));
+      if(!ranges.length)throw new Error('The image embed is no longer in this document.');
+      const range=ranges[0],review=e.workMode==='review'?e.review:null;
+      await api(`images/${id}/comments`,'POST',{path:e.path,start:Array.from(e.content.slice(0,range.from)).length,end:Array.from(e.content.slice(0,range.to)).length,version:review?.version||e.version,review_id:review?.id,reference:range.href,body,author:authorName,...point});
+    }
+    await refreshThreads();imageTools.refresh();
+  }
+});
+class MarkdownImage extends WidgetType {
+  constructor(source,href,alt){super();this.source=source;this.href=href;this.alt=alt;}
+  eq(other){return this.source===other.source;}
+  toDOM(){const host=document.createElement('span'),img=document.createElement('img');img.setAttribute('src',this.href);img.alt=this.alt;host.append(img);imageTools.mount(img);return host;}
+  ignoreEvent(){return true;}
+}
+function applyImageChanges(e,changes){
+  if(entry()===e&&view){view.dispatch({changes});return;}
+  const tr=(e.state||makeState(e)).update({changes});e.state=tr.state;e.content=tr.state.sliceDoc();e.dirty=e.content!==e.diskContent;
+  if(e.reviewField){queueReviewOperations(e,operationsFor(tr),tr.state.field(e.reviewField).segments);scheduleReviewSave(e);}
+  if(entry()===e)mountDocument(e);updateToolbar();renderTabs();
+}
+const pendingImagePastes=new Set();
+function pasteImage(event,editor,e){
+  if(e.kind||editor.state.readOnly||!['md','markdown'].includes(ext(e.path)))return false;
+  const files=[...event.clipboardData?.items||[]].filter(i=>i.kind==='file'&&['image/png','image/jpeg'].includes(i.type)).map(i=>i.getAsFile()).filter(Boolean);
+  if(!files.length)return false;event.preventDefault();
+  const pending={e,from:editor.state.selection.main.from,to:editor.state.selection.main.to};pendingImagePastes.add(pending);
+  guard(async()=>{try{
+    const images=[];for(const file of files)images.push(await imageTools.upload(file));
+    if(tabs.get(e.path)!==e)throw new Error('Images were stored, but the document was closed before insertion.');
+    const changes={from:pending.from,to:pending.to,insert:images.map(image=>`![](${imageLink(image)})`).join('\n')};
+    applyImageChanges(e,changes);
+  }finally{pendingImagePastes.delete(pending);}})();return true;
+}
+
 function highlightMarkdown(preview){
+  for(const img of preview.querySelectorAll("img"))imageTools.mount(img);
   for(const block of preview.querySelectorAll('pre code')){
     const language=codeLanguage(block.className.replace(/^language-/,''));if(!language)continue;
     // Color individual text nodes so source mappings and discussion marks stay
@@ -498,9 +551,18 @@ function makeState(e){
   return EditorState.create({doc:e.content,extensions:[EditorState.lineSeparator.of(e.diskContent.includes('\r\n')?'\r\n':'\n'),basicSetup,documentSearch,language(docPath),workLockSlot.of(EditorState.readOnly.of(changingWorkMode)),...(tracked?[e.reviewField]:[]),...(e.kind==='original'?[EditorState.readOnly.of(true),EditorView.editable.of(false)]:[]),syntaxHighlighting(colors),spanField,threadFocusField,gitField,gitSlot.of([]),
     themeSlot.of(theme()),liveSlot.of(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables,textSelection]:[]),
     ...(prose?[EditorView.lineWrapping,EditorView.theme({'.cm-scroller':{fontFamily:'var(--prose)',fontSize:'var(--prose-font-size)'},'.cm-content':{maxWidth:'850px',margin:'0 auto',width:'100%',minWidth:'0'},'.cm-foldGutter':{display:'none'}})]:[]),
+    EditorView.domEventHandlers({paste:(event,editor)=>pasteImage(event,editor,e),contextmenu:(event,editor)=>{
+      if(e.kind||editor.state.readOnly)return false;
+      const pos=editor.posAtCoords({x:event.clientX,y:event.clientY});if(pos==null)return false;
+      const range=imageRanges(editor.state.doc.toString()).find(r=>r.from<=pos&&r.to>=pos),id=range&&imageID(range.href);
+      if(!range||!id&&/^(?:[a-z][\w+.-]*:|\/)/i.test(range.href))return false;event.preventDefault();guard(async()=>{
+        const managed=id||(await api('images/import','POST',{path:new URL(decodeURIComponent(range.href),'https://workspace/'+e.path).pathname.slice(1)})).id;
+        await imageTools.rename(managed,range.href);
+      })();return true;
+    }}),
     EditorView.scrollHandler.of(editor=>passagePosition?.editor===editor),
     keymap.of([{key:'Mod-s',run:()=>{guard(saveActive)();return true;}},{key:'Mod-Enter',run:()=>{guard(startComment)();return true;}},indentWithTab]),
-    EditorView.updateListener.of(u=>{if(u.docChanged){if(tracked){if(!u.transactions.some(t=>t.effects.some(effect=>effect.is(remoteReview)))){for(const tr of u.transactions)if(tr.docChanged)queueReviewOperations(e,operationsFor(tr),u.state.field(e.reviewField).segments);scheduleReviewSave(e);}}e.content=u.state.sliceDoc();e.dirty=e.content!==e.diskContent;e.state=u.state;contentsController?.update();updateToolbar();renderTabs();}if(u.selectionSet)updateToolbar();if(u.selectionSet||u.docChanged||u.viewportChanged||u.geometryChanged)scheduleSelectionTools();})
+    EditorView.updateListener.of(u=>{if(u.docChanged){for(const pending of pendingImagePastes)if(pending.e===e){pending.from=u.changes.mapPos(pending.from,1);pending.to=u.changes.mapPos(pending.to,1);}if(tracked){if(!u.transactions.some(t=>t.effects.some(effect=>effect.is(remoteReview)))){for(const tr of u.transactions)if(tr.docChanged)queueReviewOperations(e,operationsFor(tr),u.state.field(e.reviewField).segments);scheduleReviewSave(e);}}e.content=u.state.sliceDoc();e.dirty=e.content!==e.diskContent;e.state=u.state;contentsController?.update();updateToolbar();renderTabs();}if(u.selectionSet)updateToolbar();if(u.selectionSet||u.docChanged||u.viewportChanged||u.geometryChanged)scheduleSelectionTools();})
   ]});
 }
 
@@ -984,6 +1046,7 @@ function activateThread(id,target=null,spotlight=false,focusEditor=true,options=
 function revealSourcePassage(t,focusEditor){
   const id=t.id;
   if(t.anchor_status!=='attached'){notify('This passage needs reattachment. Select the new passage and click “Attach to selection”.');return;}
+  if(t.image_annotation){const image=$(`#surface .markdown-image[data-image-id="${t.image_annotation.image_id}"]`);if(image){image.scrollIntoView({block:'center',behavior:focusEditor?'auto':'instant'});return;}}
   if(entry().mode==='preview'&&[...markdownViews].some(rendered=>rendered.host.isConnected&&rendered.jump(toRawUnits(entry().content,toUnits(entry().content,t.start)),toRawUnits(entry().content,toUnits(entry().content,t.end)),focusEditor?'auto':'instant')))return;
   if(!view){entry().mode='source';mountDocument(entry());view.dispatch({effects:spansEffect.of(spansFor(appStore.state.threads,entry().content))});}
   const resolved=resolveSourcePassage(t,{path:entry().path,content:entry().content,version:entry().version,dirty:entry().dirty,localRanges:view.state.field(spanField)});

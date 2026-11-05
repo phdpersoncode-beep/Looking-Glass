@@ -28,6 +28,7 @@ function mathRenderer(token) {
 }
 
 export const markdown=new Marked({extensions:[
+  {name:'wikiImage',level:'inline',start:source=>source.indexOf('![['),tokenizer(source){const m=/^!\[\[([^\]\n]+)\]\]/.exec(source);if(m)return {type:'wikiImage',raw:m[0],href:m[1],text:m[1]};},renderer(token){return `<img src="${escapeHTML(token.href)}" alt="${escapeHTML(token.text)}">`; }},
   {
     name:'mathBlock',level:'block',
     start:source=>{const match=/\n {0,3}(?:\$\$|\\\[)/.exec(source);return match?match.index+1:undefined;},

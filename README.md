@@ -549,3 +549,5 @@ are supported. Click an image filename to preview it, or use **⋯** for downloa
 rename, and removal. Text and files stay in the composer if sending fails.
 Reply progress clears after a successful send; text typed while sending stays
 as the next unsent draft.
+
+PNG/JPEG clipboard paste, Markdown image embeds, drawing annotations, and image-linked threads are described in [Images](docs/IMAGES.md).

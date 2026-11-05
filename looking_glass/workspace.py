@@ -67,6 +67,8 @@ class Workspace:
 
         from .attachments import Attachments
         self.attachments = Attachments(self)
+        from .images import Images
+        self.images = Images(self)
         from .origins import Origins
         self.origins = Origins(self)
         from .reviews import Reviews

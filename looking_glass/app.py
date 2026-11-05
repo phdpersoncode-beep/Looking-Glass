@@ -27,6 +27,8 @@ def create_app(root):
 
     @app.before_request
     def protect():
+        if request.path.startswith('/api/images'):
+            request.max_content_length=33*1024*1024
         if request.method=='POST' and (request.path.endswith(('/attachments','/replies')) or request.path=='/api/threads'):
             request.max_content_length=65*1024*1024
         if request.path.startswith(('/api/', '/fragments/')):
@@ -436,6 +438,40 @@ def create_app(root):
                 raise Problem('Reattach a PDF passage with its current version only.')
             return jsonify(ws.pdfs.reattach(identifier, data['pdf_anchor'], data.get('version')))
         return jsonify(ws.update_thread(identifier,**data))
+
+    @app.post('/api/images')
+    def add_image():
+        upload = request.files.get('file')
+        if not upload: raise Problem('Choose an image.')
+        return jsonify(ws.images.add(upload.stream, upload.filename)), 201
+
+    @app.post('/api/images/import')
+    def import_image():
+        return jsonify(ws.images.import_file(body().get('path')))
+
+    @app.get('/api/images/<identifier>')
+    def image_metadata(identifier):
+        return jsonify(ws.images.public(ws.images.get(identifier)))
+
+    @app.get('/api/images/<identifier>/content')
+    def image_content(identifier):
+        row = ws.images.get(identifier)
+        raw = row['original'] if request.args.get('original') == '1' else row['current']
+        return send_file(io.BytesIO(raw), mimetype=ws.images.validate(raw), download_name=row['name'])
+
+    @app.patch('/api/images/<identifier>')
+    def update_image(identifier):
+        if request.mimetype == 'multipart/form-data':
+            upload = request.files.get('file')
+            if not upload: raise Problem('Choose an image.')
+            from .images import MAX_IMAGE
+            return jsonify(ws.images.update(identifier, request.form.get('version'), raw=upload.stream.read(MAX_IMAGE + 1)))
+        data = body()
+        return jsonify(ws.images.update(identifier, data.get('version'), name=data.get('name'), restore=data.get('restore') is True))
+
+    @app.post('/api/images/<identifier>/comments')
+    def image_comment(identifier):
+        return jsonify(ws.images.comment(identifier, body())), 201
 
     @app.post('/api/threads/<int:identifier>/attachments')
     def upload_attachment(identifier):
