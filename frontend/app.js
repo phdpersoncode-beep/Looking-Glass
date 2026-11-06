@@ -1,4 +1,4 @@
-import {resizedImageSource} from './image-size.mjs';
+import {resizedImageSource,imageCaption} from './image-size.mjs';
 import {confirmAction,requestText} from './dialogs.mjs';
 import {createImageTools,imageRanges,imageID,imageLink,imagePath} from './markdown-images.mjs';
 import {mountPDF} from './pdf-reader.mjs';
@@ -489,6 +489,7 @@ function imageRangeAt(wrap){
 }
 const imageTools=createImageTools({token,api,context:()=>({path:entry()?.sourcePath||entry()?.path,readonly:!!entry()?.kind,mode:entry()?.mode,threads:appStore.state.threads}),
   error:message=>notify(message,true),changed:id=>imageTools.refresh(id),focus:id=>showThread(id),
+  removeComment:deleteDiscussion,
   move:async(id,thread,point)=>{
     await api(`images/${id}/comments/${thread.id}`,'PATCH',{...point,previous:{x:thread.image_annotation.x,y:thread.image_annotation.y}});
     await refreshThreads();
@@ -534,7 +535,11 @@ const imageTools=createImageTools({token,api,context:()=>({path:entry()?.sourceP
 class MarkdownImage extends WidgetType {
   constructor(source,href,alt){super();this.source=source;this.href=href;this.alt=alt;}
   eq(other){return this.source===other.source;}
-  updateDOM(_el,_view,previous){return this.source===previous.source;}
+  updateDOM(el,_view,previous){
+    if(this.href!==previous.href)return false;
+    const wrap=el.querySelector('.markdown-image'),img=wrap?.querySelector('img');if(!img)return false;
+    const caption=imageCaption(this.alt);img._displayCaption=this.alt;img.alt=caption.alt;wrap.style.width=caption.width?caption.width+'px':'';return true;
+  }
   toDOM(){const host=document.createElement('span'),img=document.createElement('img');img.setAttribute('src',this.href);img.alt=this.alt;host.append(img);imageTools.mount(img);return host;}
   ignoreEvent(){return true;}
 }
@@ -1129,6 +1134,13 @@ async function completeThread(id,operation,completes=true){
     if(target){await jump(target.id,target,spotlight,false);if(appStore.state.focusedThread===target.id)$(`.thread[data-thread="${target.id}"]`)?.focus({preventScroll:true});}
   }
 }
+async function deleteDiscussion(id,messageId=null){
+  await completeThread(id,()=>api('threads/'+id+(messageId==null?'':'/messages/'+messageId),'DELETE'));
+  if(!appStore.state.threads.some(t=>t.id===appStore.state.focusedThread))clearThreadFocus();
+  if(view)view.dispatch({effects:spansEffect.of(view.state.field(spanField).filter(span=>appStore.state.threads.some(t=>t.id===span.id)))});
+  notify(messageId==null?'Thread deleted':'Comment deleted');
+  return appStore.state.threads.find(t=>t.id===id)||null;
+}
 function startGitComment(target){
   if(entry()?.kind!=='history'||!target)return;
   pending={path:HISTORY,git_target:target,quote:target.label,content:''};presentComment();
@@ -1577,10 +1589,7 @@ document.addEventListener('click',guard(async event=>{
   }
   if(action.dataset.action==='delete-thread'||action.dataset.action==='delete-message'){
     const whole=action.dataset.action==='delete-thread';if(!await confirmAction({title:whole?'Delete thread?':'Delete comment?',message:whole?'This thread and all its comments will be deleted.':'This comment will be deleted.',confirmLabel:whole?'Delete thread':'Delete comment',symbol:'trash',danger:true}))return;
-    await completeThread(id,()=>api('threads/'+id+(whole?'':'/messages/'+action.dataset.message),'DELETE'));
-    if(!appStore.state.threads.some(t=>t.id===appStore.state.focusedThread))clearThreadFocus();
-    if(view)view.dispatch({effects:spansEffect.of(view.state.field(spanField).filter(span=>appStore.state.threads.some(t=>t.id===span.id)))});
-    notify(whole?'Thread deleted':'Comment deleted');
+    await deleteDiscussion(id,whole?null:action.dataset.message);
   }
   if(action.dataset.action==='reattach'){
     if(t.path!==appStore.state.displayedDocument){await openFile(t.path);showThread(id);notify('Select the new passage in this file, then attach the thread.');return;}

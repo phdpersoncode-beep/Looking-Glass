@@ -62,11 +62,20 @@ choose the small source symbol to edit an embed explicitly, then Done editing
 image to return.
 
 Ctrl+click an image's comment marker to enable drag mode. Drag it to a new
-location, then release to save its position. Ctrl+click again or press Escape
+location, then release to save its position and automatically exit drag mode.
+The next normal click opens the discussion. Ctrl+click again or press Escape
 to exit drag mode; Escape during a drag cancels that move. This works in Live
 Markdown, preview, and the annotation editor. Marker moves are immediate metadata
 changes, keep the discussion and original context intact, and reject concurrent
 moves instead of overwriting them. Normal clicks continue to open the thread.
+
+Open an image marker to see its comments. Each comment has a trash symbol with
+a Looking Glass confirmation; deleting one keeps the other comments and any
+unsent reply. Deleting the last comment removes its marker. Threads with several
+comments also have a trash symbol beside their thread heading to delete the
+whole discussion. Cancellation or deletion errors leave the comment box and
+reply draft available. These controls work in Live Markdown, preview, and the
+annotation editor, and keep image pixels and document text intact.
 
 The trash symbol beside the pencil removes the selected embed after a Looking
 Glass confirmation. Cancellation is focused initially. Only that occurrence is

@@ -345,6 +345,7 @@ def test_centered_image_resize_persists_per_embed_and_undoes(workspace_page,mode
     handle=image.get_by_role('slider',name='Resize image');handle.scroll_into_view_if_needed();rect=handle.bounding_box()
     page.mouse.move(rect['x']+12,rect['y']+12);page.mouse.down();page.mouse.move(rect['x']-48,rect['y']-28,steps=8);page.mouse.up()
     expect(image).to_have_css('width',f"{round(box['width']-120)}px")
+    expect(image.locator('img')).to_be_visible()
     resized=image.locator('img').bounding_box();assert abs(resized['width']/resized['height']-1.5)<.02
     assert images.first.bounding_box()['width']==box['width']
     page.locator('#mode').select_option('source');expect(page.locator('.cm-content')).to_contain_text(f'![Second|{round(box["width"]-120)}](photo.png)')
@@ -386,8 +387,12 @@ def test_ctrl_click_marker_drag_persists_and_cancels(workspace_page,mode):
     expect(marker).to_have_css('left',f"{rect['width']*.75:g}px")
     page.wait_for_function('''()=>document.querySelector('.image-comment-marker')?.style.top==='70%' ''')
     moved=ws.get_thread(thread['id'])['image_annotation'];assert abs(moved['x']-.75)<.02 and abs(moved['y']-.7)<.02
+    # A completed drop exits move mode; the next click opens the discussion.
+    expect(marker).to_have_attribute('aria-pressed','false')
+    marker.click();expect(page.locator('.image-comment-box')).to_contain_text('Move this marker')
+    page.locator('.image-comment-box').get_by_role('button',name='Cancel',exact=True).click()
     # Escape abandons a second drag and exits move mode.
-    marker.click(modifiers=['Control']);marker.click(modifiers=['Control'])
+    marker.click(modifiers=['Control'])
     b=marker.bounding_box();page.mouse.move(b['x']+b['width']/2,b['y']+b['height']/2);page.mouse.down();page.mouse.move(rect['x']+5,rect['y']+5,steps=5)
     marker.press('Escape');page.mouse.up()
     expect(marker).to_have_attribute('aria-pressed','false')
@@ -432,3 +437,83 @@ def test_svg_display_resize_keeps_bytes_and_renders_after_reopen(workspace_page)
     page.reload();open_file(page,'notes.md')
     expect(page.locator('.markdown-image')).to_have_css('width','90px')
     assert (root/'drawing.svg').read_text()==svg
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+@pytest.mark.parametrize('mode',['live','preview','editor'])
+def test_delete_image_comments_cancel_errors_last_comment_and_other_markers(workspace_page,mode):
+    root,page,url,ws=workspace_page
+    image=setup_disk_image(root,ws)
+    text=(root/'notes.md').read_text();start=text.index('![')
+    data=dict(path='notes.md',version=ws.read('notes.md')['version'],start=start,end=start+len('![](photo.png)'),reference='photo.png',x=.25,y=.3,body='First image comment',author='User')
+    thread=ws.images.comment(image['id'],data)
+    ws.reply(thread['id'],'Keep this reply','Agent')
+    other=ws.images.comment(image['id'],{**data,'x':.8,'y':.8,'body':'Other marker stays'})
+    page.goto(url);open_file(page,'notes.md')
+    if mode=='editor':page.get_by_role('button',name='Annotate image',exact=True).click()
+    else:page.locator('#mode').select_option(mode)
+    host=page.locator('.image-editor .image-stage' if mode=='editor' else '.image-pixels')
+    marker=host.locator(f'.image-comment-marker[data-thread="{thread["id"]}"]');marker.click()
+    box=page.locator('.image-comment-box');draft=box.get_by_role('textbox',name='Reply to image thread');draft.fill('Unsent reply survives cancellation')
+    deletion=box.get_by_role('button',name='Delete image comment',exact=True).first
+    deletion.click();confirmation=page.get_by_role('dialog',name='Delete image comment?',exact=True)
+    expect(confirmation.get_by_role('button',name='Cancel',exact=True)).to_be_focused()
+    confirmation.get_by_role('button',name='Cancel',exact=True).click()
+    expect(draft).to_have_value('Unsent reply survives cancellation')
+    assert len(ws.get_thread(thread['id'])['messages'])==2
+    # A failed deletion keeps the discussion and draft available for retry.
+    endpoint=f'**/api/threads/{thread["id"]}/messages/*'
+    page.route(endpoint,lambda route:route.fulfill(status=409,json={'error':'Please retry deletion.'}))
+    deletion.click();confirmation.get_by_role('button',name='Delete comment',exact=True).click()
+    expect(box.locator('[role=alert]')).to_have_text('Please retry deletion.')
+    expect(draft).to_have_value('Unsent reply survives cancellation')
+    page.unroute(endpoint)
+    deletion.click();confirmation.get_by_role('button',name='Delete comment',exact=True).click()
+    expect(box.locator('.image-comment-message')).to_have_count(1)
+    expect(box).to_contain_text('Keep this reply');expect(box).not_to_contain_text('First image comment')
+    expect(draft).to_have_value('Unsent reply survives cancellation')
+    assert ws.get_thread(thread['id'])['messages'][0]['body']=='Keep this reply'
+    expect(marker).to_have_count(1)
+    box.get_by_role('button',name='Delete image comment',exact=True).click();confirmation.get_by_role('button',name='Delete comment',exact=True).click()
+    expect(box).to_have_count(0);expect(marker).to_have_count(0)
+    expect(host.locator('.image-comment-marker')).to_have_count(1)
+    assert ws.get_thread(other['id'])['messages'][0]['body']=='Other marker stays'
+    assert not any(t['id']==thread['id'] for t in ws.threads('notes.md'))
+    with ws.connection() as db:assert db.execute('SELECT COUNT(*) FROM image_comments WHERE thread_id=?',(thread['id'],)).fetchone()[0]==0
+    assert (root/'photo.png').read_bytes()==pixels() and (root/'notes.md').read_text()==text
+    if mode=='editor':page.get_by_role('button',name='Close',exact=True).click()
+    page.reload();open_file(page,'notes.md')
+    expect(page.locator('.image-comment-marker')).to_have_count(1)
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_delete_entire_image_thread_from_annotation_editor(workspace_page):
+    root,page,url,ws=workspace_page
+    image=setup_disk_image(root,ws);text=(root/'notes.md').read_text();start=text.index('![')
+    thread=ws.images.comment(image['id'],dict(path='notes.md',version=ws.read('notes.md')['version'],start=start,end=start+len('![](photo.png)'),reference='photo.png',x=.5,y=.5,body='Initial comment',author='User'))
+    ws.reply(thread['id'],'A reply','Agent')
+    page.goto(url);open_file(page,'notes.md');page.get_by_role('button',name='Annotate image',exact=True).click()
+    page.locator('.image-editor .image-comment-marker').click()
+    box=page.locator('.image-comment-box');box.get_by_role('button',name='Delete image thread',exact=True).click()
+    dialog=page.get_by_role('dialog',name='Delete image thread?',exact=True);page.keyboard.press('Escape')
+    expect(box).to_contain_text('Initial comment');expect(box).to_contain_text('A reply')
+    box.get_by_role('button',name='Delete image thread',exact=True).click();dialog.get_by_role('button',name='Delete thread',exact=True).click()
+    expect(box).to_have_count(0);expect(page.locator('.image-comment-marker')).to_have_count(0)
+    assert not ws.threads('notes.md')
+    assert ws.images.get(image['id'])['current']==pixels()
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_discussion_image_previews_keep_controls_out_during_refresh(workspace_page):
+    root,page,url,ws=workspace_page
+    image=setup_disk_image(root,ws);text=(root/'notes.md').read_text();start=text.index('![')
+    embed=f"![](.looking-glass/images/{image['id']}_{image['name']})"
+    thread=ws.images.comment(image['id'],dict(path='notes.md',version=ws.read('notes.md')['version'],start=start,end=start+len('![](photo.png)'),reference='photo.png',x=.5,y=.5,body='Read this image.\n\n'+embed,author='User'))
+    page.goto(url);open_file(page,'notes.md')
+    preview=page.locator('.comment-markdown .markdown-image');expect(preview.locator('img')).to_be_visible()
+    expect(preview.locator('button')).to_have_count(0)
+    # A real discussion refresh must not add markers or editing controls to a preview.
+    ws.reply(thread['id'],'Refresh this discussion','Agent')
+    expect(page.locator('.comment-markdown').last).to_contain_text('Refresh this discussion',timeout=10000)
+    expect(preview.locator('button')).to_have_count(0)
+    expect(page.locator('#surface .image-comment-marker')).to_have_count(1)

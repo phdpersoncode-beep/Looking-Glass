@@ -349,3 +349,9 @@ html[data-theme="dark"] { --review-human: #78d49a; --review-agent: #84b4ff; --re
 .image-comment-marker.drag-mode:active{cursor:grabbing}
 .image-resize{position:absolute;right:0;bottom:0;width:24px;height:24px;padding:3px;z-index:3;color:var(--muted);background:var(--paper);border:1px solid var(--border);cursor:nwse-resize;touch-action:none;opacity:.4}
 .markdown-image:hover>.image-resize,.image-resize:focus-visible{opacity:1}
+
+.image-comment-message{padding:6px 0;border-bottom:1px solid var(--border)}
+.image-comment-message p{margin:0 0 6px;white-space:pre-wrap;overflow-wrap:anywhere}
+.image-comment-heading{display:flex;align-items:center;justify-content:space-between;gap:6px;white-space:normal;font-size:11px}
+.image-comment-heading .icon-button{width:26px;height:26px;color:var(--muted)}
+.image-comment-heading .icon-button:hover{color:#d44955}

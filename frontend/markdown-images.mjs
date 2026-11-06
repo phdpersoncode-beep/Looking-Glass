@@ -18,7 +18,7 @@ export function imageRanges(source) {
 const symbols={'Red pen':'pen',Eraser:'eraser',Comment:'comment',Undo:'undo',Redo:'redo','Save image':'check','Restore original':'restore',Close:'close',Reply:'send','Add comment':'send',Cancel:'close'};
 const button=(label,action)=>iconButton(label,symbols[label]||'comment',action);
 
-export function createImageTools({token,api,context,comment,focus,error,changed,renamed,remove,move,resized,editSource}) {
+export function createImageTools({token,api,context,comment,focus,error,changed,renamed,remove,move,resized,editSource,removeComment}) {
   const references=new Map();
   async function request(route,method='GET',data) {
     const response=await fetch('/api/'+route,{method,headers:{'X-Looking-Glass-Token':token},body:data});
@@ -84,17 +84,41 @@ export function createImageTools({token,api,context,comment,focus,error,changed,
     panel.querySelector('.image-comment-box')?.remove();panel.hidden=false;
     const box=document.createElement('form');box.className='image-comment-box';box.noValidate=true;box.setAttribute('aria-label',thread?'Image thread':'Image comment');
     const text=document.createElement('textarea');text.placeholder=thread?'Reply to image thread':'Comment on image';text.setAttribute('aria-label',text.placeholder);text.required=true;text.title='Ctrl+Enter / ⌘+Enter to send';
-    if(thread){const body=document.createElement('div');body.className='image-comment-messages';body.textContent=thread.messages.map(m=>`${m.author}: ${m.body}`).join('\n');box.append(body);}
     const feedback=document.createElement('p');feedback.setAttribute('role','alert');
     let busy=false;
     const dismiss=()=>{if(busy)return;box.remove();if(dialog)panel.hidden=true;};
+    const setBusy=value=>{busy=value;text.readOnly=value;box.querySelectorAll('button').forEach(b=>b.disabled=value);};
     const submit=button(thread?'Reply':'Add comment');submit.type='submit';
     const cancel=button('Cancel',dismiss),actions=document.createElement('div');actions.className='dialog-actions';actions.append(cancel,submit);
+    const messages=document.createElement('div');messages.className='image-comment-messages';
+    async function erase(message=null){
+      if(busy)return;setBusy(true);feedback.textContent='';
+      try{
+        const whole=!message,last=thread.messages.length===1;
+        if(!await confirmAction({title:whole?'Delete image thread?':'Delete image comment?',message:whole?'This thread and all its comments will be deleted.':last?'This comment and its image marker will be removed.':'This comment will be deleted. The other comments will be kept.',confirmLabel:whole?'Delete thread':'Delete comment',symbol:'trash',danger:true}))return;
+        const remaining=await removeComment(thread.id,message?.id);
+        setBusy(false);
+        if(remaining){thread=remaining;renderMessages();}else dismiss();
+        markers(host,id,dialog);
+      }catch(e){feedback.textContent=e.message;}
+      finally{setBusy(false);}
+    }
+    function renderMessages(){
+      messages.replaceChildren();if(!thread)return;
+      if(thread.messages.length>1){const heading=document.createElement('div');heading.className='image-comment-heading';const label=document.createElement('span');label.textContent='Thread #'+thread.id;heading.append(label,iconButton('Delete image thread','trash',()=>erase()));messages.append(heading);}
+      for(const message of thread.messages){
+        const row=document.createElement('div');row.className='image-comment-message';row.dataset.message=message.id;
+        const heading=document.createElement('div');heading.className='image-comment-heading';const author=document.createElement('strong');author.textContent=message.author;
+        const body=document.createElement('p');body.textContent=message.body;
+        heading.append(author,iconButton('Delete image comment','trash',()=>erase(message)));row.append(heading,body);messages.append(row);
+      }
+    }
+    renderMessages();if(thread)box.append(messages);
     box.onsubmit=async event=>{
-      event.preventDefault();if(busy)return;if(!text.value.trim()){feedback.textContent='Write a comment before sending.';text.focus();return;}busy=true;submit.disabled=cancel.disabled=true;text.readOnly=true;feedback.textContent='';
-      try{await comment(id,p,text.value,thread);busy=false;dismiss();markers(host,id,dialog);}
+      event.preventDefault();if(busy)return;if(!text.value.trim()){feedback.textContent='Write a comment before sending.';text.focus();return;}setBusy(true);feedback.textContent='';
+      try{await comment(id,p,text.value,thread);setBusy(false);dismiss();markers(host,id,dialog);}
       catch(e){feedback.textContent=e.message;}
-      finally{busy=false;submit.disabled=cancel.disabled=false;text.readOnly=false;}
+      finally{setBusy(false);}
     };
     text.onkeydown=event=>{
       if((event.ctrlKey||event.metaKey)&&event.key==='Enter'&&!event.isComposing){event.preventDefault();event.stopPropagation();box.requestSubmit();}
@@ -130,7 +154,7 @@ export function createImageTools({token,api,context,comment,focus,error,changed,
         const finish=(event,cancel=false)=>{
           if(!drag)return;const current=drag;drag=null;b._dragging=false;
           const moved=Math.hypot(event.clientX-current.x,event.clientY-current.y)>2;
-          ignoreClick=moved;
+          ignoreClick=moved;if(cancel||moved)mode(false);
           if(cancel||!moved||!current.next){place(current.point);return;}
           b._moving=true;
           run(async()=>{try{await move(id,current.thread,current.next);}catch(e){place(current.point);throw e;}finally{b._moving=false;markers(host,id,dialog);}})();
@@ -162,8 +186,8 @@ export function createImageTools({token,api,context,comment,focus,error,changed,
   }
   function mount(img){
     if(img.closest('.markdown-image'))return;
-    const src=img.getAttribute('src'),owner=context();let id=imageID(src);
-    const wrap=document.createElement('span');wrap.className='markdown-image';img._displayCaption??=img.alt;const caption=imageCaption(img._displayCaption);if(caption.width)wrap.style.width=caption.width+'px';img.alt=caption.alt;img.draggable=false;img.replaceWith(wrap);const pixels=document.createElement('span');pixels.className='image-pixels';pixels.append(img);wrap.append(pixels);
+    const src=img.getAttribute('src'),owner=context();owner.readonly||=!!img.closest('.comment-markdown');let id=imageID(src);
+    const wrap=document.createElement('span');wrap.className='markdown-image';wrap.hidden=true;if(owner.readonly)wrap.dataset.imageReadonly='';img._displayCaption??=img.alt;const caption=imageCaption(img._displayCaption);if(caption.width)wrap.style.width=caption.width+'px';img.alt=caption.alt;img.draggable=false;img.replaceWith(wrap);const pixels=document.createElement('span');pixels.className='image-pixels';pixels.append(img);wrap.append(pixels);
     let url;const dispose=()=>{if(url)URL.revokeObjectURL(url);};
     const observer=new MutationObserver(()=>{if(!wrap.isConnected){dispose();observer.disconnect();}});queueMicrotask(()=>observer.observe(document.body,{childList:true,subtree:true}));
     run(async()=>{
@@ -171,15 +195,16 @@ export function createImageTools({token,api,context,comment,focus,error,changed,
         const path=imagePath(src,owner.path);
         const meta=await api('images/import','POST',{path});id=meta.id;
       }
-      if(id){references.set(id,src);url=await load(id);img.src=url;wrap.dataset.imageId=id;
+      if(id){references.set(id,src);url=await load(id);img.src=url;await img.decode();wrap.hidden=false;wrap.dataset.imageId=id;
         if(owner.readonly)return;
         const controls=document.createElement('span');controls.className='image-actions';
         const pencil=iconButton('Annotate image','pen',run(()=>editor(id)));pencil.classList.add('image-pencil');
         const trash=iconButton('Delete image','trash',run(()=>remove(wrap)));trash.classList.add('image-delete');controls.append(pencil,trash);if(owner.mode==='live'){const source=iconButton('Edit image source','code',()=>editSource(wrap));controls.append(source);}wrap.append(controls);wrap.oncontextmenu=e=>{e.preventDefault();run(()=>rename(id))();};markers(pixels,id);
       }else if(!/^(?:https?:|data:|blob:|\/)/i.test(src||'')){
         const path=imagePath(src,owner.path);
-        url=URL.createObjectURL(await (await request('binary?'+new URLSearchParams({path}))).blob());img.src=url;
+        url=URL.createObjectURL(await (await request('binary?'+new URLSearchParams({path}))).blob());img.src=url;await img.decode();
       }
+      wrap.hidden=false;
       if(!owner.readonly){
         resizeHandle(wrap,img);
         if(owner.mode==='live'&&!wrap.querySelector('.image-actions')){const controls=document.createElement('span');controls.className='image-actions';controls.append(iconButton('Edit image source','code',()=>editSource(wrap)));wrap.append(controls);}
@@ -187,6 +212,6 @@ export function createImageTools({token,api,context,comment,focus,error,changed,
       if(!wrap.isConnected)dispose();
     })();
   }
-  function refresh(id){for(const wrap of document.querySelectorAll('.markdown-image[data-image-id]')){if(!id||wrap.dataset.imageId===id){markers(wrap.querySelector('.image-pixels'),wrap.dataset.imageId);if(id){const img=wrap.querySelector('img');wrap.replaceWith(img);img.setAttribute('src',references.get(id)||`.looking-glass/images/${id}_image.png`);mount(img);}}}}
+  function refresh(id){for(const wrap of document.querySelectorAll('.markdown-image[data-image-id]:not([data-image-readonly])')){if(!id||wrap.dataset.imageId===id){markers(wrap.querySelector('.image-pixels'),wrap.dataset.imageId);if(id){const img=wrap.querySelector('img');wrap.replaceWith(img);img.setAttribute('src',references.get(id)||`.looking-glass/images/${id}_image.png`);mount(img);}}}}
   return {upload,mount,refresh,rename,editor,reference:id=>references.get(id)};
 }
