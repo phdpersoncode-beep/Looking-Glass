@@ -320,9 +320,10 @@ def test_thread_attachments(workspace_page):
     expect(page.locator('#attachment-image')).to_be_visible()
     assert page.locator('#attachment-image').evaluate('el=>el.naturalWidth')==30
     page.locator('#attachment-dialog [data-close]').click()
-    page.once('dialog',lambda dialog:dialog.accept('renamed.stl'))
     page.get_by_label('Options for model.stl',exact=True).click()
     page.get_by_role('button',name='Rename model.stl').click()
+    page.locator('.lg-dialog input').fill('renamed.stl')
+    page.locator('.lg-dialog button[type=submit]').click()
     expect(page.locator('.attachment').last).to_contain_text('renamed.stl')
     with page.expect_download() as download:page.get_by_role('button',name='renamed.stl',exact=True).click()
     assert download.value.suggested_filename=='renamed.stl'

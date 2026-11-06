@@ -5,6 +5,7 @@ existing ones; browser sharding changes where tests run, never which cases run.
 
 | Behavior | Main coverage |
 | --- | --- |
+| Image paste, PNG/JPEG validation, disk updates, rename aliases/escaped filenames, original recovery, drawing/eraser, persistent image threads, large/narrow themed layouts and edge markers, symbol controls, keyboard comment/reply submission, duplicate-send/error handling, exact-embed deletion/cancel/undo in Edit/Review, stale saves, stable arrow navigation, centered per-embed resize/undo/Review/table/CRLF persistence, draggable markers with cancellation/conflicts and automatic drop exit, per-comment/whole-thread deletion with cancel/retry/draft retention/last-marker cleanup, portable synthetic Firefox paste, and themed application dialogs | `test_images.py`, `markdown-images.test.mjs`, `test_images_browser.py`, `test_dialogs_browser.py` |
 | Edit/save, undo/redo, find/replace, tabs, external changes and conflict recovery | `test_browser.py`, `test_workspace.py`, `test_app_integration_browser.py` |
 | Non-destructive review, human/agent provenance, removed text, autosave, approval and concurrent edits | `test_reviews.py`, `review-model.test.mjs`, `test_review_mode_browser.py` |
 | Passage anchors, reattachment, immutable context and restart persistence | `test_anchors.py`, `test_origins.py`, `test_context_return_browser.py`, `test_cli.py` |
@@ -33,6 +34,11 @@ existing ones; browser sharding changes where tests run, never which cases run.
 | Pure application transitions, awaited navigation, stale completions, independent mode undo and unchanged node/cursor identity | `app-state.test.mjs`, `navigation.test.mjs`, `passages.test.mjs`, `review-sync.test.mjs`, `discussion-lifetime.test.mjs`, `test_architecture_browser.py` |
 | Shared Python/JavaScript Unicode/CRLF review operations | `tests/fixtures/review-operations.json`, `test_review_operations_shared.py`, `review-model.test.mjs` |
 | Cross-feature approval, discussion origins/attachments, stale writes, other file drafts and Git staging | `test_app_integration.py`, `test_app_integration_browser.py` |
+
+The comment composer reserves permanent row spacing for focus outlines.
+`test_comment_layout_browser.py` checks actual focus-ring clearance for HTML source
+and rendered-only anchor notes, Markdown/plain-text selections, wrapped quotes,
+attachments, and submission errors in both themes and narrow windows.
 
 Fast feedback (no browser installation needed):
 

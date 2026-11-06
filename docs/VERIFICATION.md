@@ -935,3 +935,31 @@ PR #19 is retargeted to `main` and integrates that entire history.
   KaTeX CSS/fonts and PDF renderer/worker, CMaps, fonts, and decoder resources.
   Frontend assets are rebuilt from the combined sources. The earlier PDF-only
   full run does not validate this integration commit.
+
+## Markdown image annotations (2026-11-05)
+
+Based on `hotfix/clear-stale-reply-sending` at `aedbbfe`.
+
+- Full fast Python gate: **162 passed**.
+- JavaScript gate: **18 test files passed**, including image syntax, source
+  coordinates, safe wiki attributes, and stable managed-image identifiers.
+- Final image Chromium journeys: **4 passed** (PNG paste/annotation/threads/
+  rename/reload/restore; light and dark disk-image erasing; JPEG paste with
+  concurrent typing and a tab switch). Dialog layouts inspected at 850px width.
+- Related Markdown, math, review, discussion, and prior-hotfix selection:
+  **55 passed** in an earlier integration run.
+- Viewer, reply-hotfix, context-return, and image selection: **118 passed**,
+  **1 environment-blocked failure**. The existing
+  `test_html_and_jsonl_downloads` fails when navigating to a downloaded
+  `file://` HTML report with Chromium `ERR_BLOCKED_BY_ADMINISTRATOR`.
+  Reproduced on an untouched worktree of the hotfix base with the same browser.
+- Browser shard completeness: **645 cases**, all assigned exactly once.
+- Frontend build, wheel/source distribution build, and whitespace checks pass.
+  Pillow is locked and included as the only added runtime dependency.
+
+Firefox journeys are defined but were not executed: downloads from both
+Playwright browser hosts were denied by the environment's outbound policy.
+Native OS screenshot clipboard integration was not manually exercised; browser
+journeys synthesize standard PNG/JPEG clipboard file payloads. The full browser
+collection has not been run for this feature. GitHub API access returned
+`Forbidden`, preventing a draft PR and remote browser workflow request here.

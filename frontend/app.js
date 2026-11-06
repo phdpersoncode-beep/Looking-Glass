@@ -1,3 +1,6 @@
+import {resizedImageSource,imageCaption} from './image-size.mjs';
+import {confirmAction,requestText} from './dialogs.mjs';
+import {createImageTools,imageRanges,imageID,imageLink,imagePath} from './markdown-images.mjs';
 import {mountPDF} from './pdf-reader.mjs';
 import {createDiscussionView} from './discussion-view.mjs';
 import {createDiscussionRetention} from './discussion-lifetime.mjs';
@@ -105,7 +108,7 @@ const markdownViews=new Set();
 function markdownSelection(){for(const rendered of markdownViews){if(rendered.host.isConnected){const selection=rendered.selection();if(selection)return selection;}}return null;}
 function markdownSpans(){const e=entry();return view?view.state.field(spanField):e?(e.dirty&&e.state?e.state.field(spanField):spansFor(appStore.state.threads,e.content)).map(span=>({...span,from:toRawUnits(e.content,span.from),to:toRawUnits(e.content,span.to)})):[];}
 function currentReviewRanges(normalized=false){const e=entry();return e?.review&&e.workMode==='review'?reviewRanges(e.reviewSegments||e.review.segments,normalized):[];}
-function refreshMarkdownHighlights(){if(entry()?.kind==='original')return;const spans=markdownSpans();for(const rendered of markdownViews){if(rendered.host.isConnected)rendered.highlight(spans,appStore.state.focusedThread);else markdownViews.delete(rendered);}}
+function refreshMarkdownHighlights(){imageTools.refresh();if(entry()?.kind==='original')return;const spans=markdownSpans();for(const rendered of markdownViews){if(rendered.host.isConnected)rendered.highlight(spans,appStore.state.focusedThread);else markdownViews.delete(rendered);}}
 
 
 function previewMessage(type,data={}){const preview=renderedPreview;if(preview?.ready)preview.frame.contentWindow.postMessage({lookingGlass:preview.channel,type,...data},'*');}
@@ -238,7 +241,7 @@ class MarkdownTable extends WidgetType {
     const edit=document.createElement('button');edit.className='markdown-source-edit';edit.textContent='Edit source';edit.setAttribute('aria-label','Edit table source');
     edit.onclick=()=>{v.dispatch({effects:blockSourceEffect.of({from:this.from,to:this.from+this.source.length,kind:'table'}),selection:{anchor:this.from}});v.focus();};
     const table=document.createElement('div');el.append(edit,table);
-    const rendered=mountMappedMarkdown(table,this.source,this.from);rendered.setReview(this.review);rendered.highlight(this.spans,this.focused);markdownViews.add(rendered);el._markdown=rendered;
+    const rendered=mountMappedMarkdown(table,this.source,this.from,highlightMarkdown);rendered.setReview(this.review);rendered.highlight(this.spans,this.focused);markdownViews.add(rendered);el._markdown=rendered;
     return el;
   }
   destroy(el){markdownViews.delete(el._markdown);}
@@ -289,6 +292,11 @@ function tableDecorations(state){
     if(diagram){const first=state.doc.lineAt(node.from),last=state.doc.lineAt(node.to);const closed=/^(`{3,}|~{3,})\s*$/.test(last.text.trim());const source=state.doc.sliceString(Math.min(first.to+1,state.doc.length),closed?last.from:node.to);ranges.push(Decoration.replace({block:true,widget:new MermaidDiagram(source,node.from,node.to)}).range(node.from,node.to));return false;}
     ranges.push(Decoration.replace({block:true,widget:new MarkdownTable(state.doc.sliceString(node.from,node.to),node.from,spans.filter(s=>s.from<node.to&&s.to>node.from),review)}).range(node.from,node.to));return false;
   }});
+  for(const image of imageRanges(state.doc.toString())){
+    if(occupied.some(r=>r.from<image.to&&r.to>image.from)||editing&&editing.from<=image.to&&editing.to>=image.from)continue;
+    const line=state.doc.lineAt(image.from),block=line.from===image.from&&line.to===image.to;
+    ranges.push(Decoration.replace({block,widget:new MarkdownImage(state.doc.sliceString(image.from,image.to),image.href,image.alt)}).range(image.from,image.to));
+  }
   for(const formula of math){
     if(occupied.some(r=>r.from<formula.to&&r.to>formula.from)||editing&&editing.from<=formula.to&&editing.to>=formula.from)continue;
     const source=state.doc.sliceString(formula.from,formula.to),block=source.includes('\n')||formula.display&&state.doc.lineAt(formula.from).from===formula.from&&state.doc.lineAt(formula.to).to===formula.to;
@@ -301,7 +309,7 @@ function tableDecorations(state){
   for(const from of mathGaps)ranges.push(Decoration.line({class:'md-math-gap'}).range(from));
   return Decoration.set(ranges,true);
 }
-const liveTables=[blockEditing,StateField.define({create:tableDecorations,update:(_value,tr)=>tableDecorations(tr.state),provide:field=>EditorView.decorations.from(field)})];
+const liveTables=[blockEditing,EditorView.atomicRanges.of(v=>{const editing=v.state.field(blockEditing);return Decoration.set(imageRanges(v.state.doc.toString()).filter(r=>!editing||r.to<editing.from||r.from>editing.to).map(r=>Decoration.mark({}).range(r.from,r.to)));}),StateField.define({create:tableDecorations,update:(_value,tr)=>tableDecorations(tr.state),provide:field=>EditorView.decorations.from(field)})];
 class MarkdownRule extends WidgetType {
   toDOM(){const el=document.createElement('hr');el.className='md-rule';return el;}
 }
@@ -318,7 +326,7 @@ class TaskCheckbox extends WidgetType {
 }
 function liveDecorations(v, activeRange) {
   const ranges=[], doc=v.state.doc, links=markdownLinks(syntaxTree(v.state),doc);
-  const math=markdownMathRanges(doc.toString()),editing=v.state.field(blockEditing);
+  const math=markdownMathRanges(doc.toString()),images=imageRanges(doc.toString()),editing=v.state.field(blockEditing);
   const {from:activeFrom,to:activeTo}=activeRange;
   for(const line of markdownListLines(syntaxTree(v.state),doc)){
     ranges.push(Decoration.line({class:'md-list-line',attributes:{'data-list-depth':String(line.depth),style:`--md-list-depth:${line.depth};--md-list-marker-width:${line.width}em`}}).range(line.from));
@@ -332,6 +340,7 @@ function liveDecorations(v, activeRange) {
   syntaxTree(v.state).iterate({
     enter(node){
       const name=node.name, a=node.from, b=node.to;
+      if(images.some(image=>image.from<=a&&image.to>=b))return false;
       if(math.some(m=>m.from<=a&&m.to>=b&&!(editing&&editing.from<=m.to&&editing.to>=m.from)))return false;
       if(name==='Table'||name==='FencedCode'&&/^(`{3,}|~{3,})\s*mermaid\s*$/i.test(doc.lineAt(a).text.trim()))return false;
       if(b<=a) return;
@@ -462,7 +471,7 @@ async function closeTab(path,returning=false){
   if(!tabs.has(path))return;
   if(tabs.get(path).kind==='original'&&!returning){await returnFromOriginal();return;}
   if(contextVisit?.path===path&&entry()?.kind==='original'){await returnFromOriginal();await closeTab(path);return;}
-  const e=tabs.get(path);if(e.workMode==='review')await flushReview(e);if(e.dirty&&!confirm('Discard unsaved edits in '+path+'?'))return;
+  const e=tabs.get(path);if(e.workMode==='review')await flushReview(e);if(e.dirty&&!await confirmAction({title:'Discard unsaved edits?',message:path,confirmLabel:'Discard edits',symbol:'trash',danger:true}))return;
   if(contextVisit?.path===path){contextVisit.surface.dispose();contextVisit=null;}
   if(returning)contextVisit=null;
   if(path===appStore.state.displayedDocument){clearSpotlight();closeComment();syncState();view?.destroy();view=null;cleanup();cleanup=()=>{};appStore.dispatch({type:'DOCUMENT_DISPLAYED',path:null});}
@@ -471,7 +480,91 @@ async function closeTab(path,returning=false){
   else if(!appStore.state.displayedDocument){lastThreadHTML='';lastThreadKey='';clearSurface();const welcome=document.createElement('div');welcome.className='welcome';welcome.innerHTML='<h1>Open a file to begin.</h1>';$('#surface').append(welcome);$('#threads').replaceChildren();discussionView.reset();appStore.dispatch({type:'THREADS_RECEIVED',threads:[]});$('#thread-count').textContent='0';updateToolbar();await refreshThreads();}
 }
 
+function imageRangeAt(wrap){
+  if(!wrap.isConnected||!wrap.closest('#surface'))throw new Error('Document changed. Reopen the image.');
+  const content=entry().content,ranges=imageRanges(content.replace(/\r\n/g,'\n')),mapped=wrap.querySelector('img')?.dataset.mdImageFrom;
+  const position=mapped!==undefined?(view?Number(mapped):content.slice(0,Number(mapped)).replace(/\r\n/g,'\n').length):view?.posAtDOM(wrap);
+  const range=position!==undefined?ranges.find(r=>r.from<=position&&r.to>=position):ranges[[...$('#surface').querySelectorAll('.markdown-image')].indexOf(wrap)];
+  if(!range)throw new Error('Reopen the image before editing it.');return range;
+}
+const imageTools=createImageTools({token,api,context:()=>({path:entry()?.sourcePath||entry()?.path,readonly:!!entry()?.kind,mode:entry()?.mode,threads:appStore.state.threads}),
+  error:message=>notify(message,true),changed:id=>imageTools.refresh(id),focus:id=>showThread(id),
+  removeComment:deleteDiscussion,
+  move:async(id,thread,point)=>{
+    await api(`images/${id}/comments/${thread.id}`,'PATCH',{...point,previous:{x:thread.image_annotation.x,y:thread.image_annotation.y}});
+    await refreshThreads();
+  },
+  editSource:wrap=>{
+    if(!view)return;const range=imageRangeAt(wrap);
+    view.dispatch({effects:blockSourceEffect.of({...range,kind:'image'}),selection:{anchor:range.from}});view.focus();
+  },
+  resized:(wrap,width)=>{
+    const e=entry();if(!e||e.kind)return;const range=imageRangeAt(wrap);
+    const source=e.content.replace(/\r\n/g,'\n').slice(range.from,range.to);
+    const change=replacementFor(source,resizedImageSource(source,width,!!wrap.closest('table')));
+    applyImageChanges(e,{...change,from:range.from+change.from,to:range.from+change.to});
+  },
+  remove:async wrap=>{
+    const e=entry();if(!e||e.kind)return;
+    const content=e.content,range=imageRangeAt(wrap);
+    if(!range)throw new Error('Reopen the image before deleting it.');
+    if(!await confirmAction({title:'Delete image?',message:'Remove this image from the document? The original image and discussions are kept. You can undo this edit.',confirmLabel:'Delete image',symbol:'trash',danger:true}))return;
+    if(entry()!==e||e.content!==content)throw new Error('Document changed. Reopen the image before deleting it.');
+    applyImageChanges(e,{from:range.from,to:range.to,insert:''});
+    notify('Image removed · undo to restore');
+  },
+  renamed:(id,reference,meta)=>{
+    const e=entry();if(!e||e.kind)return;
+    const changes=imageRanges(e.content).filter(r=>imageID(r.href)===id||r.href===reference).map(r=>({from:r.from,to:r.to,insert:e.content.slice(r.from,r.to).replace(r.href,imageID(r.href)?imageLink(meta):r.href.replace(/[^/]+$/,encodeURIComponent(meta.name)))}));
+    if(!changes.length)return;
+    applyImageChanges(e,changes);
+  },
+  comment:async(id,point,body,thread)=>{
+    const e=entry();if(!e||e.kind)throw new Error('Open the current document to comment.');
+    if(thread){await api(`threads/${thread.id}/replies`,'POST',{body,author:authorName});}
+    else{
+      await saveActive();if(entry()!==e)throw new Error('Document changed. Reopen the image.');
+      const ranges=imageRanges(e.content).filter(r=>imageID(r.href)===id||r.href===imageTools.reference(id));
+      if(!ranges.length)throw new Error('The image embed is no longer in this document.');
+      const range=ranges[0],review=e.workMode==='review'?e.review:null;
+      await api(`images/${id}/comments`,'POST',{path:e.path,start:Array.from(e.content.slice(0,range.from)).length,end:Array.from(e.content.slice(0,range.to)).length,version:review?.version||e.version,review_id:review?.id,reference:range.href,body,author:authorName,...point});
+    }
+    await refreshThreads();imageTools.refresh();
+  }
+});
+class MarkdownImage extends WidgetType {
+  constructor(source,href,alt){super();this.source=source;this.href=href;this.alt=alt;}
+  eq(other){return this.source===other.source;}
+  updateDOM(el,_view,previous){
+    if(this.href!==previous.href)return false;
+    const wrap=el.querySelector('.markdown-image'),img=wrap?.querySelector('img');if(!img)return false;
+    const caption=imageCaption(this.alt);img._displayCaption=this.alt;img.alt=caption.alt;wrap.style.width=caption.width?caption.width+'px':'';return true;
+  }
+  toDOM(){const host=document.createElement('span'),img=document.createElement('img');img.setAttribute('src',this.href);img.alt=this.alt;host.append(img);imageTools.mount(img);return host;}
+  ignoreEvent(){return true;}
+}
+function applyImageChanges(e,changes){
+  if(entry()===e&&view){view.dispatch({changes});return;}
+  const tr=(e.state||makeState(e)).update({changes});e.state=tr.state;e.content=tr.state.sliceDoc();e.dirty=e.content!==e.diskContent;
+  if(e.reviewField){queueReviewOperations(e,operationsFor(tr),tr.state.field(e.reviewField).segments);scheduleReviewSave(e);}
+  if(entry()===e)mountDocument(e);updateToolbar();renderTabs();
+}
+const pendingImagePastes=new Set();
+function pasteImage(event,editor,e){
+  if(e.kind||editor.state.readOnly||!['md','markdown'].includes(ext(e.path)))return false;
+  const files=[...event.clipboardData?.items||[]].filter(i=>i.kind==='file'&&['image/png','image/jpeg'].includes(i.type)).map(i=>i.getAsFile()).filter(Boolean);
+  if(!files.length)return false;event.preventDefault();
+  const pending={e,from:editor.state.selection.main.from,to:editor.state.selection.main.to};pendingImagePastes.add(pending);
+  guard(async()=>{try{
+    const images=[];for(const file of files)images.push(await imageTools.upload(file));
+    if(tabs.get(e.path)!==e)throw new Error('Images were stored, but the document was closed before insertion.');
+    const changes={from:pending.from,to:pending.to,insert:images.map(image=>`![](${imageLink(image)})`).join('\n')};
+    applyImageChanges(e,changes);
+  }finally{pendingImagePastes.delete(pending);}})();return true;
+}
+
 function highlightMarkdown(preview){
+  for(const img of preview.querySelectorAll("img"))imageTools.mount(img);
   for(const block of preview.querySelectorAll('pre code')){
     const language=codeLanguage(block.className.replace(/^language-/,''));if(!language)continue;
     // Color individual text nodes so source mappings and discussion marks stay
@@ -498,9 +591,18 @@ function makeState(e){
   return EditorState.create({doc:e.content,extensions:[EditorState.lineSeparator.of(e.diskContent.includes('\r\n')?'\r\n':'\n'),basicSetup,documentSearch,language(docPath),workLockSlot.of(EditorState.readOnly.of(changingWorkMode)),...(tracked?[e.reviewField]:[]),...(e.kind==='original'?[EditorState.readOnly.of(true),EditorView.editable.of(false)]:[]),syntaxHighlighting(colors),spanField,threadFocusField,gitField,gitSlot.of([]),
     themeSlot.of(theme()),liveSlot.of(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables,textSelection]:[]),
     ...(prose?[EditorView.lineWrapping,EditorView.theme({'.cm-scroller':{fontFamily:'var(--prose)',fontSize:'var(--prose-font-size)'},'.cm-content':{maxWidth:'850px',margin:'0 auto',width:'100%',minWidth:'0'},'.cm-foldGutter':{display:'none'}})]:[]),
+    EditorView.domEventHandlers({paste:(event,editor)=>pasteImage(event,editor,e),contextmenu:(event,editor)=>{
+      if(e.kind||editor.state.readOnly)return false;
+      const pos=editor.posAtCoords({x:event.clientX,y:event.clientY});if(pos==null)return false;
+      const range=imageRanges(editor.state.doc.toString()).find(r=>r.from<=pos&&r.to>=pos),id=range&&imageID(range.href);
+      if(!range||!id&&/^(?:[a-z][\w+.-]*:|\/)/i.test(range.href))return false;event.preventDefault();guard(async()=>{
+        const managed=id||(await api('images/import','POST',{path:imagePath(range.href,e.path)})).id;
+        await imageTools.rename(managed,range.href);
+      })();return true;
+    }}),
     EditorView.scrollHandler.of(editor=>passagePosition?.editor===editor),
     keymap.of([{key:'Mod-s',run:()=>{guard(saveActive)();return true;}},{key:'Mod-Enter',run:()=>{guard(startComment)();return true;}},indentWithTab]),
-    EditorView.updateListener.of(u=>{if(u.docChanged){if(tracked){if(!u.transactions.some(t=>t.effects.some(effect=>effect.is(remoteReview)))){for(const tr of u.transactions)if(tr.docChanged)queueReviewOperations(e,operationsFor(tr),u.state.field(e.reviewField).segments);scheduleReviewSave(e);}}e.content=u.state.sliceDoc();e.dirty=e.content!==e.diskContent;e.state=u.state;contentsController?.update();updateToolbar();renderTabs();}if(u.selectionSet)updateToolbar();if(u.selectionSet||u.docChanged||u.viewportChanged||u.geometryChanged)scheduleSelectionTools();})
+    EditorView.updateListener.of(u=>{if(u.docChanged){for(const pending of pendingImagePastes)if(pending.e===e){pending.from=u.changes.mapPos(pending.from,1);pending.to=u.changes.mapPos(pending.to,1);}if(tracked){if(!u.transactions.some(t=>t.effects.some(effect=>effect.is(remoteReview)))){for(const tr of u.transactions)if(tr.docChanged)queueReviewOperations(e,operationsFor(tr),u.state.field(e.reviewField).segments);scheduleReviewSave(e);}}e.content=u.state.sliceDoc();e.dirty=e.content!==e.diskContent;e.state=u.state;contentsController?.update();updateToolbar();renderTabs();}if(u.selectionSet)updateToolbar();if(u.selectionSet||u.docChanged||u.viewportChanged||u.geometryChanged)scheduleSelectionTools();})
   ]});
 }
 
@@ -984,6 +1086,7 @@ function activateThread(id,target=null,spotlight=false,focusEditor=true,options=
 function revealSourcePassage(t,focusEditor){
   const id=t.id;
   if(t.anchor_status!=='attached'){notify('This passage needs reattachment. Select the new passage and click “Attach to selection”.');return;}
+  if(t.image_annotation){const image=$(`#surface .markdown-image[data-image-id="${t.image_annotation.image_id}"]`);if(image){image.scrollIntoView({block:'center',behavior:focusEditor?'auto':'instant'});return;}}
   if(entry().mode==='preview'&&[...markdownViews].some(rendered=>rendered.host.isConnected&&rendered.jump(toRawUnits(entry().content,toUnits(entry().content,t.start)),toRawUnits(entry().content,toUnits(entry().content,t.end)),focusEditor?'auto':'instant')))return;
   if(!view){entry().mode='source';mountDocument(entry());view.dispatch({effects:spansEffect.of(spansFor(appStore.state.threads,entry().content))});}
   const resolved=resolveSourcePassage(t,{path:entry().path,content:entry().content,version:entry().version,dirty:entry().dirty,localRanges:view.state.field(spanField)});
@@ -1030,6 +1133,13 @@ async function completeThread(id,operation,completes=true){
     const target=appStore.state.threads.find(thread=>thread.id===reveal.threadId&&!thread.resolved);
     if(target){await jump(target.id,target,spotlight,false);if(appStore.state.focusedThread===target.id)$(`.thread[data-thread="${target.id}"]`)?.focus({preventScroll:true});}
   }
+}
+async function deleteDiscussion(id,messageId=null){
+  await completeThread(id,()=>api('threads/'+id+(messageId==null?'':'/messages/'+messageId),'DELETE'));
+  if(!appStore.state.threads.some(t=>t.id===appStore.state.focusedThread))clearThreadFocus();
+  if(view)view.dispatch({effects:spansEffect.of(view.state.field(spanField).filter(span=>appStore.state.threads.some(t=>t.id===span.id)))});
+  notify(messageId==null?'Thread deleted':'Comment deleted');
+  return appStore.state.threads.find(t=>t.id===id)||null;
 }
 function startGitComment(target){
   if(entry()?.kind!=='history'||!target)return;
@@ -1355,7 +1465,7 @@ document.addEventListener('focusin',event=>{if(appStore.state.requestedThread!==
 document.addEventListener('scroll',scheduleSelectionTools,true);
 window.addEventListener('resize',()=>{scheduleSelectionTools();if($('#comment-dialog').open){const location=selectionLocation();if(location)placeNearSelection($('#comment-dialog'),location);}});
 document.addEventListener('keydown',event=>{
-  if(event.target.closest?.('#author-popover'))return;
+  if(event.target.closest?.('#author-popover,.lg-dialog,.image-editor,.image-comment-box,.image-comment-marker,.image-resize'))return;
   passagePosition=null;
   if(event.key==='Escape'){passageActivation++;pressedPassage=null;}
   // Let the focused navigation panel consume Escape before context/spotlight.
@@ -1460,8 +1570,8 @@ document.addEventListener('click',guard(async event=>{
   if(action.dataset.action==='original'||action.dataset.action==='message-original'){await openOriginal(id,action.dataset.message);spotlightSidebarThread(id,t);return;}
   if(action.dataset.action.endsWith('-attachment')){
     const attachmentId=Number(action.closest('[data-attachment]').dataset.attachment),item=t.attachments.find(a=>a.id===attachmentId);
-    if(action.dataset.action==='rename-attachment'){const name=prompt('Attachment name',item.name);if(name!==null){await api('attachments/'+attachmentId,'PATCH',{name});await refreshThreads();}return;}
-    if(action.dataset.action==='delete-attachment'){if(confirm('Remove '+item.name+'?')){await api('attachments/'+attachmentId,'DELETE');await refreshThreads();}return;}
+    if(action.dataset.action==='rename-attachment'){await requestText({title:'Rename attachment',value:item.name,onSubmit:async name=>{await api('attachments/'+attachmentId,'PATCH',{name});await refreshThreads();}});return;}
+    if(action.dataset.action==='delete-attachment'){if(await confirmAction({title:'Remove attachment?',message:item.name,confirmLabel:'Remove attachment',symbol:'trash',danger:true})){await api('attachments/'+attachmentId,'DELETE');await refreshThreads();}return;}
     const response=await fetch('/api/attachments/'+attachmentId,{headers:{'X-Looking-Glass-Token':token}});
     if(!response.ok)throw new Error((await response.json()).error);
     const url=URL.createObjectURL(await response.blob());
@@ -1478,11 +1588,8 @@ document.addEventListener('click',guard(async event=>{
     }finally{action.disabled=false;}
   }
   if(action.dataset.action==='delete-thread'||action.dataset.action==='delete-message'){
-    const whole=action.dataset.action==='delete-thread';if(!confirm(whole?'Delete this thread and all its comments?':'Delete this comment?'))return;
-    await completeThread(id,()=>api('threads/'+id+(whole?'':'/messages/'+action.dataset.message),'DELETE'));
-    if(!appStore.state.threads.some(t=>t.id===appStore.state.focusedThread))clearThreadFocus();
-    if(view)view.dispatch({effects:spansEffect.of(view.state.field(spanField).filter(span=>appStore.state.threads.some(t=>t.id===span.id)))});
-    notify(whole?'Thread deleted':'Comment deleted');
+    const whole=action.dataset.action==='delete-thread';if(!await confirmAction({title:whole?'Delete thread?':'Delete comment?',message:whole?'This thread and all its comments will be deleted.':'This comment will be deleted.',confirmLabel:whole?'Delete thread':'Delete comment',symbol:'trash',danger:true}))return;
+    await deleteDiscussion(id,whole?null:action.dataset.message);
   }
   if(action.dataset.action==='reattach'){
     if(t.path!==appStore.state.displayedDocument){await openFile(t.path);showThread(id);notify('Select the new passage in this file, then attach the thread.');return;}
@@ -1656,7 +1763,7 @@ $('#author-form').onsubmit=event=>{
 window.addEventListener('resize',placeAuthorPopover);
 $('#author-edit').disabled=false;
 $('#reload-disk').onclick=guard(async()=>{
-  const e=entry();if(!e)return;if(e.dirty&&!confirm('Discard your unsaved edits and reload the current disk file?'))return;const disk=await api('file?'+new URLSearchParams({path:e.path}));disposeReport(e);e.content=disk.content;e.diskContent=disk.content;e.version=disk.version;e.dirty=false;e.conflict=null;e.state=null;view?.destroy();view=null;mountDocument(e);await refreshThreads();renderTabs();notify('Reloaded from disk');
+  const e=entry();if(!e)return;if(e.dirty&&!await confirmAction({title:'Reload from disk?',message:'Your unsaved edits will be discarded.',confirmLabel:'Discard edits',symbol:'restore',danger:true}))return;const disk=await api('file?'+new URLSearchParams({path:e.path}));disposeReport(e);e.content=disk.content;e.diskContent=disk.content;e.version=disk.version;e.dirty=false;e.conflict=null;e.state=null;view?.destroy();view=null;mountDocument(e);await refreshThreads();renderTabs();notify('Reloaded from disk');
 });
 $('#copy-draft').onclick=guard(async()=>{await navigator.clipboard.writeText(entry().content);notify('Draft copied');});
 $('#merge-disk').onclick=guard(async()=>{const e=entry();const disk=await api('file?'+new URLSearchParams({path:e.path}));pending={mergePath:e.path,disk};$('#disk-text').textContent=disk.content;$('#merge-text').value=e.content;$('#merge-dialog').showModal();});

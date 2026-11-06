@@ -1,3 +1,4 @@
+import {requestText} from './dialogs.mjs';
 // Clipboard paste uses the native paste event: no clipboard permission prompt.
 export function createComposers({token,api,onError}){
   const drafts=new Map(),bound=new WeakSet(),signatures=new WeakMap(),limit=64*1024*1024;
@@ -15,7 +16,7 @@ export function createComposers({token,api,onError}){
       const chip=document.createElement('div');chip.className='pending-file';
       if(item.url){const img=document.createElement('img');img.src=item.url;img.alt='';chip.append(img);}
       const name=document.createElement('button');name.type='button';name.textContent=item.name;name.title='Rename before sending';name.disabled=!!draft?.sending;
-      name.onclick=()=>{const next=prompt('Attachment name',item.name);if(next===null)return;if(!next.trim()||next.length>255||/[\\/\x00-\x1f]/.test(next)){onError('Use a filename without slashes or control characters.');return;}item.name=next.trim();render(form);};
+      name.onclick=()=>requestText({title:'Rename attachment',value:item.name,onSubmit:next=>{if(next.length>255||/[\\/\x00-\x1f]/.test(next))throw new Error('Use a filename without slashes or control characters.');item.name=next;render(form);}});
       const remove=document.createElement('button');remove.type='button';remove.textContent='×';remove.setAttribute('aria-label','Remove pending '+item.name);remove.disabled=!!draft?.sending;
       remove.onclick=()=>{if(item.url)URL.revokeObjectURL(item.url);files.splice(index,1);render(form);};chip.append(name,remove);host.append(chip);
     });
