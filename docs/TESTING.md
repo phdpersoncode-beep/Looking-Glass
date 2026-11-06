@@ -35,6 +35,11 @@ existing ones; browser sharding changes where tests run, never which cases run.
 | Shared Python/JavaScript Unicode/CRLF review operations | `tests/fixtures/review-operations.json`, `test_review_operations_shared.py`, `review-model.test.mjs` |
 | Cross-feature approval, discussion origins/attachments, stale writes, other file drafts and Git staging | `test_app_integration.py`, `test_app_integration_browser.py` |
 
+The comment composer reserves permanent row spacing for focus outlines.
+`test_comment_layout_browser.py` checks actual focus-ring clearance for HTML source
+and rendered-only anchor notes, Markdown/plain-text selections, wrapped quotes,
+attachments, and submission errors in both themes and narrow windows.
+
 Fast feedback (no browser installation needed):
 
 ```bash
