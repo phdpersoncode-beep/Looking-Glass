@@ -104,3 +104,22 @@ def test_external_replacement_retains_old_original_and_detaches_comments(tmp_pat
     assert ws.get_thread(thread['id'])['anchor_status']=='needs_reattachment'
     with pytest.raises(Problem,match='changed'):ws.images.update(image['id'],image['version'],restore=True)
     assert (tmp_path/'photo.png').read_bytes()==pixels(color='blue')
+
+
+def test_reused_rename_alias_registers_actual_file_and_preserves_both_images(tmp_path):
+    (tmp_path/'photo.png').write_bytes(pixels())
+    text='![](photo.png)';(tmp_path/'notes.md').write_text(text)
+    ws=Workspace(tmp_path);old=ws.images.import_file('photo.png')
+    thread=ws.images.comment(old['id'],dict(path='notes.md',version=ws.read('notes.md')['version'],start=0,end=len(text),reference='photo.png',x=.5,y=.5,body='Original geometry',author='User'))
+    old=ws.images.update(old['id'],old['version'],name='renamed.png')
+    (tmp_path/'photo.png').write_bytes(pixels(color='blue'))
+    new=ws.images.import_file('photo.png')
+    assert new['id']!=old['id']
+    assert ws.images.import_file('renamed.png')['id']==old['id']
+    assert ws.images.get(new['id'])['current']==pixels(color='blue')
+    assert ws.get_thread(thread['id'])['anchor_status']=='needs_reattachment'
+    ws.images.update(new['id'],new['version'],raw=pixels(color='red'))
+    assert (tmp_path/'renamed.png').read_bytes()==pixels()
+    assert (tmp_path/'photo.png').read_bytes()==pixels(color='red')
+    ws.images.update(old['id'],old['version'],raw=pixels(color='green'))
+    assert (tmp_path/'renamed.png').read_bytes()==pixels(color='green')

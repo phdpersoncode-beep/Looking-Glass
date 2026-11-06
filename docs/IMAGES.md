@@ -15,16 +15,21 @@ the managed copy. An external disk change rejects an open annotation editor's st
 On reopening, the replacement gets a new identity and old disk-image comments
 require reattachment; the old original remains stored. SVG continues to render, but does not support these editing tools.
 
-The top-right pencil opens Red pen, Eraser, Undo, Redo, Comment, Save image,
-and Restore original. The eraser restores original pixels, including over
+The pencil above the image opens a spacious annotation editor. Its symbol
+toolbar offers Red pen, Eraser, Undo, Redo, Comment, Save image, Restore original,
+and Close; hover or focus a control for its label. The image fits the available
+area without cropping, with room around edge markers. Comments appear beside
+the canvas, or below it in narrow windows, in both themes. The eraser restores original pixels, including over
 previously saved pen marks. Drawing edits stay local until Save image. Undo/redo
 covers the current editing session, with bounded history to control memory.
 Restore original restores the initially imported bytes and keeps discussion
 threads. Drawing saves are immediate image changes in either document mode;
 Markdown Review approval governs Markdown text changes, not image pixels.
 
-Choose Comment and click an image location to enter text. A small square marker
-opens the thread and a reply box. These are ordinary Looking Glass threads:
+Choose Comment and click an image location to enter text. Ctrl+Enter (or
+Cmd+Enter) sends a comment or reply; plain Enter adds a line. Failed submissions
+retain the text and show the error. Repeated shortcuts while sending create
+only one comment. A small discussion symbol opens the thread and a reply box. These are ordinary Looking Glass threads:
 search, replies, resolve/reopen, deletion, API access, and persistence apply.
 Thread responses include `associated_with_image: true` and
 `image_annotation: {thread_id, image_id, x, y}` with normalized coordinates.
@@ -33,12 +38,26 @@ its thread as needing reattachment. Multiple embeds of the same asset share its
 image markers; a newly created thread anchors to the first matching embed in
 the active document.
 
-Right-click a rendered PNG/JPEG or its source Markdown embed to rename it.
+Right-click a rendered PNG/JPEG or its source Markdown embed to rename it in
+a Looking Glass dialog. Enter saves the name; Escape or Cancel leaves it alone.
+Invalid names and conflicts stay in the dialog so the name can be corrected.
 The hash stays stable. The active document's links update as an ordinary editor
 change; save the document normally (or approve its Review draft). Old managed
 references continue to resolve by hash, and registered disk paths retain an
 alias inside Looking Glass. Other applications need links updated after a disk
-rename. Renaming refuses to replace an existing file.
+rename. Renaming refuses to replace an existing file. If a renamed image’s old
+path is reused by a new disk file, that file receives its own image identity.
+Percent-escaped filename characters such as `#` and `?` remain part of the name.
+
+The trash symbol beside the pencil removes the selected embed after a Looking
+Glass confirmation. Cancellation is focused initially. Only that occurrence is
+removed when an image appears multiple times. Removal is a normal document edit:
+undo restores it, Edit mode saves it normally, and Review mode retains the disk
+text until approval. Image bytes, originals, and discussions remain stored;
+threads anchored to the removed embed need reattachment after saving/approval.
+The app's rename, deletion, restore, and discard prompts use the same themed
+dialogs, including attachment names and thread/comment deletion. Browser-level
+leave-page protection for unsaved documents and pending attachments is retained.
 
 Images are validated by Pillow, limited to 32 MiB and 40 megapixels. Annotation
 updates must retain dimensions. Optimistic versions prevent two editors from

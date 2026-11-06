@@ -1,4 +1,5 @@
-import {createImageTools,imageRanges,imageID,imageLink} from './markdown-images.mjs';
+import {confirmAction,requestText} from './dialogs.mjs';
+import {createImageTools,imageRanges,imageID,imageLink,imagePath} from './markdown-images.mjs';
 import {mountPDF} from './pdf-reader.mjs';
 import {createDiscussionView} from './discussion-view.mjs';
 import {createDiscussionRetention} from './discussion-lifetime.mjs';
@@ -467,7 +468,7 @@ async function closeTab(path,returning=false){
   if(!tabs.has(path))return;
   if(tabs.get(path).kind==='original'&&!returning){await returnFromOriginal();return;}
   if(contextVisit?.path===path&&entry()?.kind==='original'){await returnFromOriginal();await closeTab(path);return;}
-  const e=tabs.get(path);if(e.workMode==='review')await flushReview(e);if(e.dirty&&!confirm('Discard unsaved edits in '+path+'?'))return;
+  const e=tabs.get(path);if(e.workMode==='review')await flushReview(e);if(e.dirty&&!await confirmAction({title:'Discard unsaved edits?',message:path,confirmLabel:'Discard edits',symbol:'trash',danger:true}))return;
   if(contextVisit?.path===path){contextVisit.surface.dispose();contextVisit=null;}
   if(returning)contextVisit=null;
   if(path===appStore.state.displayedDocument){clearSpotlight();closeComment();syncState();view?.destroy();view=null;cleanup();cleanup=()=>{};appStore.dispatch({type:'DOCUMENT_DISPLAYED',path:null});}
@@ -478,6 +479,17 @@ async function closeTab(path,returning=false){
 
 const imageTools=createImageTools({token,api,context:()=>({path:entry()?.sourcePath||entry()?.path,readonly:!!entry()?.kind,threads:appStore.state.threads}),
   error:message=>notify(message,true),changed:id=>imageTools.refresh(id),focus:id=>showThread(id),
+  remove:async wrap=>{
+    const e=entry();if(!e||e.kind)return;
+    const content=e.content,ranges=imageRanges(content);
+    const position=view?.posAtDOM(wrap);
+    const range=view?ranges.find(r=>r.from<=position&&r.to>=position):ranges[[...$('#surface').querySelectorAll('.markdown-image')].indexOf(wrap)];
+    if(!range)throw new Error('Reopen the image before deleting it.');
+    if(!await confirmAction({title:'Delete image?',message:'Remove this image from the document? The original image and discussions are kept. You can undo this edit.',confirmLabel:'Delete image',symbol:'trash',danger:true}))return;
+    if(entry()!==e||e.content!==content)throw new Error('Document changed. Reopen the image before deleting it.');
+    applyImageChanges(e,{from:range.from,to:range.to,insert:''});
+    notify('Image removed · undo to restore');
+  },
   renamed:(id,reference,meta)=>{
     const e=entry();if(!e||e.kind)return;
     const changes=imageRanges(e.content).filter(r=>imageID(r.href)===id||r.href===reference).map(r=>({from:r.from,to:r.to,insert:e.content.slice(r.from,r.to).replace(r.href,imageID(r.href)?imageLink(meta):r.href.replace(/[^/]+$/,encodeURIComponent(meta.name)))}));
@@ -556,7 +568,7 @@ function makeState(e){
       const pos=editor.posAtCoords({x:event.clientX,y:event.clientY});if(pos==null)return false;
       const range=imageRanges(editor.state.doc.toString()).find(r=>r.from<=pos&&r.to>=pos),id=range&&imageID(range.href);
       if(!range||!id&&/^(?:[a-z][\w+.-]*:|\/)/i.test(range.href))return false;event.preventDefault();guard(async()=>{
-        const managed=id||(await api('images/import','POST',{path:new URL(decodeURIComponent(range.href),'https://workspace/'+e.path).pathname.slice(1)})).id;
+        const managed=id||(await api('images/import','POST',{path:imagePath(range.href,e.path)})).id;
         await imageTools.rename(managed,range.href);
       })();return true;
     }}),
@@ -1418,7 +1430,7 @@ document.addEventListener('focusin',event=>{if(appStore.state.requestedThread!==
 document.addEventListener('scroll',scheduleSelectionTools,true);
 window.addEventListener('resize',()=>{scheduleSelectionTools();if($('#comment-dialog').open){const location=selectionLocation();if(location)placeNearSelection($('#comment-dialog'),location);}});
 document.addEventListener('keydown',event=>{
-  if(event.target.closest?.('#author-popover'))return;
+  if(event.target.closest?.('#author-popover,.lg-dialog,.image-editor,.image-comment-box'))return;
   passagePosition=null;
   if(event.key==='Escape'){passageActivation++;pressedPassage=null;}
   // Let the focused navigation panel consume Escape before context/spotlight.
@@ -1523,8 +1535,8 @@ document.addEventListener('click',guard(async event=>{
   if(action.dataset.action==='original'||action.dataset.action==='message-original'){await openOriginal(id,action.dataset.message);spotlightSidebarThread(id,t);return;}
   if(action.dataset.action.endsWith('-attachment')){
     const attachmentId=Number(action.closest('[data-attachment]').dataset.attachment),item=t.attachments.find(a=>a.id===attachmentId);
-    if(action.dataset.action==='rename-attachment'){const name=prompt('Attachment name',item.name);if(name!==null){await api('attachments/'+attachmentId,'PATCH',{name});await refreshThreads();}return;}
-    if(action.dataset.action==='delete-attachment'){if(confirm('Remove '+item.name+'?')){await api('attachments/'+attachmentId,'DELETE');await refreshThreads();}return;}
+    if(action.dataset.action==='rename-attachment'){await requestText({title:'Rename attachment',value:item.name,onSubmit:async name=>{await api('attachments/'+attachmentId,'PATCH',{name});await refreshThreads();}});return;}
+    if(action.dataset.action==='delete-attachment'){if(await confirmAction({title:'Remove attachment?',message:item.name,confirmLabel:'Remove attachment',symbol:'trash',danger:true})){await api('attachments/'+attachmentId,'DELETE');await refreshThreads();}return;}
     const response=await fetch('/api/attachments/'+attachmentId,{headers:{'X-Looking-Glass-Token':token}});
     if(!response.ok)throw new Error((await response.json()).error);
     const url=URL.createObjectURL(await response.blob());
@@ -1541,7 +1553,7 @@ document.addEventListener('click',guard(async event=>{
     }finally{action.disabled=false;}
   }
   if(action.dataset.action==='delete-thread'||action.dataset.action==='delete-message'){
-    const whole=action.dataset.action==='delete-thread';if(!confirm(whole?'Delete this thread and all its comments?':'Delete this comment?'))return;
+    const whole=action.dataset.action==='delete-thread';if(!await confirmAction({title:whole?'Delete thread?':'Delete comment?',message:whole?'This thread and all its comments will be deleted.':'This comment will be deleted.',confirmLabel:whole?'Delete thread':'Delete comment',symbol:'trash',danger:true}))return;
     await completeThread(id,()=>api('threads/'+id+(whole?'':'/messages/'+action.dataset.message),'DELETE'));
     if(!appStore.state.threads.some(t=>t.id===appStore.state.focusedThread))clearThreadFocus();
     if(view)view.dispatch({effects:spansEffect.of(view.state.field(spanField).filter(span=>appStore.state.threads.some(t=>t.id===span.id)))});
@@ -1719,7 +1731,7 @@ $('#author-form').onsubmit=event=>{
 window.addEventListener('resize',placeAuthorPopover);
 $('#author-edit').disabled=false;
 $('#reload-disk').onclick=guard(async()=>{
-  const e=entry();if(!e)return;if(e.dirty&&!confirm('Discard your unsaved edits and reload the current disk file?'))return;const disk=await api('file?'+new URLSearchParams({path:e.path}));disposeReport(e);e.content=disk.content;e.diskContent=disk.content;e.version=disk.version;e.dirty=false;e.conflict=null;e.state=null;view?.destroy();view=null;mountDocument(e);await refreshThreads();renderTabs();notify('Reloaded from disk');
+  const e=entry();if(!e)return;if(e.dirty&&!await confirmAction({title:'Reload from disk?',message:'Your unsaved edits will be discarded.',confirmLabel:'Discard edits',symbol:'restore',danger:true}))return;const disk=await api('file?'+new URLSearchParams({path:e.path}));disposeReport(e);e.content=disk.content;e.diskContent=disk.content;e.version=disk.version;e.dirty=false;e.conflict=null;e.state=null;view?.destroy();view=null;mountDocument(e);await refreshThreads();renderTabs();notify('Reloaded from disk');
 });
 $('#copy-draft').onclick=guard(async()=>{await navigator.clipboard.writeText(entry().content);notify('Draft copied');});
 $('#merge-disk').onclick=guard(async()=>{const e=entry();const disk=await api('file?'+new URLSearchParams({path:e.path}));pending={mergePath:e.path,disk};$('#disk-text').textContent=disk.content;$('#merge-text').value=e.content;$('#merge-dialog').showModal();});

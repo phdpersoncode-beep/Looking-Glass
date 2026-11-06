@@ -81,11 +81,12 @@ def test_review_workflow_features(tmp_path, browser_pool):
             discussion=ws.create_thread('tasks.md',2,7,'Delete me.','Altay',file['version'])
             ws.reply(discussion['id'],'Keep me.','Agent')
             page.get_by_text('Keep me.',exact=True).wait_for()
-            page.on('dialog',lambda dialog:dialog.accept())
             page.locator('.delete-comment').first.click()
+            page.locator('.lg-dialog button[type=submit]').click()
             expect(page.get_by_text('Delete me.',exact=True)).to_have_count(0)
             expect(page.get_by_text('Keep me.',exact=True)).to_be_visible()
             page.locator('.delete-thread').click()
+            page.locator('.lg-dialog button[type=submit]').click()
             expect(page.locator('.thread')).to_have_count(0)
             assert Workspace(root).threads()==[]
             page.locator('.file-entry[data-path="rows.jsonl"]').click()

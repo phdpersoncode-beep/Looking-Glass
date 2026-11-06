@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {imageRanges,imageID,imageLink} from '../frontend/markdown-images.mjs';
+import {imageRanges,imageID,imageLink,imagePath} from '../frontend/markdown-images.mjs';
 import {markdown} from '../frontend/markdown-math.mjs';
 
 test('standard and wiki images preserve source coordinates and exclude code',()=>{
@@ -17,4 +17,8 @@ test('managed references retain identity across rename and encode names',()=>{
 test('wiki image attributes are escaped',()=>{
   assert.ok(markdown.parse('![[x" onerror="bad.png]]').includes('&quot;'));
   assert.ok(!markdown.parse('![[x" onerror="bad.png]]').includes('src="x"'));
+});
+test('encoded filename delimiters survive relative image resolution',()=>{
+  assert.equal(imagePath('../assets/chart%231%3F%2520.png','docs/notes.md'),'assets/chart#1?%20.png');
+  assert.equal(imagePath('my%20photo.png','notes.md'),'my photo.png');
 });

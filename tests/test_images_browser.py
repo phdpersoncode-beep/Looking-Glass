@@ -34,9 +34,12 @@ def test_paste_annotate_comment_rename_restore(workspace_page):
     page.locator('.image-comment-marker').click();expect(page.locator('.image-comment-box')).to_contain_text('Image discussion persists')
     page.get_by_role('textbox',name='Reply to image thread').fill('A reply');page.get_by_role('button',name='Reply',exact=True).first.click()
     expect(page.locator('.image-comment-box')).to_have_count(0)
-    page.once('dialog',lambda d:d.accept('renamed.png'));page.locator('.markdown-image img').click(button='right')
+    page.locator('.markdown-image img').click(button='right')
+    page.get_by_role('textbox',name='Name',exact=True).fill('renamed.png')
+    page.get_by_role('button',name='Save name',exact=True).click()
+    expect(page.locator('.lg-dialog')).to_have_count(0)
     page.get_by_role('button',name='Annotate image',exact=True).click()
-    page.once('dialog',lambda d:d.accept());page.get_by_role('button',name='Restore original',exact=True).click();expect(page.locator('.image-editor')).to_have_count(0)
+    page.get_by_role('button',name='Restore original',exact=True).click();page.locator('.lg-dialog').get_by_role('button',name='Restore original',exact=True).click();expect(page.locator('.image-editor')).to_have_count(0)
     assert ws.images.get(identifier)['current']==ws.images.get(identifier)['original']
     assert ws.images.get(identifier)['name']=='renamed.png'
     assert len(ws.get_thread(thread['id'])['messages'])==2
@@ -83,3 +86,196 @@ def test_jpeg_paste_survives_typing_and_tab_switch(workspace_page):
     expect(page.locator('.cm-content')).to_contain_text('Typed while uploading')
     page.keyboard.press('Control+s')
     assert (root/'other.md').read_text()=='Other document'
+
+@pytest.fixture(autouse=True)
+def no_native_dialogs(workspace_page):
+    _,page,_,_=workspace_page
+    native=[]
+    def unexpected(dialog):
+        native.append(dialog.type+': '+dialog.message)
+        dialog.dismiss()
+    page.on('dialog',unexpected)
+    yield
+    assert not native,native
+
+
+def setup_disk_image(root,ws,name='photo.png',text=None):
+    (root/name).write_bytes(pixels())
+    text=text or f'# Image\n\n![]({name})\n\nEnd.\n'
+    (root/'notes.md').write_text(text)
+    return ws.images.import_file(name)
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+@pytest.mark.parametrize('mode',['live','preview'])
+@pytest.mark.parametrize('work',['edit','review'])
+def test_delete_exact_embed_cancel_undo_and_persistence(workspace_page,mode,work):
+    root,page,url,ws=workspace_page
+    original='# Images\n\n![First](photo.png)\n\nBetween.\n\n![Second](photo.png)\n\nEnd.\n'
+    image=setup_disk_image(root,ws,text=original)
+    start=original.index('![Second]')
+    thread=ws.images.comment(image['id'],dict(path='notes.md',version=ws.read('notes.md')['version'],start=start,end=start+len('![Second](photo.png)'),reference='photo.png',x=1,y=1,body='Keep this discussion',author='User'))
+    page.goto(url);open_file(page,'notes.md')
+    if work=='review':page.locator('#work-mode').click()
+    page.locator('#mode').select_option(mode)
+    delete=page.get_by_role('button',name='Delete image',exact=True)
+    expect(delete).to_have_count(2)
+    delete.last.click()
+    confirmation=page.get_by_role('dialog',name='Delete image?',exact=True)
+    expect(confirmation.get_by_role('button',name='Cancel')).to_be_focused()
+    page.keyboard.press('Escape');expect(confirmation).to_have_count(0)
+    expect(delete).to_have_count(2)
+    delete.last.click();confirmation.get_by_role('button',name='Cancel').click();expect(delete).to_have_count(2)
+    delete.last.click();confirmation.get_by_role('button',name='Delete image',exact=True).click()
+    expect(page.locator('.markdown-image img[alt="First"]')).to_have_count(1)
+    expect(page.locator('.markdown-image img[alt="Second"]')).to_have_count(0)
+    page.locator('#mode').select_option('source');page.locator('.cm-content').click();page.keyboard.press('Control+z')
+    expect(page.locator('.cm-content')).to_contain_text('![Second](photo.png)')
+    page.locator('#mode').select_option(mode);expect(delete).to_have_count(2)
+    delete.last.click();confirmation.get_by_role('button',name='Delete image',exact=True).click()
+    if work=='edit':page.locator('#save').click()
+    if work=='review':
+        assert (root/'notes.md').read_text()==original
+        page.locator('#approve-review').click();page.locator('#confirm-review-approve').click()
+        expect(page.locator('#work-mode')).to_have_attribute('aria-checked','false')
+    expect(page.locator('#dirty')).to_have_text('')
+    assert (root/'notes.md').read_text()==original.replace('![Second](photo.png)','')
+    assert (root/'photo.png').read_bytes()==pixels()
+    assert ws.images.get(image['id'])['original']==pixels()
+    assert ws.get_thread(thread['id'])['messages'][0]['body']=='Keep this discussion'
+    assert ws.get_thread(thread['id'])['anchor_status']=='needs_reattachment'
+    page.reload();open_file(page,'notes.md')
+    expect(page.get_by_role('button',name='Delete image',exact=True)).to_have_count(1)
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+@pytest.mark.parametrize('theme,width,height,dimensions',[
+    ('light',1440,960,(2400,1600)),('dark',850,700,(1200,2400)),
+    ('light',500,700,(2400,1600)),('dark',500,700,(1200,2400))])
+def test_annotation_layout_symbols_and_edge_markers(workspace_page,theme,width,height,dimensions):
+    from PIL import Image
+    root,page,url,ws=workspace_page
+    Image.new('RGB',dimensions,'white').save(root/'photo.png')
+    text='![](photo.png)';(root/'notes.md').write_text(text)
+    image=ws.images.import_file('photo.png')
+    for x,y in [(0,0),(1,1)]:
+        ws.images.comment(image['id'],dict(path='notes.md',version=ws.read('notes.md')['version'],start=0,end=len(text),reference='photo.png',x=x,y=y,body='Edge marker',author='User'))
+    page.set_viewport_size({'width':width,'height':height});page.goto(url);open_file(page,'notes.md')
+    page.evaluate('(theme)=>document.documentElement.dataset.theme=theme',theme)
+    pencil=page.get_by_role('button',name='Annotate image',exact=True)
+    before=pencil.bounding_box();pencil.hover()
+    assert pencil.bounding_box()==before
+    assert pencil.locator('svg').count()==1
+    pencil.click();editor=page.locator('.image-editor');expect(editor).to_be_visible()
+    expect(editor.locator('.image-comment-marker')).to_have_count(2)
+    assert editor.evaluate('(el,width)=>el.getBoundingClientRect().width>width*.9',width)
+    assert editor.locator('.image-toolbar button').evaluate_all("els=>els.every(el=>!el.textContent.trim()&&el.querySelector('svg')&&el.title&&el.getAttribute('aria-label'))")
+    # The canvas, edge markers, and toolbar all fit inside the dialog.
+    def fits():
+        page.wait_for_function('''() => {const d=document.querySelector('.image-editor').getBoundingClientRect();return [...document.querySelectorAll('.image-editor canvas,.image-editor .image-comment-marker,.image-toolbar button')].every(el=>{const r=el.getBoundingClientRect();return r.width>0&&r.height>0&&r.left>=d.left&&r.right<=d.right&&r.top>=d.top&&r.bottom<=d.bottom;});}''')
+    fits()
+    editor.locator('.image-comment-marker').last.click()
+    expect(editor.get_by_role('textbox',name='Reply to image thread')).to_be_visible()
+    fits()
+    editor.get_by_role('textbox',name='Reply to image thread').fill('Reply from edge')
+    page.keyboard.press('Meta+Enter')
+    expect(editor.locator('.image-comment-box')).to_have_count(0)
+    editor.get_by_role('button',name='Close',exact=True).click();expect(editor).to_have_count(0)
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_comment_shortcut_errors_and_duplicate_submission(workspace_page):
+    root,page,url,ws=workspace_page
+    setup_disk_image(root,ws)
+    page.goto(url);open_file(page,'notes.md');page.get_by_role('button',name='Annotate image',exact=True).click()
+    page.get_by_role('button',name='Comment',exact=True).click();page.locator('.image-editor canvas').click()
+    text=page.get_by_role('textbox',name='Comment on image')
+    page.keyboard.press('Control+Enter')
+    expect(page.locator('.image-comment-box [role=alert]')).to_have_text('Write a comment before sending.')
+    text.fill('Keyboard');page.keyboard.press('Enter');page.keyboard.insert_text('comment')
+    page.route('**/api/images/*/comments',lambda route:route.fulfill(status=409,json={'error':'Image changed. Try again.'}))
+    page.keyboard.press('Control+Enter')
+    expect(page.locator('.image-comment-box [role=alert]')).to_have_text('Image changed. Try again.')
+    expect(text).to_have_value('Keyboard\ncomment')
+    page.unroute('**/api/images/*/comments')
+    held=[];page.route('**/api/images/*/comments',lambda route:held.append(route))
+    with page.expect_request('**/api/images/*/comments'):page.keyboard.press('Control+Enter')
+    page.keyboard.press('Control+Enter');expect(page.get_by_role('button',name='Add comment',exact=True)).to_be_disabled()
+    assert len(held)==1
+    held[0].continue_();expect(page.locator('.image-comment-box')).to_have_count(0)
+    assert len(ws.threads('notes.md'))==1
+    assert ws.threads('notes.md')[0]['messages'][0]['body']=='Keyboard\ncomment'
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_rename_popup_validation_cancel_and_encoded_filename(workspace_page):
+    root,page,url,ws=workspace_page
+    image=setup_disk_image(root,ws,name='chart#1?.png',text='![](chart%231%3F.png)')
+    (root/'taken.png').write_bytes(pixels(color='blue'))
+    page.goto(url);open_file(page,'notes.md')
+    expect(page.locator('.markdown-image img')).to_be_visible()
+    page.locator('.markdown-image img').click(button='right')
+    dialog=page.get_by_role('dialog',name='Rename image',exact=True);field=dialog.get_by_role('textbox',name='Name',exact=True)
+    expect(field).to_have_value('chart#1?.png');field.fill('cancelled.png');page.keyboard.press('Escape')
+    assert ws.images.get(image['id'])['name']=='chart#1?.png'
+    page.locator('#mode').select_option('source');page.locator('.cm-line').filter(has_text='![](').click(button='right')
+    expect(dialog).to_be_visible();field.fill('taken.png');page.keyboard.press('Enter')
+    expect(dialog.locator('[role=alert]')).to_have_text('A file with that name already exists.')
+    expect(field).to_have_value('taken.png');field.fill('renamed.png');page.keyboard.press('Enter')
+    expect(dialog).to_have_count(0);expect(page.locator('.cm-content')).to_contain_text('![](renamed.png)')
+    assert ws.images.get(image['id'])['name']=='renamed.png'
+    assert (root/'renamed.png').read_bytes()==pixels()
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_dirty_annotation_close_and_stale_save(workspace_page):
+    root,page,url,ws=workspace_page
+    image=setup_disk_image(root,ws)
+    page.goto(url);open_file(page,'notes.md');page.get_by_role('button',name='Annotate image',exact=True).click()
+    page.locator('.image-editor canvas').click()
+    page.get_by_role('button',name='Close',exact=True).click()
+    dialog=page.get_by_role('dialog',name='Discard annotations?',exact=True)
+    dialog.get_by_role('button',name='Cancel').click();expect(page.locator('.image-editor')).to_be_visible()
+    (root/'photo.png').write_bytes(pixels(color='blue'))
+    page.get_by_role('button',name='Save image',exact=True).click()
+    expect(page.locator('.image-editor [role=status]')).to_contain_text('external changes')
+    assert (root/'photo.png').read_bytes()==pixels(color='blue')
+    page.get_by_role('button',name='Close',exact=True).click();dialog.get_by_role('button',name='Discard annotations',exact=True).click()
+    expect(page.locator('.image-editor')).to_have_count(0)
+    assert ws.images.get(image['id'])['original']==pixels()
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_delete_rejects_document_changed_during_confirmation(workspace_page):
+    root,page,url,ws=workspace_page
+    setup_disk_image(root,ws)
+    page.goto(url);open_file(page,'notes.md')
+    page.get_by_role('button',name='Delete image',exact=True).click()
+    updated='External change.\n\n![](photo.png)\n'
+    (root/'notes.md').write_text(updated)
+    expect(page.locator('.cm-content')).to_contain_text('External change.',timeout=10000)
+    page.locator('.lg-dialog').get_by_role('button',name='Delete image',exact=True).click()
+    expect(page.get_by_role('status').filter(has_text='Document changed.')).to_be_visible()
+    assert (root/'notes.md').read_text()==updated
+    expect(page.get_by_role('button',name='Delete image',exact=True)).to_have_count(1)
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_delete_last_managed_image_preserves_original_and_thread(workspace_page):
+    import io
+    root,page,url,ws=workspace_page
+    image=ws.images.add(io.BytesIO(pixels()),'Screenshot.png')
+    embed=f"![](.looking-glass/images/{image['id']}_{image['name']})"
+    text='Before.\n\n'+embed+'\n\nAfter.\n';(root/'notes.md').write_text(text)
+    thread=ws.images.comment(image['id'],dict(path='notes.md',version=ws.read('notes.md')['version'],start=text.index(embed),end=text.index(embed)+len(embed),x=.5,y=.5,body='Retain original context',author='User'))
+    page.goto(url);open_file(page,'notes.md');page.locator('#mode').select_option('preview')
+    page.get_by_role('button',name='Delete image',exact=True).click()
+    page.locator('.lg-dialog').get_by_role('button',name='Delete image',exact=True).click()
+    expect(page.locator('.markdown-image')).to_have_count(0)
+    page.locator('#save').click();expect(page.locator('#dirty')).to_have_text('')
+    assert (root/'notes.md').read_text()==text.replace(embed,'')
+    assert ws.images.get(image['id'])['original']==pixels()
+    assert ws.get_thread(thread['id'])['anchor_status']=='needs_reattachment'
+    page.reload();open_file(page,'notes.md')
+    expect(page.locator('.markdown-image')).to_have_count(0)
+    assert ws.get_thread(thread['id'])['messages'][0]['body']=='Retain original context'

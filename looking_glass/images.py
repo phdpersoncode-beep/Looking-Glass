@@ -44,7 +44,13 @@ class Images:
 
     def import_file(self, path):
         with self.ws.lock, self.ws.connection() as db:
-            source = db.execute('SELECT * FROM image_sources WHERE path=? OR current_path=?', (path, path)).fetchone()
+            source = db.execute('SELECT * FROM image_sources WHERE path=? OR current_path=? ORDER BY current_path=? DESC', (path, path, path)).fetchone()
+            reused_alias = None
+            # A historical alias only applies while that disk path is absent.
+            # Reusing a renamed filename must register the new pixels separately.
+            if source and source['current_path'] != path and (self.ws.root / path).is_file():
+                reused_alias = source
+                source = None
             if source:
                 row = self.get(source['image_id'])
                 file = self.ws.path(source['current_path'])
@@ -61,6 +67,10 @@ class Images:
             if not file.resolve().is_relative_to(self.ws.root):
                 raise Problem('Embedded images must be inside the workspace.', 403)
             with file.open('rb') as stream: image = self.add(stream, file.name)
+            if reused_alias:
+                db.execute('DELETE FROM image_sources WHERE path=?', (reused_alias['path'],))
+                db.execute('INSERT OR IGNORE INTO image_sources VALUES(?,?,?)', (reused_alias['current_path'], reused_alias['image_id'], reused_alias['current_path']))
+                db.execute("UPDATE threads SET anchor_status='needs_reattachment' WHERE id IN (SELECT thread_id FROM image_comments WHERE image_id=?) AND instr(quote,?)>0 AND instr(quote,?)=0", (reused_alias['image_id'], path, reused_alias['image_id']))
             db.execute('INSERT INTO image_sources VALUES(?,?,?)', (path, image['id'], path))
         return image
 
