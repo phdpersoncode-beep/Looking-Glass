@@ -13,9 +13,10 @@ Markdown file's directory, inside the workspace. PNG/JPEG disk images are
 registered when first rendered; annotations update that disk file as well as
 the managed copy. An external disk change rejects an open annotation editor's stale save.
 On reopening, the replacement gets a new identity and old disk-image comments
-require reattachment; the old original remains stored. SVG continues to render, but does not support these editing tools.
+require reattachment; the old original remains stored. SVG supports display resizing; pixel annotation remains limited to PNG/JPEG.
 
-The pencil above the image opens a spacious annotation editor. Its symbol
+The pencil above the image opens a roomy, centered annotation editor (up to
+1280 × 840 pixels, with margins around the window). Its symbol
 toolbar offers Red pen, Eraser, Undo, Redo, Comment, Save image, Restore original,
 and Close; hover or focus a control for its label. The image fits the available
 area without cropping, with room around edge markers. Comments appear beside
@@ -49,6 +50,24 @@ rename. Renaming refuses to replace an existing file. If a renamed image’s old
 path is reused by a new disk file, that file receives its own image identity.
 Percent-escaped filename characters such as `#` and `?` remain part of the name.
 
+Rendered images are centered in the document. Drag the bottom-right resize
+handle to adjust their display width while keeping their aspect ratio. A focused
+handle also accepts Left/Right arrow keys in 10-pixel steps; Escape cancels an
+active drag. Widths are stored per embed in Markdown using Obsidian-compatible
+`![[photo.png|320]]` or `![Caption|320](photo.png)` syntax. Table cells escape the
+pipe. Resizing is an ordinary undoable edit, including Review approval, and does
+not change image pixels or the positions of image comments. Sizes adapt to narrow
+panes and survive reopening. Images stay rendered during arrow-key navigation;
+choose the small source symbol to edit an embed explicitly, then Done editing
+image to return.
+
+Ctrl+click an image's comment marker to enable drag mode. Drag it to a new
+location, then release to save its position. Ctrl+click again or press Escape
+to exit drag mode; Escape during a drag cancels that move. This works in Live
+Markdown, preview, and the annotation editor. Marker moves are immediate metadata
+changes, keep the discussion and original context intact, and reject concurrent
+moves instead of overwriting them. Normal clicks continue to open the thread.
+
 The trash symbol beside the pencil removes the selected embed after a Looking
 Glass confirmation. Cancellation is focused initially. Only that occurrence is
 removed when an image appears multiple times. Removal is a normal document edit:
@@ -72,10 +91,17 @@ API endpoints:
 - `GET /api/images/<id>/content`: current bytes; `?original=1` for original bytes.
 - `PATCH /api/images/<id>`: multipart `file` and `version`, or JSON
   `{version, name}` / `{version, restore: true}`.
+- `PATCH /api/images/<id>/comments/<thread_id>`: normalized `{x, y,
+  previous: {x, y}}`; updates marker position with optimistic concurrency.
 - `POST /api/images/<id>/comments`: ordinary source selection fields
   (`path`, `start`, `end`, `version`, `body`, `author`, optional `review_id`),
   normalized `x`, `y`, and `reference` for disk image embeds.
 
-The browser tests synthesize the standard clipboard image payload. Manual
+The browser tests synthesize the standard clipboard image payload. Firefox
+ignores the `clipboardData` constructor field on synthetic ClipboardEvents (see
+[Gecko's constructor](https://github.com/mozilla/gecko-dev/blob/master/dom/events/ClipboardEvent.cpp)).
+The tests therefore define the payload on the event instance, validate its file
+types, and run the normal paste listener, upload, and insertion assertions.
+This test-harness difference does not affect trusted OS paste events. Manual
 checks with each OS's screenshot utility remain necessary to establish its
 native clipboard integration.

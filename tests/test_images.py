@@ -123,3 +123,24 @@ def test_reused_rename_alias_registers_actual_file_and_preserves_both_images(tmp
     assert (tmp_path/'photo.png').read_bytes()==pixels(color='red')
     ws.images.update(old['id'],old['version'],raw=pixels(color='green'))
     assert (tmp_path/'renamed.png').read_bytes()==pixels(color='green')
+
+
+def test_comment_movement_coordinates_conflicts_and_restart(tmp_path):
+    app=create_app(tmp_path);ws=app.extensions['workspace'];client=app.test_client();headers={'X-Looking-Glass-Token':ws.token}
+    image=ws.images.add(io.BytesIO(pixels()),'test.png')
+    embed=f"![](.looking-glass/images/{image['id']}_test.png)";(tmp_path/'notes.md').write_text(embed)
+    thread=ws.images.comment(image['id'],dict(path='notes.md',version=ws.read('notes.md')['version'],start=0,end=len(embed),x=.25,y=.5,body='Keep this text',author='User'))
+    endpoint=f"/api/images/{image['id']}/comments/{thread['id']}"
+    data=dict(x=.8,y=.9,previous=dict(x=.25,y=.5))
+    assert client.patch(endpoint,json=data).status_code==401
+    result=client.patch(endpoint,headers=headers,json=data)
+    assert result.status_code==200
+    assert result.json['image_annotation']['x']==.8
+    assert client.patch(endpoint,headers=headers,json=data).status_code==409
+    assert client.patch(endpoint.replace(image['id'],'f'*64),headers=headers,json=data).status_code==404
+    for invalid in [True,None,-1,2,float('nan')]:
+        assert client.patch(endpoint,headers=headers,json=dict(x=invalid,y=.5,previous=dict(x=.8,y=.9))).status_code==400
+    restarted=Workspace(tmp_path).get_thread(thread['id'])
+    assert restarted['image_annotation']['x']==.8 and restarted['image_annotation']['y']==.9
+    assert restarted['messages']==thread['messages']
+    assert ws.images.get(image['id'])['current']==pixels()

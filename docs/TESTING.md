@@ -5,7 +5,7 @@ existing ones; browser sharding changes where tests run, never which cases run.
 
 | Behavior | Main coverage |
 | --- | --- |
-| Image paste, PNG/JPEG validation, disk updates, rename aliases/escaped filenames, original recovery, drawing/eraser, persistent image threads, large/narrow themed layouts and edge markers, symbol controls, keyboard comment/reply submission, duplicate-send/error handling, exact-embed deletion/cancel/undo in Edit/Review, stale saves and themed application dialogs | `test_images.py`, `markdown-images.test.mjs`, `test_images_browser.py`, `test_dialogs_browser.py` |
+| Image paste, PNG/JPEG validation, disk updates, rename aliases/escaped filenames, original recovery, drawing/eraser, persistent image threads, large/narrow themed layouts and edge markers, symbol controls, keyboard comment/reply submission, duplicate-send/error handling, exact-embed deletion/cancel/undo in Edit/Review, stale saves, stable arrow navigation, centered per-embed resize/undo/Review/table/CRLF persistence, draggable markers with cancellation/conflicts, portable synthetic Firefox paste, and themed application dialogs | `test_images.py`, `markdown-images.test.mjs`, `test_images_browser.py`, `test_dialogs_browser.py` |
 | Edit/save, undo/redo, find/replace, tabs, external changes and conflict recovery | `test_browser.py`, `test_workspace.py`, `test_app_integration_browser.py` |
 | Non-destructive review, human/agent provenance, removed text, autosave, approval and concurrent edits | `test_reviews.py`, `review-model.test.mjs`, `test_review_mode_browser.py` |
 | Passage anchors, reattachment, immutable context and restart persistence | `test_anchors.py`, `test_origins.py`, `test_context_return_browser.py`, `test_cli.py` |

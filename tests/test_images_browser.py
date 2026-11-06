@@ -6,6 +6,28 @@ from test_images import pixels
 
 pytestmark=[pytest.mark.browser,pytest.mark.skipif(not os.environ.get('LOOKING_GLASS_BROWSER'),reason='Set LOOKING_GLASS_BROWSER')]
 
+
+def clipboard_pixels():
+    import io
+    from PIL import Image
+    stream=io.BytesIO();Image.new('RGB',(240,160),'white').save(stream,'PNG');return stream.getvalue()
+
+
+def paste_clipboard_image(page,raw,name,media_type):
+    import base64
+    # Firefox's ClipboardEvent constructor ignores the clipboardData initializer
+    # (Gecko ClipboardEvent.cpp). Supply the real DataTransfer on the instance;
+    # the production event listener and all upload assertions remain unchanged.
+    types=page.evaluate('''({encoded,name,media_type})=>{
+      const bytes=Uint8Array.from(atob(encoded),c=>c.charCodeAt(0));
+      const transfer=new DataTransfer();transfer.items.add(new File([bytes],name,{type:media_type}));
+      const event=new ClipboardEvent('paste',{bubbles:true,cancelable:true});
+      Object.defineProperty(event,'clipboardData',{value:transfer});
+      const types=[...event.clipboardData.items].map(item=>item.getAsFile()?.type);
+      document.querySelector('.cm-content').dispatchEvent(event);return types;
+    }''',dict(encoded=base64.b64encode(raw).decode(),name=name,media_type=media_type))
+    assert types==[media_type]
+
 @pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
 def test_paste_annotate_comment_rename_restore(workspace_page):
     root,page,url,ws=workspace_page
@@ -13,7 +35,7 @@ def test_paste_annotate_comment_rename_restore(workspace_page):
     page.goto(url);open_file(page,'notes.md')
     page.locator('#mode').select_option('source')
     page.locator('.cm-content').click();page.keyboard.press('Control+End');page.keyboard.press('Enter')
-    page.evaluate('''() => {const c=document.createElement('canvas');c.width=240;c.height=160;const ctx=c.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,240,160);c.toBlob(blob=>{const transfer=new DataTransfer();transfer.items.add(new File([blob],'Screenshot.png',{type:'image/png'}));document.querySelector('.cm-content').dispatchEvent(new ClipboardEvent('paste',{clipboardData:transfer,bubbles:true,cancelable:true}));});}''')
+    paste_clipboard_image(page,clipboard_pixels(),'Screenshot.png','image/png')
     expect(page.locator('.cm-content')).to_contain_text('.looking-glass/images/')
     page.keyboard.press('Control+s')
     page.locator('#mode').select_option('live')
@@ -77,7 +99,7 @@ def test_jpeg_paste_survives_typing_and_tab_switch(workspace_page):
     page.locator('.cm-content').click();page.keyboard.press('Control+End')
     paused=[];page.route('**/api/images',lambda route:paused.append(route))
     with page.expect_request('**/api/images'):
-        page.evaluate('''encoded=>{const bytes=Uint8Array.from(atob(encoded),c=>c.charCodeAt(0));const transfer=new DataTransfer();transfer.items.add(new File([bytes],'photo.jpg',{type:'image/jpeg'}));document.querySelector('.cm-content').dispatchEvent(new ClipboardEvent('paste',{clipboardData:transfer,bubbles:true,cancelable:true}));}''',base64.b64encode(pixels('JPEG')).decode())
+        paste_clipboard_image(page,pixels('JPEG'),'photo.jpg','image/jpeg')
     page.keyboard.insert_text('Typed while uploading\n');open_file(page,'other.md')
     image=ws.images.add(io.BytesIO(pixels('JPEG')),'photo.jpg')
     paused[0].fulfill(status=201,content_type='application/json',body=json.dumps(image))
@@ -168,7 +190,7 @@ def test_annotation_layout_symbols_and_edge_markers(workspace_page,theme,width,h
     assert pencil.locator('svg').count()==1
     pencil.click();editor=page.locator('.image-editor');expect(editor).to_be_visible()
     expect(editor.locator('.image-comment-marker')).to_have_count(2)
-    assert editor.evaluate('(el,width)=>el.getBoundingClientRect().width>width*.9',width)
+    assert editor.evaluate('(el,width)=>{const w=el.getBoundingClientRect().width;return w>width*.75&&w<=width-16;}',width)
     assert editor.locator('.image-toolbar button').evaluate_all("els=>els.every(el=>!el.textContent.trim()&&el.querySelector('svg')&&el.title&&el.getAttribute('aria-label'))")
     # The canvas, edge markers, and toolbar all fit inside the dialog.
     def fits():
@@ -279,3 +301,134 @@ def test_delete_last_managed_image_preserves_original_and_thread(workspace_page)
     page.reload();open_file(page,'notes.md')
     expect(page.locator('.markdown-image')).to_have_count(0)
     assert ws.get_thread(thread['id'])['messages'][0]['body']=='Retain original context'
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+@pytest.mark.parametrize('theme',['light','dark'])
+def test_arrow_navigation_keeps_image_dom_and_explicit_source_edit(workspace_page,theme):
+    root,page,url,ws=workspace_page
+    setup_disk_image(root,ws,text='Before.\n\n![Image](photo.png)\n\nAfter.\n')
+    page.goto(url);open_file(page,'notes.md');page.evaluate('(t)=>document.documentElement.dataset.theme=t',theme)
+    expect(page.locator('.markdown-image img')).to_be_visible()
+    page.evaluate('''()=>{window.heldImage=document.querySelector('.markdown-image');window.heldURL=window.heldImage.querySelector('img').src;window.imageChanges=0;window.imageObserver=new MutationObserver(records=>{for(const r of records)for(const n of r.removedNodes)if(n===window.heldImage||n.contains?.(window.heldImage))window.imageChanges++;});window.imageObserver.observe(document.querySelector('.cm-content'),{childList:true,subtree:true});}''')
+    page.locator('.cm-content').click();page.keyboard.press('Control+Home')
+    for _ in range(8):page.keyboard.press('ArrowDown')
+    for _ in range(8):page.keyboard.press('ArrowUp')
+    for _ in range(45):page.keyboard.press('ArrowRight')
+    assert page.evaluate('window.heldImage===document.querySelector(".markdown-image")&&window.heldURL===window.heldImage.querySelector("img").src&&window.imageChanges===0')
+    page.get_by_role('button',name='Edit image source',exact=True).click()
+    expect(page.locator('.cm-content')).to_contain_text('![Image](photo.png)')
+    expect(page.locator('.markdown-image')).to_have_count(0)
+    page.get_by_role('button',name='Done editing image',exact=True).click()
+    expect(page.locator('.markdown-image')).to_have_count(1)
+    assert (root/'notes.md').read_text()=='Before.\n\n![Image](photo.png)\n\nAfter.\n'
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+@pytest.mark.parametrize('mode',['live','preview'])
+@pytest.mark.parametrize('work',['edit','review'])
+def test_centered_image_resize_persists_per_embed_and_undoes(workspace_page,mode,work):
+    from PIL import Image
+    root,page,url,ws=workspace_page
+    Image.new('RGB',(600,400),'white').save(root/'photo.png')
+    original='Before.\n\n![First](photo.png)\n\n![Second](photo.png)\n\nAfter.\n';(root/'notes.md').write_text(original)
+    image_meta=ws.images.import_file('photo.png');start=original.index('![Second]')
+    thread=ws.images.comment(image_meta['id'],dict(path='notes.md',version=ws.read('notes.md')['version'],start=start,end=start+len('![Second](photo.png)'),reference='photo.png',x=.5,y=.5,body='Preserve through resize',author='User'))
+    page.goto(url);open_file(page,'notes.md')
+    if work=='review':page.locator('#work-mode').click()
+    page.locator('#mode').select_option(mode)
+    images=page.locator('.markdown-image');expect(images).to_have_count(2)
+    image=images.last;expect(image.locator('img')).to_be_visible()
+    container=page.locator('.cm-content' if mode=='live' else '.markdown-preview')
+    box=image.bounding_box();area=container.bounding_box()
+    assert abs(box['x']+box['width']/2-area['x']-area['width']/2)<3
+    handle=image.get_by_role('slider',name='Resize image');handle.scroll_into_view_if_needed();rect=handle.bounding_box()
+    page.mouse.move(rect['x']+12,rect['y']+12);page.mouse.down();page.mouse.move(rect['x']-48,rect['y']-28,steps=8);page.mouse.up()
+    expect(image).to_have_css('width',f"{round(box['width']-120)}px")
+    resized=image.locator('img').bounding_box();assert abs(resized['width']/resized['height']-1.5)<.02
+    assert images.first.bounding_box()['width']==box['width']
+    page.locator('#mode').select_option('source');expect(page.locator('.cm-content')).to_contain_text(f'![Second|{round(box["width"]-120)}](photo.png)')
+    page.locator('.cm-content').click();page.keyboard.press('Control+z')
+    expect(page.locator('.cm-content')).to_contain_text('![Second](photo.png)')
+    page.keyboard.press('Control+Shift+z')
+    if work=='review':
+        assert (root/'notes.md').read_text()==original
+        page.locator('#approve-review').click();page.locator('#confirm-review-approve').click()
+    else:page.locator('#save').click()
+    expect(page.locator('#dirty')).to_have_text('')
+    assert f'![Second|{round(box["width"]-120)}](photo.png)' in (root/'notes.md').read_text()
+    page.reload();open_file(page,'notes.md');page.locator('#mode').select_option(mode)
+    expect(page.locator('.markdown-image').last).to_have_css('width',f"{round(box['width']-120)}px")
+    assert Image.open(root/'photo.png').size==(600,400)
+    assert ws.get_thread(thread['id'])['anchor_status']=='attached'
+    assert ws.get_thread(thread['id'])['image_annotation']['x']==.5
+    expect(page.locator('.markdown-image').last.locator('.image-comment-marker')).to_have_count(1)
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+@pytest.mark.parametrize('mode',['live','preview','editor'])
+def test_ctrl_click_marker_drag_persists_and_cancels(workspace_page,mode):
+    root,page,url,ws=workspace_page
+    image=setup_disk_image(root,ws)
+    text=(root/'notes.md').read_text();start=text.index('![');embed='![](photo.png)'
+    thread=ws.images.comment(image['id'],dict(path='notes.md',version=ws.read('notes.md')['version'],start=start,end=start+len(embed),reference='photo.png',x=.25,y=.3,body='Move this marker',author='User'))
+    page.goto(url);open_file(page,'notes.md')
+    if mode=='editor':page.get_by_role('button',name='Annotate image',exact=True).click()
+    else:page.locator('#mode').select_option(mode)
+    host=page.locator('.image-editor .image-stage' if mode=='editor' else '.image-pixels')
+    marker=host.locator('.image-comment-marker');expect(marker).to_be_visible()
+    marker.click(modifiers=['Control']);expect(marker).to_have_attribute('aria-pressed','true')
+    expect(page.locator('.image-comment-box')).to_have_count(0)
+    rect=host.bounding_box();b=marker.bounding_box();x=b['x']+b['width']/2;y=b['y']+b['height']/2
+    page.mouse.move(x,y);page.mouse.down();page.mouse.move(rect['x']+rect['width']*.75,rect['y']+rect['height']*.7,steps=8)
+    with page.expect_response('**/api/images/*/comments/*'):
+        page.mouse.up()
+    expect(marker).to_have_css('left',f"{rect['width']*.75:g}px")
+    page.wait_for_function('''()=>document.querySelector('.image-comment-marker')?.style.top==='70%' ''')
+    moved=ws.get_thread(thread['id'])['image_annotation'];assert abs(moved['x']-.75)<.02 and abs(moved['y']-.7)<.02
+    # Escape abandons a second drag and exits move mode.
+    marker.click(modifiers=['Control']);marker.click(modifiers=['Control'])
+    b=marker.bounding_box();page.mouse.move(b['x']+b['width']/2,b['y']+b['height']/2);page.mouse.down();page.mouse.move(rect['x']+5,rect['y']+5,steps=5)
+    marker.press('Escape');page.mouse.up()
+    expect(marker).to_have_attribute('aria-pressed','false')
+    assert ws.get_thread(thread['id'])['image_annotation']==moved
+    if mode=='editor':page.get_by_role('button',name='Close',exact=True).click()
+    page.reload();open_file(page,'notes.md')
+    restored=ws.get_thread(thread['id']);assert restored['image_annotation']==moved
+    assert restored['messages'][0]['body']=='Move this marker'
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+@pytest.mark.parametrize('embed',['![Picture](photo.png)','![[photo.png]]'])
+def test_image_resize_in_table_preserves_crlf_and_source_mapping(workspace_page,embed):
+    root,page,url,ws=workspace_page
+    (root/'photo.png').write_bytes(pixels())
+    original='🪞 Before.\r\n\r\n| Picture | Value |\r\n| --- | --- |\r\n| '+embed+' | stays |\r\n'
+    (root/'notes.md').write_bytes(original.encode())
+    page.goto(url);open_file(page,'notes.md')
+    handle=page.get_by_role('slider',name='Resize image');expect(handle).to_be_visible()
+    handle.focus();handle.press('ArrowLeft')
+    expect(page.locator('.markdown-image')).to_have_css('width','90px')
+    expect(page.locator('.md-table td')).to_have_count(2)
+    page.locator('#save').click();expect(page.locator('#dirty')).to_have_text('')
+    saved=(root/'notes.md').read_bytes()
+    assert b'\\|90' in saved and saved.count(b'\r\n')==original.count('\r\n')
+    page.locator('#mode').select_option('preview')
+    expect(page.locator('.markdown-image')).to_have_css('width','90px')
+    expect(page.locator('.markdown-preview td')).to_have_count(2)
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_svg_display_resize_keeps_bytes_and_renders_after_reopen(workspace_page):
+    root,page,url,ws=workspace_page
+    svg='<svg xmlns="http://www.w3.org/2000/svg" width="100" height="80"><rect width="100" height="80"/></svg>'
+    (root/'drawing.svg').write_text(svg);(root/'notes.md').write_text('![Drawing](drawing.svg)')
+    page.goto(url);open_file(page,'notes.md')
+    handle=page.get_by_role('slider',name='Resize image');expect(handle).to_be_visible()
+    handle.focus();handle.press('ArrowLeft')
+    expect(page.locator('.markdown-image')).to_have_css('width','90px')
+    page.locator('#save').click();expect(page.locator('#dirty')).to_have_text('')
+    assert (root/'notes.md').read_text()=='![Drawing|90](drawing.svg)'
+    page.reload();open_file(page,'notes.md')
+    expect(page.locator('.markdown-image')).to_have_css('width','90px')
+    assert (root/'drawing.svg').read_text()==svg

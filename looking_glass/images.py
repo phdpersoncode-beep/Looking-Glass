@@ -163,11 +163,28 @@ class Images:
             (self.directory / (identifier + '_' + row['name'])).unlink(missing_ok=True)
         return self.public(self.get(identifier))
 
-    def comment(self, identifier, data):
-        self.get(identifier)
+    @staticmethod
+    def coordinates(data):
+        if not isinstance(data, dict): raise Problem('Send image coordinates.')
         x, y = data.get('x'), data.get('y')
         if any(type(v) not in (int, float) or not math.isfinite(v) or not 0 <= v <= 1 for v in (x, y)):
             raise Problem('Image coordinates must be between zero and one.')
+        return x, y
+
+    def move_comment(self, identifier, thread_id, data):
+        x, y = self.coordinates(data)
+        previous = self.coordinates(data.get('previous'))
+        with self.ws.lock, self.ws.connection() as db:
+            row = db.execute('SELECT * FROM image_comments WHERE thread_id=? AND image_id=?', (thread_id, identifier)).fetchone()
+            if row is None: raise Problem('Image comment not found.', 404)
+            if (row['x'], row['y']) != previous:
+                raise Problem('Comment moved elsewhere. Reopen the image before moving it.', 409)
+            db.execute('UPDATE image_comments SET x=?,y=? WHERE thread_id=?', (x, y, thread_id))
+        return self.ws.get_thread(thread_id)
+
+    def comment(self, identifier, data):
+        self.get(identifier)
+        x, y = self.coordinates(data)
         with self.ws.lock:
             review = data.get('review_id')
             content = self.ws.reviews.read(review)['content'] if review else self.ws.text(data.get('path'))[0]

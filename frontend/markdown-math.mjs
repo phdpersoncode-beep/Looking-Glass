@@ -1,3 +1,4 @@
+import {imageCaption} from './image-size.mjs';
 import {Marked} from 'marked';
 import katex from 'katex';
 
@@ -28,7 +29,7 @@ function mathRenderer(token) {
 }
 
 export const markdown=new Marked({extensions:[
-  {name:'wikiImage',level:'inline',start:source=>source.indexOf('![['),tokenizer(source){const m=/^!\[\[([^\]\n]+)\]\]/.exec(source);if(m)return {type:'wikiImage',raw:m[0],href:m[1],text:m[1]};},renderer(token){return `<img src="${escapeHTML(token.href)}" alt="${escapeHTML(token.text)}">`; }},
+  {name:'wikiImage',level:'inline',start:source=>source.indexOf('![['),tokenizer(source){const m=/^!\[\[([^\]\n]+)\]\]/.exec(source);if(m)return {type:'wikiImage',raw:m[0],href:imageCaption(m[1]).alt,text:m[1]};},renderer(token){const html=`<img src="${escapeHTML(token.href)}" alt="${escapeHTML(token.text)}">`;return this.parser.options.imageRenderer?.(token,html)??html; }},
   {
     name:'mathBlock',level:'block',
     start:source=>{const match=/\n {0,3}(?:\$\$|\\\[)/.exec(source);return match?match.index+1:undefined;},

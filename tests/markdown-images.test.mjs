@@ -22,3 +22,18 @@ test('encoded filename delimiters survive relative image resolution',()=>{
   assert.equal(imagePath('../assets/chart%231%3F%2520.png','docs/notes.md'),'assets/chart#1?%20.png');
   assert.equal(imagePath('my%20photo.png','notes.md'),'my photo.png');
 });
+
+test('image widths preserve destinations and captions in wiki, standard and reference embeds',async()=>{
+  const {imageCaption,resizedImageSource}=await import('../frontend/image-size.mjs');
+  assert.deepEqual(imageCaption('A caption|320'),{alt:'A caption',width:320});
+  assert.deepEqual(imageCaption('Literal|word'),{alt:'Literal|word',width:null});
+  for(const [before,after] of [
+    ['![[my screenshot.png]]','![[my screenshot.png|240]]'],
+    ['![[photo.png|400]]','![[photo.png|240]]'],
+    ['![Caption][]','![Caption|240][Caption]'],
+    ['![Caption]','![Caption|240][Caption]'],
+    ['![Nested [caption]](chart%231.png "Title")','![Nested [caption]|240](chart%231.png "Title")'],
+    ['![A\\] label|320][picture]','![A\\] label|240][picture]']
+  ])assert.equal(resizedImageSource(before,240),after);
+  assert.deepEqual(imageRanges('![[photo.png|240]]').map(r=>r.href),['photo.png']);
+});

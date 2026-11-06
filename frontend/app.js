@@ -1,3 +1,4 @@
+import {resizedImageSource} from './image-size.mjs';
 import {confirmAction,requestText} from './dialogs.mjs';
 import {createImageTools,imageRanges,imageID,imageLink,imagePath} from './markdown-images.mjs';
 import {mountPDF} from './pdf-reader.mjs';
@@ -293,7 +294,8 @@ function tableDecorations(state){
   }});
   for(const image of imageRanges(state.doc.toString())){
     if(occupied.some(r=>r.from<image.to&&r.to>image.from)||editing&&editing.from<=image.to&&editing.to>=image.from)continue;
-    ranges.push(Decoration.replace({widget:new MarkdownImage(state.doc.sliceString(image.from,image.to),image.href,image.alt)}).range(image.from,image.to));
+    const line=state.doc.lineAt(image.from),block=line.from===image.from&&line.to===image.to;
+    ranges.push(Decoration.replace({block,widget:new MarkdownImage(state.doc.sliceString(image.from,image.to),image.href,image.alt)}).range(image.from,image.to));
   }
   for(const formula of math){
     if(occupied.some(r=>r.from<formula.to&&r.to>formula.from)||editing&&editing.from<=formula.to&&editing.to>=formula.from)continue;
@@ -307,7 +309,7 @@ function tableDecorations(state){
   for(const from of mathGaps)ranges.push(Decoration.line({class:'md-math-gap'}).range(from));
   return Decoration.set(ranges,true);
 }
-const liveTables=[blockEditing,StateField.define({create:tableDecorations,update:(_value,tr)=>tableDecorations(tr.state),provide:field=>EditorView.decorations.from(field)})];
+const liveTables=[blockEditing,EditorView.atomicRanges.of(v=>{const editing=v.state.field(blockEditing);return Decoration.set(imageRanges(v.state.doc.toString()).filter(r=>!editing||r.to<editing.from||r.from>editing.to).map(r=>Decoration.mark({}).range(r.from,r.to)));}),StateField.define({create:tableDecorations,update:(_value,tr)=>tableDecorations(tr.state),provide:field=>EditorView.decorations.from(field)})];
 class MarkdownRule extends WidgetType {
   toDOM(){const el=document.createElement('hr');el.className='md-rule';return el;}
 }
@@ -324,7 +326,7 @@ class TaskCheckbox extends WidgetType {
 }
 function liveDecorations(v, activeRange) {
   const ranges=[], doc=v.state.doc, links=markdownLinks(syntaxTree(v.state),doc);
-  const math=markdownMathRanges(doc.toString()),editing=v.state.field(blockEditing);
+  const math=markdownMathRanges(doc.toString()),images=imageRanges(doc.toString()),editing=v.state.field(blockEditing);
   const {from:activeFrom,to:activeTo}=activeRange;
   for(const line of markdownListLines(syntaxTree(v.state),doc)){
     ranges.push(Decoration.line({class:'md-list-line',attributes:{'data-list-depth':String(line.depth),style:`--md-list-depth:${line.depth};--md-list-marker-width:${line.width}em`}}).range(line.from));
@@ -338,6 +340,7 @@ function liveDecorations(v, activeRange) {
   syntaxTree(v.state).iterate({
     enter(node){
       const name=node.name, a=node.from, b=node.to;
+      if(images.some(image=>image.from<=a&&image.to>=b))return false;
       if(math.some(m=>m.from<=a&&m.to>=b&&!(editing&&editing.from<=m.to&&editing.to>=m.from)))return false;
       if(name==='Table'||name==='FencedCode'&&/^(`{3,}|~{3,})\s*mermaid\s*$/i.test(doc.lineAt(a).text.trim()))return false;
       if(b<=a) return;
@@ -477,13 +480,32 @@ async function closeTab(path,returning=false){
   else if(!appStore.state.displayedDocument){lastThreadHTML='';lastThreadKey='';clearSurface();const welcome=document.createElement('div');welcome.className='welcome';welcome.innerHTML='<h1>Open a file to begin.</h1>';$('#surface').append(welcome);$('#threads').replaceChildren();discussionView.reset();appStore.dispatch({type:'THREADS_RECEIVED',threads:[]});$('#thread-count').textContent='0';updateToolbar();await refreshThreads();}
 }
 
-const imageTools=createImageTools({token,api,context:()=>({path:entry()?.sourcePath||entry()?.path,readonly:!!entry()?.kind,threads:appStore.state.threads}),
+function imageRangeAt(wrap){
+  if(!wrap.isConnected||!wrap.closest('#surface'))throw new Error('Document changed. Reopen the image.');
+  const content=entry().content,ranges=imageRanges(content.replace(/\r\n/g,'\n')),mapped=wrap.querySelector('img')?.dataset.mdImageFrom;
+  const position=mapped!==undefined?(view?Number(mapped):content.slice(0,Number(mapped)).replace(/\r\n/g,'\n').length):view?.posAtDOM(wrap);
+  const range=position!==undefined?ranges.find(r=>r.from<=position&&r.to>=position):ranges[[...$('#surface').querySelectorAll('.markdown-image')].indexOf(wrap)];
+  if(!range)throw new Error('Reopen the image before editing it.');return range;
+}
+const imageTools=createImageTools({token,api,context:()=>({path:entry()?.sourcePath||entry()?.path,readonly:!!entry()?.kind,mode:entry()?.mode,threads:appStore.state.threads}),
   error:message=>notify(message,true),changed:id=>imageTools.refresh(id),focus:id=>showThread(id),
+  move:async(id,thread,point)=>{
+    await api(`images/${id}/comments/${thread.id}`,'PATCH',{...point,previous:{x:thread.image_annotation.x,y:thread.image_annotation.y}});
+    await refreshThreads();
+  },
+  editSource:wrap=>{
+    if(!view)return;const range=imageRangeAt(wrap);
+    view.dispatch({effects:blockSourceEffect.of({...range,kind:'image'}),selection:{anchor:range.from}});view.focus();
+  },
+  resized:(wrap,width)=>{
+    const e=entry();if(!e||e.kind)return;const range=imageRangeAt(wrap);
+    const source=e.content.replace(/\r\n/g,'\n').slice(range.from,range.to);
+    const change=replacementFor(source,resizedImageSource(source,width,!!wrap.closest('table')));
+    applyImageChanges(e,{...change,from:range.from+change.from,to:range.from+change.to});
+  },
   remove:async wrap=>{
     const e=entry();if(!e||e.kind)return;
-    const content=e.content,ranges=imageRanges(content);
-    const position=view?.posAtDOM(wrap);
-    const range=view?ranges.find(r=>r.from<=position&&r.to>=position):ranges[[...$('#surface').querySelectorAll('.markdown-image')].indexOf(wrap)];
+    const content=e.content,range=imageRangeAt(wrap);
     if(!range)throw new Error('Reopen the image before deleting it.');
     if(!await confirmAction({title:'Delete image?',message:'Remove this image from the document? The original image and discussions are kept. You can undo this edit.',confirmLabel:'Delete image',symbol:'trash',danger:true}))return;
     if(entry()!==e||e.content!==content)throw new Error('Document changed. Reopen the image before deleting it.');
@@ -512,6 +534,7 @@ const imageTools=createImageTools({token,api,context:()=>({path:entry()?.sourceP
 class MarkdownImage extends WidgetType {
   constructor(source,href,alt){super();this.source=source;this.href=href;this.alt=alt;}
   eq(other){return this.source===other.source;}
+  updateDOM(_el,_view,previous){return this.source===previous.source;}
   toDOM(){const host=document.createElement('span'),img=document.createElement('img');img.setAttribute('src',this.href);img.alt=this.alt;host.append(img);imageTools.mount(img);return host;}
   ignoreEvent(){return true;}
 }
@@ -1430,7 +1453,7 @@ document.addEventListener('focusin',event=>{if(appStore.state.requestedThread!==
 document.addEventListener('scroll',scheduleSelectionTools,true);
 window.addEventListener('resize',()=>{scheduleSelectionTools();if($('#comment-dialog').open){const location=selectionLocation();if(location)placeNearSelection($('#comment-dialog'),location);}});
 document.addEventListener('keydown',event=>{
-  if(event.target.closest?.('#author-popover,.lg-dialog,.image-editor,.image-comment-box'))return;
+  if(event.target.closest?.('#author-popover,.lg-dialog,.image-editor,.image-comment-box,.image-comment-marker,.image-resize'))return;
   passagePosition=null;
   if(event.key==='Escape'){passageActivation++;pressedPassage=null;}
   // Let the focused navigation panel consume Escape before context/spotlight.

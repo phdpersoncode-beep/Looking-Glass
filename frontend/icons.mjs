@@ -10,6 +10,8 @@ const paths={
   restore:'M4 7a6 6 0 1 1-1 6M4 3v4h4',
   eraser:'m3 11 8-8 6 6-8 8H7zM7 7l6 6M9 17h8',
   send:'m3 3 14 7-14 7 3-7zM6 10h11',
+  code:'m7 5-5 5 5 5M13 5l5 5-5 5',
+  resize:'M17 10v7h-7M17 17l-8-8',
 };
 export function icon(name){
   const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');

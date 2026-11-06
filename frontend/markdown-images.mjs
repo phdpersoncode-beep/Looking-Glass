@@ -1,3 +1,4 @@
+import {imageCaption} from './image-size.mjs';
 import {iconButton} from './icons.mjs';
 import {confirmAction,requestText} from './dialogs.mjs';
 import {markdown} from './markdown-math.mjs';
@@ -17,7 +18,7 @@ export function imageRanges(source) {
 const symbols={'Red pen':'pen',Eraser:'eraser',Comment:'comment',Undo:'undo',Redo:'redo','Save image':'check','Restore original':'restore',Close:'close',Reply:'send','Add comment':'send',Cancel:'close'};
 const button=(label,action)=>iconButton(label,symbols[label]||'comment',action);
 
-export function createImageTools({token,api,context,comment,focus,error,changed,renamed,remove}) {
+export function createImageTools({token,api,context,comment,focus,error,changed,renamed,remove,move,resized,editSource}) {
   const references=new Map();
   async function request(route,method='GET',data) {
     const response=await fetch('/api/'+route,{method,headers:{'X-Looking-Glass-Token':token},body:data});
@@ -102,15 +103,67 @@ export function createImageTools({token,api,context,comment,focus,error,changed,
     box.append(text,feedback,actions);panel.append(box);text.focus();
   }
   function markers(host,id,dialog=null){
-    host.querySelectorAll(':scope > .image-comment-marker').forEach(el=>el.remove());
-    for(const thread of context().threads.filter(t=>t.image_annotation?.image_id===id&&t.anchor_status==='attached')){
-      const p=thread.image_annotation,b=button('Image thread #'+thread.id,()=>{commentBox(host,id,p,dialog,thread);if(!dialog)focus(thread.id);});b.className='image-comment-marker';b.title='Image thread #'+thread.id;b.setAttribute('aria-label',b.title);b.style.left=(p.x*100)+'%';b.style.top=(p.y*100)+'%';b.classList.toggle('resolved',thread.resolved);host.append(b);
+    const threads=context().threads.filter(t=>t.image_annotation?.image_id===id&&t.anchor_status==='attached');
+    const existing=new Map([...host.querySelectorAll(':scope > .image-comment-marker')].map(b=>[Number(b.dataset.thread),b]));
+    for(const thread of threads){
+      let b=existing.get(thread.id);existing.delete(thread.id);
+      if(!b){
+        b=button('Image thread #'+thread.id);b.className='image-comment-marker';b.dataset.thread=thread.id;b.title='Image thread #'+thread.id+' · Ctrl+click to move';
+        let drag=null,ignoreClick=false;
+        const place=p=>{b.style.left=(p.x*100)+'%';b.style.top=(p.y*100)+'%';};
+        const mode=enabled=>{b.classList.toggle('drag-mode',enabled);b.setAttribute('aria-pressed',String(enabled));};mode(false);
+        b.onclick=event=>{
+          event.stopPropagation();if(ignoreClick){ignoreClick=false;return;}
+          if(event.ctrlKey){mode(!b.classList.contains('drag-mode'));return;}
+          if(b.classList.contains('drag-mode'))return;
+          commentBox(host,id,b._thread.image_annotation,dialog,b._thread);if(!dialog)focus(b._thread.id);
+        };
+        b.onpointerdown=event=>{
+          if(event.button!==0||!b.classList.contains('drag-mode')||b._moving)return;
+          event.preventDefault();event.stopPropagation();const rect=host.getBoundingClientRect();
+          drag={x:event.clientX,y:event.clientY,rect,point:{...b._thread.image_annotation},thread:b._thread};b._dragging=true;ignoreClick=false;b.setPointerCapture(event.pointerId);
+        };
+        b.onpointermove=event=>{
+          if(!drag)return;
+          drag.next={x:Math.max(0,Math.min(1,drag.point.x+(event.clientX-drag.x)/drag.rect.width)),y:Math.max(0,Math.min(1,drag.point.y+(event.clientY-drag.y)/drag.rect.height))};place(drag.next);
+        };
+        const finish=(event,cancel=false)=>{
+          if(!drag)return;const current=drag;drag=null;b._dragging=false;
+          const moved=Math.hypot(event.clientX-current.x,event.clientY-current.y)>2;
+          ignoreClick=moved;
+          if(cancel||!moved||!current.next){place(current.point);return;}
+          b._moving=true;
+          run(async()=>{try{await move(id,current.thread,current.next);}catch(e){place(current.point);throw e;}finally{b._moving=false;markers(host,id,dialog);}})();
+        };
+        b.onpointerup=event=>finish(event);b.onpointercancel=event=>finish(event,true);
+        b.onkeydown=event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();if(drag){place(drag.point);drag=null;b._dragging=false;ignoreClick=true;}mode(false);}};
+        host.append(b);
+      }
+      b._thread=thread;b.classList.toggle('resolved',thread.resolved);
+      if(!b._dragging&&!b._moving){const p=thread.image_annotation;b.style.left=(p.x*100)+'%';b.style.top=(p.y*100)+'%';}
     }
+    for(const b of existing.values())b.remove();
+  }
+  function resizeHandle(wrap,img){
+    const handle=iconButton('Resize image','resize');handle.classList.add('image-resize');handle.setAttribute('role','slider');handle.setAttribute('aria-valuemin','40');handle.setAttribute('aria-valuemax','4000');
+    let drag=null;
+    const setWidth=width=>{width=Math.round(Math.max(40,Math.min(4000,width)));wrap.style.width=width+'px';handle.setAttribute('aria-valuenow',width);return width;};
+    const revert=()=>{wrap.style.width=drag.original;drag=null;};
+    handle.onpointerdown=event=>{if(event.button!==0)return;event.preventDefault();event.stopPropagation();drag={x:event.clientX,width:wrap.getBoundingClientRect().width,original:wrap.style.width};handle.setPointerCapture(event.pointerId);};
+    handle.onpointermove=event=>{if(drag)drag.next=setWidth(drag.width+2*(event.clientX-drag.x));};
+    handle.onpointerup=()=>{if(!drag)return;const current=drag;if(!current.next||Math.abs(current.next-current.width)<2){revert();return;}drag=null;run(async()=>{try{await resized(wrap,current.next);}catch(e){wrap.style.width=current.original;throw e;}})();};
+    handle.onpointercancel=()=>{if(drag)revert();};
+    handle.onkeydown=event=>{
+      if(event.key==='Escape'&&drag){event.preventDefault();event.stopPropagation();revert();}
+      if(['ArrowLeft','ArrowRight'].includes(event.key)){event.preventDefault();event.stopPropagation();const width=setWidth(wrap.getBoundingClientRect().width+(event.key==='ArrowRight'?10:-10));run(()=>resized(wrap,width))();}
+    };
+    img.addEventListener('load',()=>handle.setAttribute('aria-valuenow',Math.round(wrap.getBoundingClientRect().width)),{once:true});
+    wrap.append(handle);
   }
   function mount(img){
     if(img.closest('.markdown-image'))return;
     const src=img.getAttribute('src'),owner=context();let id=imageID(src);
-    const wrap=document.createElement('span');wrap.className='markdown-image';img.replaceWith(wrap);const pixels=document.createElement('span');pixels.className='image-pixels';pixels.append(img);wrap.append(pixels);
+    const wrap=document.createElement('span');wrap.className='markdown-image';img._displayCaption??=img.alt;const caption=imageCaption(img._displayCaption);if(caption.width)wrap.style.width=caption.width+'px';img.alt=caption.alt;img.draggable=false;img.replaceWith(wrap);const pixels=document.createElement('span');pixels.className='image-pixels';pixels.append(img);wrap.append(pixels);
     let url;const dispose=()=>{if(url)URL.revokeObjectURL(url);};
     const observer=new MutationObserver(()=>{if(!wrap.isConnected){dispose();observer.disconnect();}});queueMicrotask(()=>observer.observe(document.body,{childList:true,subtree:true}));
     run(async()=>{
@@ -122,10 +175,14 @@ export function createImageTools({token,api,context,comment,focus,error,changed,
         if(owner.readonly)return;
         const controls=document.createElement('span');controls.className='image-actions';
         const pencil=iconButton('Annotate image','pen',run(()=>editor(id)));pencil.classList.add('image-pencil');
-        const trash=iconButton('Delete image','trash',run(()=>remove(wrap)));trash.classList.add('image-delete');controls.append(pencil,trash);wrap.append(controls);wrap.oncontextmenu=e=>{e.preventDefault();run(()=>rename(id))();};markers(pixels,id);
+        const trash=iconButton('Delete image','trash',run(()=>remove(wrap)));trash.classList.add('image-delete');controls.append(pencil,trash);if(owner.mode==='live'){const source=iconButton('Edit image source','code',()=>editSource(wrap));controls.append(source);}wrap.append(controls);wrap.oncontextmenu=e=>{e.preventDefault();run(()=>rename(id))();};markers(pixels,id);
       }else if(!/^(?:https?:|data:|blob:|\/)/i.test(src||'')){
         const path=imagePath(src,owner.path);
         url=URL.createObjectURL(await (await request('binary?'+new URLSearchParams({path}))).blob());img.src=url;
+      }
+      if(!owner.readonly){
+        resizeHandle(wrap,img);
+        if(owner.mode==='live'&&!wrap.querySelector('.image-actions')){const controls=document.createElement('span');controls.className='image-actions';controls.append(iconButton('Edit image source','code',()=>editSource(wrap)));wrap.append(controls);}
       }
       if(!wrap.isConnected)dispose();
     })();

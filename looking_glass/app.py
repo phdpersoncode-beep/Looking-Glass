@@ -473,6 +473,10 @@ def create_app(root):
     def image_comment(identifier):
         return jsonify(ws.images.comment(identifier, body())), 201
 
+    @app.patch('/api/images/<identifier>/comments/<int:thread_id>')
+    def move_image_comment(identifier, thread_id):
+        return jsonify(ws.images.move_comment(identifier, thread_id, body()))
+
     @app.post('/api/threads/<int:identifier>/attachments')
     def upload_attachment(identifier):
         upload=request.files.get('file')

@@ -53,7 +53,9 @@ export function mappedMarkdownHTML(source,offset=0,math=[]) {
   const normalized=source.replace(/\r\n?/g,'\n'),boundaries=[0];
   for(let i=0;i<source.length;i++){if(source[i]==='\r'&&source[i+1]==='\n')i++;boundaries.push(i+1);}
   const tokens=marked.lexer(normalized),positions=tokenPositions(tokens,normalized),renderer=new Renderer();
-  const baseText=renderer.text,baseCode=renderer.codespan,baseBlock=renderer.code;
+  const baseText=renderer.text,baseCode=renderer.codespan,baseBlock=renderer.code,baseImage=renderer.image;
+  const renderImage=(token,html)=>{const p=positions.get(token);return p?html.replace('<img ',`<img data-md-image-from="${offset+boundaries[p.from]}" `):html;};
+  renderer.image=function(token){return renderImage(token,baseImage.call(this,token));};
   const wrap=(token,html)=>{
     const position=positions.get(token);if(!position)return html;
     return `<span class="md-mapped-text" data-md-from="${offset+boundaries[position.from]}" data-md-to="${offset+boundaries[position.to]}">${html}</span>`;
@@ -67,7 +69,7 @@ export function mappedMarkdownHTML(source,offset=0,math=[]) {
   };
   renderer.code=function(token){return isMathFence(token)?renderMath(token):baseBlock.call(this,token).replace(/(<code[^>]*>)([\s\S]*)(<\/code>)/,(_all,open,body,close)=>open+wrap(token,body)+close);};
   // Marked sends escaped punctuation through the text renderer as well.
-  return marked.parser(tokens,{...marked.defaults,renderer,mathRenderer:renderMath});
+  return marked.parser(tokens,{...marked.defaults,renderer,mathRenderer:renderMath,imageRenderer:renderImage});
 }
 
 export function visibleMap(raw,from,text,code=false) {
