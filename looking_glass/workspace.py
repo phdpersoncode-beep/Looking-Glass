@@ -75,6 +75,8 @@ class Workspace:
         self.reviews = Reviews(self)
         from .pdfs import PDFs
         self.pdfs = PDFs(self)
+        from .source_markers import SourceMarkers
+        self.source_markers = SourceMarkers(self)
 
     def connection(self):
         return self.store.connection()
@@ -202,7 +204,9 @@ class Workspace:
             self.reconcile(db, path, content)
             if before == self.fingerprint(path):
                 self._fingerprints[path] = (before, version)
-            return dict(path=path, content=content, version=version)
+            return dict(path=path, content=content, version=version,
+                        track_source_markers=self.source_markers.enabled(db, path),
+                        source_markers_truncated=self.source_markers.truncated(db, path))
 
     def fingerprint(self, path):
         info = self.path(path).stat()
@@ -238,7 +242,8 @@ class Workspace:
                 if os.path.exists(temporary):
                     os.unlink(temporary)
             self.reconcile(db, path, content)
-            return dict(path=path, content=content, version=digest(content.encode('utf-8')))
+            return dict(path=path, content=content, version=digest(content.encode('utf-8')),
+                        source_markers_truncated=self.source_markers.truncated(db, path))
 
     def threads(self, path=None, reconcile=True, review=None):
         return self.discussions.threads(path, reconcile, review)
@@ -469,6 +474,7 @@ class Workspace:
                 if type(start) is not int or type(end) is not int or not 0 <= start < end <= len(content): raise Problem('Select a nonempty passage.')
                 update_anchor("start=?,end=?,quote=?,anchor_status='attached'",(start,end,content[start:end]))
                 if t['anchor_kind']=='review_removed': db.execute("UPDATE threads SET anchor_kind='source',render_anchor=NULL WHERE id=?",(identifier,))
+            self.source_markers.resolve_unattached(db, t['path'], review_id)
         return self.get_thread(identifier,review=review_id)
 
     def delete_thread(self, identifier):

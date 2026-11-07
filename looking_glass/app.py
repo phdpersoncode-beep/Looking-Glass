@@ -251,6 +251,16 @@ def create_app(root):
         data = body()
         return jsonify(ws.save(data.get('path'),data.get('content'),data.get('version')))
 
+    @app.post('/api/source-markers')
+    def track_source_markers():
+        data = body()
+        return jsonify(ws.source_markers.track(data.get('path'), data.get('enabled'), data.get('version')))
+
+    @app.post('/api/python/definition')
+    def python_definition():
+        from .python_navigation import definitions
+        return jsonify(definitions(ws, body()))
+
     @app.get('/api/reviews')
     def list_reviews():
         return jsonify(reviews=ws.reviews.list())
