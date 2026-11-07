@@ -1,3 +1,4 @@
+import {loadImage} from './image-loading.mjs';
 import {imageCaption} from './image-size.mjs';
 import {iconButton} from './icons.mjs';
 import {confirmAction,requestText} from './dialogs.mjs';
@@ -43,7 +44,7 @@ export function createImageTools({token,api,context,comment,focus,error,changed,
     const stage=document.createElement('div');stage.className='image-stage';viewport.append(stage);
     const comments=document.createElement('div');comments.className='image-comments';comments.hidden=true;workspace.append(viewport,comments);
     const base=new Image(),originalImage=new Image(),canvas=document.createElement('canvas'),ink=document.createElement('canvas'),ctx=ink.getContext('2d');
-    base.src=current;originalImage.src=original;await Promise.all([base.decode(),originalImage.decode()]);canvas.width=ink.width=base.naturalWidth;canvas.height=ink.height=base.naturalHeight;
+    await Promise.all([loadImage(base,current),loadImage(originalImage,original)]);canvas.width=ink.width=base.naturalWidth;canvas.height=ink.height=base.naturalHeight;
     if(canvas.width*canvas.height>40000000){URL.revokeObjectURL(current);URL.revokeObjectURL(original);throw new Error('Image is too large to annotate (40 megapixels maximum).');}
     ctx.drawImage(base,0,0);stage.append(canvas);const status=document.createElement('p');status.setAttribute('role','status');
     let lastErase=null,tool='pen',drawing=false,history=[ctx.getImageData(0,0,ink.width,ink.height)],at=0,dirty=false,busy=false;
@@ -187,7 +188,7 @@ export function createImageTools({token,api,context,comment,focus,error,changed,
   function mount(img){
     if(img.closest('.markdown-image'))return;
     const src=img.getAttribute('src'),owner=context();owner.readonly||=!!img.closest('.comment-markdown');let id=imageID(src);
-    // Retain layout during decode: display:none can make Gecko reject the image.
+    // Reserve layout while the replacement image request loads.
     const wrap=document.createElement('span');wrap.className='markdown-image';wrap.style.visibility='hidden';if(owner.readonly)wrap.dataset.imageReadonly='';img._displayCaption??=img.alt;const caption=imageCaption(img._displayCaption);if(caption.width)wrap.style.width=caption.width+'px';img.alt=caption.alt;img.draggable=false;img.replaceWith(wrap);const pixels=document.createElement('span');pixels.className='image-pixels';pixels.append(img);wrap.append(pixels);
     let url;const dispose=()=>{if(url)URL.revokeObjectURL(url);};
     const observer=new MutationObserver(()=>{if(!wrap.isConnected){dispose();observer.disconnect();}});queueMicrotask(()=>observer.observe(document.body,{childList:true,subtree:true}));
@@ -196,14 +197,14 @@ export function createImageTools({token,api,context,comment,focus,error,changed,
         const path=imagePath(src,owner.path);
         const meta=await api('images/import','POST',{path});id=meta.id;
       }
-      if(id){references.set(id,src);url=await load(id);img.src=url;await img.decode();wrap.style.visibility='';wrap.dataset.imageId=id;
+      if(id){references.set(id,src);url=await load(id);await loadImage(img,url);wrap.style.visibility='';wrap.dataset.imageId=id;
         if(owner.readonly)return;
         const controls=document.createElement('span');controls.className='image-actions';
         const pencil=iconButton('Annotate image','pen',run(()=>editor(id)));pencil.classList.add('image-pencil');
         const trash=iconButton('Delete image','trash',run(()=>remove(wrap)));trash.classList.add('image-delete');controls.append(pencil,trash);if(owner.mode==='live'){const source=iconButton('Edit image source','code',()=>editSource(wrap));controls.append(source);}wrap.append(controls);wrap.oncontextmenu=e=>{e.preventDefault();run(()=>rename(id))();};markers(pixels,id);
       }else if(!/^(?:https?:|data:|blob:|\/)/i.test(src||'')){
         const path=imagePath(src,owner.path);
-        url=URL.createObjectURL(await (await request('binary?'+new URLSearchParams({path}))).blob());img.src=url;await img.decode();
+        url=URL.createObjectURL(await (await request('binary?'+new URLSearchParams({path}))).blob());await loadImage(img,url);
       }
       wrap.style.visibility='';
       if(!owner.readonly){

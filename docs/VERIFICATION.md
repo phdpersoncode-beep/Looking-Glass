@@ -984,9 +984,37 @@ collection has not been run for this feature. GitHub API access returned
   **191/190/190/190**.
 
 The image decode wrapper keeps its layout while invisible instead of using
-`display:none`, addressing the previous Firefox image initialization failures.
+`display:none`. The following full run showed this alone did not resolve the
+Firefox image initialization failures; see the follow-up below.
 Review/resize browser checks await completed mode changes, decoded pixels, and
 fonts before measuring both rectangles in a single evaluation. No assertions
 were relaxed or retries introduced. Local Chromium passes do not establish
 Firefox correctness: the environment denies Playwright's Firefox download, so
 full Chromium/Firefox validation must use the final pushed CI run.
+
+## Browser run follow-up (2026-11-07)
+
+Run [42407895085](https://github.com/phdpersoncode-beep/Looking-Glass/actions/runs/42407895085)
+tested the PR head `e5a9ca1`: **726 passed, 35 failed**. All **20 new explorer,
+outline, and file-reference cases passed** across Chromium and Firefox.
+
+- 33 Firefox image cases still failed during initialization with “Invalid image
+  request.” Retaining layout alone was insufficient. Image setup now registers
+  load/error listeners before assigning the replacement URL, awaiting the new
+  request's load event rather than decoding immediately against a stale request.
+  This includes current/original buffers in the annotation editor. Unit checks
+  cover pending readiness, error rejection, and recovery on the same element.
+- The Chromium resize/Review test read disk while approval was still pending;
+  it now verifies redo content and waits for completed approval before asserting
+  persisted bytes. The disk assertion is unchanged.
+- The refresh test expected an empty tree after removing files but leaving their
+  folder. It now checks that the empty folder remains as a drop target, then
+  removes the folder and checks the original empty-workspace message.
+
+Firefox remains unavailable locally because its download is denied by the
+managed environment. A fresh full CI run must validate these changes.
+
+Follow-up local validation: **35 Chromium image/tree cases**, **171 Python
+checks**, and **20 JavaScript test files passed**. Build, wheel/source packaging,
+whitespace, and the unchanged complete/disjoint 761-case shard guard passed.
+Firefox results remain pending in the next full hosted run.

@@ -516,6 +516,9 @@ def test_file_tree_refresh_preserves_state_and_recovers(workspace_page, monkeypa
     expect(folder).to_have_attribute('open', '')
     (root/'folder'/'note.txt').unlink(); (root/'folder'/'new.txt').unlink()
     page.locator('#refresh-files').click()
+    expect(page.locator('.file-entry')).to_have_count(0)
+    expect(folder).to_be_visible()  # Empty folders remain useful drop targets.
+    (root/'folder').rmdir();page.locator('#refresh-files').click()
     expect(page.locator('#file-tree')).to_contain_text('No files in this directory.')
 
 

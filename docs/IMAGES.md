@@ -115,8 +115,10 @@ This test-harness difference does not affect trusted OS paste events. Manual
 checks with each OS's screenshot utility remain necessary to establish its
 native clipboard integration.
 
-Image wrappers reserve layout space while bytes decode and stay invisible until
-ready. Using `display:none` here caused Gecko to reject decoding and prevented
-annotation controls from appearing. Browser regressions wait for decoded pixels
-and completed Review transitions before measuring resize geometry; image and
-container rectangles are captured in the same browser evaluation.
+Image wrappers reserve layout space while bytes load and stay invisible until
+ready. Setup registers `load`/`error` listeners before assigning the blob URL;
+this also handles a replaced relative URL that previously returned 404. Calling
+`decode()` immediately after changing that URL could report Firefox's previous
+invalid image request. The same load readiness applies to the annotation canvas
+and its original-image buffer. Browser regressions await completed Review
+transitions and approval before measuring geometry or reading saved disk bytes.

@@ -359,9 +359,12 @@ def test_centered_image_resize_persists_per_embed_and_undoes(workspace_page,mode
     page.locator('.cm-content').click();page.keyboard.press('Control+z')
     expect(page.locator('.cm-content')).to_contain_text('![Second](photo.png)')
     page.keyboard.press('Control+Shift+z')
+    expect(page.locator('.cm-content')).to_contain_text(f'![Second|{round(box["width"]-120)}](photo.png)')
     if work=='review':
         assert (root/'notes.md').read_text()==original
         page.locator('#approve-review').click();page.locator('#confirm-review-approve').click()
+        expect(page.locator('#work-mode')).to_have_attribute('aria-checked','false')
+        expect(page.locator('#notice')).to_have_text('Reviewed version approved and saved')
     else:page.locator('#save').click()
     expect(page.locator('#dirty')).to_have_text('')
     assert f'![Second|{round(box["width"]-120)}](photo.png)' in (root/'notes.md').read_text()
