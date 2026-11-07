@@ -1018,3 +1018,37 @@ Follow-up local validation: **35 Chromium image/tree cases**, **171 Python
 checks**, and **20 JavaScript test files passed**. Build, wheel/source packaging,
 whitespace, and the unchanged complete/disjoint 761-case shard guard passed.
 Firefox results remain pending in the next full hosted run.
+
+## Git status colors and navigation controls
+
+- Explorer paths use Git's real ignored/modified/new status, with staged additions,
+  tracked files matched by later ignore rules, renames, unusual filenames, nested
+  workspace roots, and status-only ETag changes covered. The automatic status read
+  disables optional index writes and external filesystem monitoring; index bytes
+  remain unchanged in the regression test. Git decoration failure leaves the tree
+  usable. `.looking.ignore` discovery and Git ignore coloring stay independent.
+- Ctrl+P sorts unique recent visits first using the file-history dropdown order.
+  Coverage includes closed outside files, persistence, fuzzy filtering, arrows and
+  Enter, and retaining the chosen result while fresh workspace discovery arrives.
+  Shift+P remains ordinary text input, per the clarified request.
+- Python outlines resize from their left edge, remember workspace-specific width,
+  fit narrow panes, support keyboard resizing/reset, and cancel a drag with Escape.
+  File switches, unsaved content, undo, and reloads retain their existing behavior.
+- Selected strings have clickable amber scrollbar markers, including offscreen
+  matches, with at most 250 line bands. Markers clear with the selection and update
+  safely after shortening a document. Scans preserve Unicode normalization and
+  yield/cancel between bounded chunks so new input supersedes stale work.
+- Diagnostic Node measurements: 1.2 million characters / 100,001 lines with dense
+  matches produced 250 markers in about 42 ms total; a sparse 2.8-million-character /
+  200,002-line file produced two markers in about 22 ms (previously about 306 ms).
+  Production scanning yields between chunks; these are measurements, not test
+  timing thresholds.
+- Local validation: **173 Python checks**, **21 JavaScript test files**, and
+  **25 focused Chromium cases** passed; the final occurrence editing/clearing
+  regression passed after the scan refinements. Both themes and desktop/narrow
+  layouts inspected. Build/clean rebuild, wheel/source packaging, whitespace,
+  and complete/disjoint **773-case** browser sharding checked (194/193/193/193).
+
+The prior full run on `8297c62` passed all 763 cases. Firefox remains unavailable
+locally because its browser download is blocked; the new cases require the final
+hosted Chromium/Firefox run.

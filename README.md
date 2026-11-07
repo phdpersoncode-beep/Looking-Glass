@@ -216,7 +216,8 @@ rounding large numbers or removing duplicate keys. Formatting is undoable and st
 unsaved until you save. Invalid JSON stays unchanged and produces an error.
 
 Ctrl+P opens fuzzy file search throughout the application and overrides browser printing.
-Type parts of a filename or path, use ↑/↓ to select, and press Enter to open.
+Recent file visits appear first. Type parts of a filename or path, use ↑/↓ to
+select, and press Enter to open.
 Escape closes the picker. The picker includes workspace files and open outside files.
 The arrows to the left of the file path move backward and forward through recent
 file visits. The dropdown beside them jumps to a visit or clears the history.

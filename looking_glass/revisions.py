@@ -47,6 +47,41 @@ class Revisions:
                 files.append(dict(path=name, status=code))
         return dict(repository=True, files=files)
 
+    def explorer_status(self, paths):
+        """Decorate discovered paths without changing Git's index or ignore rules."""
+        root=self.root()
+        if root is None:return {}
+        prefix=self.ws.root.relative_to(root).as_posix()
+        prefix='' if prefix=='.' else prefix+'/'
+        raw=self.git('--no-optional-locks','-c','core.fsmonitor=false','status','--porcelain=v1','-z','--untracked-files=normal','--ignored=matching','--','.',timeout=5).stdout
+        parts=raw.decode('utf-8',errors='replace').split('\0');direct={};directories={};i=0
+        while i<len(parts):
+            item=parts[i];i+=1
+            if not item:continue
+            code,name=item[:2],item[3:]
+            if 'R' in code or 'C' in code:i+=1
+            if not name.startswith(prefix):continue
+            name=name[len(prefix):]
+            state='ignored' if code=='!!' else 'new' if code=='??' or 'A' in code else 'modified'
+            if name.endswith('/'):directories[name.rstrip('/')]=state
+            else:direct[name]=state
+        result={}
+        for path in paths:
+            state=direct.get(path)
+            parent=path
+            while state is None and parent:
+                state=directories.get(parent);parent=parent.rpartition('/')[0]
+            if state:result[path]=state
+        # A changed visible descendant colors its containing folders too.
+        priority={'ignored':0,'new':1,'modified':2}
+        for path,state in list(result.items()):
+            if state=='ignored':continue
+            parent=path.rpartition('/')[0]
+            while parent:
+                if priority.get(result.get(parent),-1)<priority[state]:result[parent]=state
+                parent=parent.rpartition('/')[0]
+        return result
+
     def init(self):
         if self.root():
             raise Problem('This directory already belongs to a Git repository.')
