@@ -219,6 +219,9 @@ const theme = () => EditorView.theme({
   '.cm-activeLine, .cm-activeLineGutter':{backgroundColor:'var(--active-line)'},
   '.cm-cursor':{borderLeftColor:'var(--purple)'},
   '.cm-selectionBackground, &.cm-focused .cm-selectionBackground':{backgroundColor:'var(--selection)'},
+  '.cm-selectionMatch':{backgroundColor:'var(--occurrence-bg)',color:'var(--occurrence-text)',boxShadow:'inset 0 -1px var(--occurrence-edge)',borderRadius:'2px'},
+  '.cm-selectionMatch span':{color:'inherit'},
+  '.cm-searchMatch .cm-selectionMatch':{backgroundColor:'transparent',boxShadow:'none',color:'inherit'},
   '.cm-searchMatch':{backgroundColor:'var(--selection)',outline:'1px solid var(--purple)'},
   '.cm-panels':{backgroundColor:'var(--panel)',color:'var(--text)'},
   '.cm-panel input, .cm-panel button':{color:'var(--text)',background:'var(--paper)'}

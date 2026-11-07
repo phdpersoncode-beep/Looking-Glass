@@ -162,3 +162,35 @@ def test_search_is_scoped_and_read_only_context_cannot_replace(workspace_page):
     page.keyboard.press('Escape')
     expect(page.locator('#thread-search')).to_have_value('')
     assert (root/'note.txt').read_text() == 'First phrase. Second phrase.'
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_selected_word_occurrences_are_readable_and_distinct_in_both_themes(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,_=workspace_page
+    (root/'policy.py').write_text('observation = 1\n\ndef observe():\n    """A description of observation."""\n    return observation\n')
+    page.goto(url);open_file(page,'policy.py')
+    for theme in ['dark','light']:
+        if page.locator('html').get_attribute('data-theme')!=theme:page.locator('#theme').click()
+        page.locator('.cm-content').click();page.keyboard.press('Control+Home');page.keyboard.press('Control+Shift+ArrowRight')
+        matches=page.locator('.cm-selectionMatch');expect(matches).to_have_text(['observation','observation'])
+        colors=matches.evaluate_all('''elements=>elements.map(el=>{
+          let leaf=el;while(leaf.firstElementChild)leaf=leaf.firstElementChild;
+          const style=getComputedStyle(el),probe=document.createElement('span');probe.className='passage-highlight';document.body.append(probe);
+          const discussion=getComputedStyle(probe).backgroundColor;probe.remove();
+          return {background:style.backgroundColor,text:getComputedStyle(leaf).color,edge:style.boxShadow,discussion};
+        })''')
+        for color in colors:
+            import re
+            def luminance(value):
+                rgb=[int(c)/255 for c in re.findall(r'\d+',value)[:3]]
+                linear=[c/12.92 if c<=.04045 else ((c+.055)/1.055)**2.4 for c in rgb]
+                return sum(c*w for c,w in zip(linear,[.2126,.7152,.0722]))
+            foreground=luminance(color['text']);background=luminance(color['background'])
+            assert (max(foreground,background)+.05)/(min(foreground,background)+.05)>=4.5,color
+            assert 'inset' in color['edge']
+            assert color['background']!=color['discussion']
+        # Explicit search uses its existing styling and navigation alongside occurrences.
+        page.keyboard.press('Control+f');page.locator('.document-search [name=search]').fill('observation')
+        expect(page.locator('.cm-searchMatch')).to_have_count(3)
+        page.keyboard.press('Escape')

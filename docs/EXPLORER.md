@@ -48,3 +48,7 @@ matching thread references. Code spans, code blocks, existing links, and email
 addresses retain their usual meaning. Ignore rules filter suggestions, not
 explicit references or already-open paths. References point at the current
 workspace path and are not automatically rewritten after later moves.
+
+Selecting a word in the editor marks its other occurrences in amber, with
+contrasting text and a thin underline in both themes. These occurrence marks
+are distinct from purple discussion highlights and green/blue/red review changes.
