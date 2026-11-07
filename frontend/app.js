@@ -1,3 +1,6 @@
+import {fuzzyScore} from './file-search.mjs';
+import {mountExplorer} from './explorer.mjs';
+import {linkFileReferences,mountFileMentions} from './file-references.mjs';
 import {resizedImageSource,imageCaption} from './image-size.mjs';
 import {confirmAction,requestText} from './dialogs.mjs';
 import {createImageTools,imageRanges,imageID,imageLink,imagePath} from './markdown-images.mjs';
@@ -96,7 +99,7 @@ let collapsedThreads=new Set();try{collapsedThreads=new Set(JSON.parse(localStor
 function rememberCollapsed(){localStorage.setItem('looking-glass-collapsed-threads:'+root,JSON.stringify([...collapsedThreads]));}
 let quickPaths=[],quickMatches=[],quickIndex=0;
 let view = null, cleanup = () => {}, pending = null;
-let polling = false, saving = false, refreshNumber = 0;
+let polling = false, saving = false, refreshNumber = 0, fileMutation = null;
 let selectingText = false, selectionFrame = 0, postingComment = false;
 let pressedPassage=null,passageActivation=0;
 let passagePosition=null;
@@ -468,6 +471,7 @@ function showTabMenu(e,x,y){
   const others=document.createElement('button');others.textContent='Close other tabs';others.onclick=guard(async()=>{menu.remove();for(const name of [...tabs.keys()])if(name!==e.path&&!tabs.get(name).pinned)await closeTab(name);});menu.append(others);document.body.append(menu);setTimeout(()=>document.addEventListener('click',()=>menu.remove(),{once:true}),0);
 }
 async function closeTab(path,returning=false){
+  if(fileMutation){const session=tabs.get(path);await fileMutation;path=session?.path||path;}
   if(!tabs.has(path))return;
   if(tabs.get(path).kind==='original'&&!returning){await returnFromOriginal();return;}
   if(contextVisit?.path===path&&entry()?.kind==='original'){await returnFromOriginal();await closeTab(path);return;}
@@ -626,6 +630,7 @@ function cancelSidebarNavigation(){
 }
 function openFile(path){cancelSidebarNavigation();return navigation.open(path);}
 async function loadFile(path,request){
+    if(fileMutation)await fileMutation;
     await restoreReady;
     if(!request.current())return;
     if(appStore.state.displayedDocument===path){await entry()?.ready;rememberFileVisit(entry(),request.context?.fileHistoryIndex);return;}
@@ -683,21 +688,24 @@ async function loadFile(path,request){
       }else{held.surface.dispose();}
     }
     renderTabs();revealFile(path);updateToolbar();remember();
-    if(resume){/* The suspended reading surface is already mounted. */}
-    else if(e.kind==='history')cleanup=mountHistory($('#surface'),e.history??={},api,{onTarget:guard(async()=>{closeComment();clearThreadFocus();remember();await refreshThreads();}),onComment:guard(startGitComment),onState:remember});
-    else if(e.kind==='original')mountOriginal(e);
-    else if(e.kind==='oversized')mountOversized(e);
-    else if(ext(path)==='pdf')await mountPDFDocument(e);
-    else if(isImage(path))await mountImage(e);
-    else if(ext(path)==='stl')await mountSTL(e);
-    else if(ext(path)==='jsonl')mountJSONL(e);
-    else mountDocument(e);
+    if(!resume)await mountFileSurface(e);
     if(held&&!resume&&e.kind!=='original'&&path===held.path){const scroller=view?.scrollDOM||$('#surface');requestAnimationFrame(()=>{if(appStore.state.displayedDocument===path){scroller.scrollTop=held.top;scroller.scrollLeft=held.left;}});}
     await e.ready;
     if(!request.current())return;
     if(discussions){if(activation.current())receiveDiscussions(discussions.data,discussions.key,true,activation);}
     else await refreshThreads();
     notify('');
+}
+
+async function mountFileSurface(e){
+  if(e.kind==='history')cleanup=mountHistory($('#surface'),e.history??={},api,{onTarget:guard(async()=>{closeComment();clearThreadFocus();remember();await refreshThreads();}),onComment:guard(startGitComment),onState:remember});
+  else if(e.kind==='original')mountOriginal(e);
+  else if(e.kind==='oversized')mountOversized(e);
+  else if(ext(e.path)==='pdf')await mountPDFDocument(e);
+  else if(isImage(e.path))await mountImage(e);
+  else if(ext(e.path)==='stl')await mountSTL(e);
+  else if(ext(e.path)==='jsonl')mountJSONL(e);
+  else mountDocument(e);
 }
 
 function mountOversized(e){
@@ -797,7 +805,7 @@ async function mountPDFDocument(e){
 }
 function supportsReview(e){return !!e&&!e.kind&&!['stl','jsonl','json','html','htm','pdf'].includes(ext(e.path))&&!isImage(e.path);}
 function updateToolbar(){
-  const locked=!!changingWorkMode||entry()?.reviewSync?.status==='approving'||entry()?.kind==='original';
+  const locked=!!changingWorkMode||!!fileMutation||entry()?.reviewSync?.status==='approving'||entry()?.kind==='original';
   if(view&&view.state.readOnly!==locked)view.dispatch({effects:workLockSlot.reconfigure(EditorState.readOnly.of(locked))});
   const e=entry(), type=e?ext(e.path):'', viewer=!!e?.kind||['stl','jsonl','pdf'].includes(type)||isImage(e?.path||'');
   outlineController?.setDocument(!e?.kind&&type==='py'?e.path:null,!e?.kind&&type==='py'?view?.state.doc||null:null);
@@ -820,8 +828,8 @@ function updateToolbar(){
   $('#conflict').hidden=!e?.conflict;
   if(e?.workMode==='review')$('#conflict').hidden=true;
   if(e?.conflict)$('#conflict span').textContent=e.conflict.deleted?'This file was deleted or became unavailable on disk. Copy your draft before closing it.':'Changed on disk. Your unsaved edits are preserved. Compare and merge before saving.';
-  $('#work-mode').hidden=!supportsReview(e);$('#work-mode').disabled=changingWorkMode||saving;$('#work-mode').setAttribute('aria-checked',String(e?.workMode==='review'));$('#work-mode').querySelectorAll('span').forEach(s=>s.classList.toggle('active',s.dataset.mode===(e?.workMode==='review'?'review':'edit')));
-  $('#approve-review').hidden=e?.workMode!=='review';$('#approve-review').disabled=saving||changingWorkMode||!!e?.reviewError;
+  $('#work-mode').hidden=!supportsReview(e);$('#work-mode').disabled=changingWorkMode||saving||!!fileMutation;$('#work-mode').setAttribute('aria-checked',String(e?.workMode==='review'));$('#work-mode').querySelectorAll('span').forEach(s=>s.classList.toggle('active',s.dataset.mode===(e?.workMode==='review'?'review':'edit')));
+  $('#approve-review').hidden=e?.workMode!=='review';$('#approve-review').disabled=saving||changingWorkMode||!!fileMutation||!!e?.reviewError;
   $('#review-status').hidden=e?.workMode!=='review';$('#review-status').textContent=changingWorkMode?'Switching mode…':e?.reviewError?'Draft needs attention':['pending','saving'].includes(e?.reviewSync?.status)?'Saving review…':'Review saved';
   $('#review-history').hidden=e?.workMode!=='review';
   $('#review-conflict').hidden=!(e?.workMode==='review'&&e.reviewError);
@@ -829,6 +837,7 @@ function updateToolbar(){
   scheduleSelectionTools();
 }
 async function saveActive(){
+  if(fileMutation)await fileMutation;
   const e=entry();if(e?.workMode==='review'){await flushReview(e);return e;}if(!e||!e.dirty)return e;if(e.conflict)throw new Error('Resolve the external change before saving.');syncState();saving=true;updateToolbar();
   const content=e.content;
   try{
@@ -850,6 +859,7 @@ function flushReview(e){return e?reviewSync(e).flush():Promise.resolve();}
 const modePorts={api,sync:reviewSync,supports:supportsReview,resumed:e=>{if(e.workMode==='review'&&e.state&&e.reviewField)e.state=e.state.update({effects:reviewEffect.of(e.reviewSegments)}).state;}};
 async function ensureWorkMode(e){const prepared=await prepareWorkMode(e,appStore.state.reviewPreference?'review':'edit',modePorts);prepared.commit();}
 async function setWorkMode(value){
+  if(fileMutation)await fileMutation;
   if(changingWorkMode)return;changingWorkMode=true;syncState();updateToolbar();
   const activeSession=entry();
   try{
@@ -902,7 +912,7 @@ async function showReviewHistory(){
 
 function threadScope(){return appStore.state.scope;}
 const discussionCache=new Map();let lastThreadHTML='',lastThreadKey='',navigationIndex=[],indexTime=0;
-const discussionView=createDiscussionView($('#threads'),{composers,renderBody:(host,source)=>{renderMarkdown(host,source,highlightMarkdown);linkThreadReferences(host);markdownDiagrams(host);}});
+const discussionView=createDiscussionView($('#threads'),{composers,renderBody:(host,source)=>{renderMarkdown(host,source,highlightMarkdown);linkThreadReferences(host);linkFileReferences(host);markdownDiagrams(host);}});
 const discussionRetention=createDiscussionRetention();
 async function readDiscussions(path,scope,review){
   const key=scope+':'+(path||'')+':'+(review||''),cached=discussionCache.get(key);
@@ -1337,34 +1347,35 @@ async function mountSTL(e){
 }
 
 async function poll(){
-  if(polling||saving||navigation.busy||document.hidden)return;polling=true;
+  if(polling||saving||fileMutation||navigation.busy||document.hidden)return;polling=true;
   try{
     for(const e of [...tabs.values()]){
       if(e.kind)continue;
+      const requestedPath=e.path;
       try{
         if(e.workMode==='review'){await pollReview(e);continue;}
         const requestedVersion=e.version;
         if(ext(e.path)==='pdf'){
           const disk=await api('pdf?'+new URLSearchParams({path:e.path,version:requestedVersion,bookmark_revision:e.bookmark_revision}));
           if(!disk)continue;
-          if(e.version!==requestedVersion||navigation.busy||saving)continue;
+          if(e.path!==requestedPath||e.version!==requestedVersion||navigation.busy||saving||fileMutation)continue;
           if(disk.version!==e.version){Object.assign(e,disk);if(e.path===appStore.state.displayedDocument){closeComment();cleanup();cleanup=()=>{};clearSurface();await mountPDFDocument(e);notify('PDF changed; previous passage comments need reattachment.');}}
           else if(disk.bookmark_revision!==e.bookmark_revision){notify('PDF bookmarks changed elsewhere. Use Reload contents to load them.');}
           continue;
         }
         if(ext(e.path)==='stl'||isImage(e.path)){
           const disk=await api('stat?'+new URLSearchParams({path:e.path}));
-          if(e.version!==requestedVersion||navigation.busy||saving)continue;
+          if(e.path!==requestedPath||e.version!==requestedVersion||navigation.busy||saving||fileMutation)continue;
           if(disk.version!==e.version){e.version=disk.version;if(e.path===appStore.state.displayedDocument){cleanup();cleanup=()=>{};clearSurface();if(isImage(e.path))await mountImage(e);else await mountSTL(e);notify('Reloaded the external viewer change');}}
           continue;
         }
         const disk=await api('file?'+new URLSearchParams({path:e.path,version:requestedVersion}));
         if(!disk)continue;
-        if(e.version!==requestedVersion||navigation.busy||saving)continue;
+        if(e.path!==requestedPath||e.version!==requestedVersion||navigation.busy||saving||fileMutation)continue;
         if(disk.version===e.version)continue;
         if(e.dirty){e.conflict=disk;if(e.path===appStore.state.displayedDocument)notify('External change detected; your draft is preserved.',true);}
         else{disposeReport(e);e.content=disk.content;e.diskContent=disk.content;e.version=disk.version;e.state=null;e.conflict=null;if(e.path===appStore.state.displayedDocument){view?.destroy();view=null;cleanup();cleanup=()=>{};clearSurface();if(ext(e.path)==='jsonl')mountJSONL(e);else mountDocument(e);notify('Reloaded the external change');}}
-      }catch(error){if(error.status===404){e.conflict={deleted:true};if(e.path===appStore.state.displayedDocument)notify(error.message,true);}else notify(error.message,true);}
+      }catch(error){if(e.path!==requestedPath||fileMutation)continue;if(error.status===404){e.conflict={deleted:true};if(e.path===appStore.state.displayedDocument)notify(error.message,true);}else notify(error.message,true);}
     }
     updateToolbar();
     await refreshBaseline();
@@ -1415,6 +1426,7 @@ window.addEventListener('message',guard(async event=>{
   }
   if(message.type==='comment')await startComment();
   if(message.type==='quick-open')await showQuickOpen();
+  if(message.type==='collapse-files')$('#collapse-files').click();
   if(message.type==='zen')toggleZen();
   if(message.type==='exit-spotlight'){passageActivation++;clearSpotlight();}
   if(message.type==='thread'&&appStore.state.threads.some(t=>t.id===message.id&&t.path===appStore.state.displayedDocument))showPassage(Array.isArray(message.ids)?message.ids:[message.id]);
@@ -1465,6 +1477,9 @@ document.addEventListener('focusin',event=>{if(appStore.state.requestedThread!==
 document.addEventListener('scroll',scheduleSelectionTools,true);
 window.addEventListener('resize',()=>{scheduleSelectionTools();if($('#comment-dialog').open){const location=selectionLocation();if(location)placeNearSelection($('#comment-dialog'),location);}});
 document.addEventListener('keydown',event=>{
+  if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='s'&&!document.querySelector('dialog:modal')){event.preventDefault();guard(saveActive)();return;}
+  if(event.altKey&&!event.ctrlKey&&!event.metaKey&&event.key.toLowerCase()==='q'){event.preventDefault();$('#collapse-files').click();return;}
+  if($('#file-mentions')&&event.target.matches('#comment-body,.reply-form textarea,#edit-comment-body')&&['Escape','ArrowUp','ArrowDown','Enter'].includes(event.key)&&!event.ctrlKey&&!event.metaKey)return;
   if(event.target.closest?.('#author-popover,.lg-dialog,.image-editor,.image-comment-box,.image-comment-marker,.image-resize'))return;
   passagePosition=null;
   if(event.key==='Escape'){passageActivation++;pressedPassage=null;}
@@ -1534,6 +1549,7 @@ document.addEventListener('keydown',event=>{
   }
 });
 document.addEventListener('click',guard(async event=>{
+  const fileReference=event.target.closest('a[data-file-reference]');if(fileReference){event.preventDefault();await openFile(fileReference.dataset.fileReference);return;}
   const reference=event.target.closest('a[data-thread-reference]');
   if(reference){
     event.preventDefault();
@@ -1663,7 +1679,7 @@ $('#previous').onclick=guard(()=>navigate(-1));$('#next').onclick=guard(()=>navi
 $('#only-unattached').onchange=()=>{cancelSidebarNavigation();appStore.dispatch({type:'FILTERS_CHANGED',filters:{onlyUnattached:$('#only-unattached').checked}});};
 $('#thread-scope').checked=localStorage.getItem('looking-glass-thread-scope:'+root)==='all';
 $('#thread-scope').onchange=guard(async()=>{cancelSidebarNavigation();appStore.dispatch({type:'FILTERS_CHANGED',filters:{scope:$('#thread-scope').checked?'all':'file'}});clearSpotlight();localStorage.setItem('looking-glass-thread-scope:'+root,threadScope());await refreshThreads(true);});
-async function setMode(value){const e=entry();if(!e||e.mode===value)return;await suspendHTMLPreview();syncState();e.mode=value;view?.destroy();view=null;cleanup();cleanup=()=>{};mountDocument(e);await e.ready;await refreshThreads();remember();}
+async function setMode(value){if(fileMutation)await fileMutation;const e=entry();if(!e||e.mode===value)return;await suspendHTMLPreview();syncState();e.mode=value;view?.destroy();view=null;cleanup();cleanup=()=>{};mountDocument(e);await e.ready;await refreshThreads();remember();}
 $('#mode').onchange=guard(()=>setMode($('#mode').value));
 $('#html-toggle').onclick=guard(()=>setMode(entry().mode==='rendered'?'source':'rendered'));
 $('#theme').onclick=()=>{const value=document.documentElement.dataset.theme==='light'?'dark':'light';document.documentElement.dataset.theme=value;localStorage.setItem('looking-glass-theme',value);$('#theme').textContent=value==='dark'?'Light mode':'Dark mode';if(view)view.dispatch({effects:themeSlot.reconfigure(theme())});$$('.mermaid-diagram').forEach(host=>{const source=host.dataset.diagramSource;if(source)renderMermaid(host,source);});};
@@ -1725,16 +1741,46 @@ function setDiscussionsHidden(hidden,focus=false){
 $('#discussions-toggle').onclick=()=>setDiscussionsHidden(!discussionsHidden,true);
 setDiscussionsHidden(discussionsHidden);
 $('#expand-files').onclick=()=>{$$('.file-folder').forEach(folder=>expandedFolders.add(folder.dataset.directory));localStorage.setItem('looking-glass-folders:'+root,JSON.stringify([...expandedFolders]));filterFiles();};
+$('#collapse-files').title='Collapse all folders (Alt+Q)';$('#collapse-files').setAttribute('aria-keyshortcuts','Alt+Q');
 $('#collapse-files').onclick=()=>{expandedFolders.clear();localStorage.setItem('looking-glass-folders:'+root,'[]');$('#file-filter').value='';filterFiles();};
-function fuzzyScore(path,query){const text=path.toLowerCase();let cursor=0,score=0,previous=-2;for(const character of query.toLowerCase().replace(/\s/g,'')){const index=text.indexOf(character,cursor);if(index<0)return null;score+=index===previous+1?8:0;score+=index===0||'/._-'.includes(text[index-1])?12:0;score-=index-cursor;previous=index;cursor=index+1;}return score-text.length/100;}
+
 contentsController=mountMarkdownContents($('#markdown-contents'),()=>view?.state.doc.toString()||'',from=>{
   if(!view)return;view.dispatch({selection:{anchor:from},effects:EditorView.scrollIntoView(from,{y:'start',yMargin:16})});view.focus();
 });
 $('#code-outline').open=localStorage.getItem('looking-glass-python-outline:'+root)==='true';
 outlineController=mountPythonOutline($('#code-outline'),{
+  storageKey:'looking-glass-outline-folds:'+root,
   navigate:from=>{if(!view)return;view.dispatch({selection:{anchor:from},effects:EditorView.scrollIntoView(from,{y:'start',yMargin:16})});view.focus();},
   saveOpen:open=>localStorage.setItem('looking-glass-python-outline:'+root,String(open))
 });
+mountFileMentions({api,error:message=>notify(message,true)});
+mountExplorer($('#file-tree'),{root,api,error:message=>notify(message,true),change:async(info,options)=>{
+  if(contextVisit)throw new Error('Return from original context before moving files.');
+  if(navigation.busy||saving||changingWorkMode||fileMutation)throw new Error('Wait for the current file operation to finish.');
+  syncState();const affected=path=>path===info.path||path.startsWith(info.path+'/');
+  if(options.delete&&[...tabs.values()].some(e=>affected(e.path)&&e.dirty))throw new Error('Save or close unsaved files before deleting them.');
+  if([...tabs.values()].some(e=>affected(e.path)&&e.reviewSync?.status==='approving'))throw new Error('Wait for review approval to finish before moving files.');
+  let finish;fileMutation=new Promise(resolve=>finish=resolve);
+  let released=false;const release=()=>{if(released)return;released=true;fileMutation=null;finish();updateToolbar();};
+  updateToolbar();
+  try{
+    for(const e of tabs.values())if(affected(e.path)&&e.workMode==='review')await flushReview(e);
+    const result=await api('explorer','POST',{path:info.path,version:info.version,...options});
+    const map=path=>affected(path)?result.deleted?null:result.destination+path.slice(info.path.length):path;
+    syncState();
+    const active=appStore.state.displayedDocument,changedActive=active&&affected(active),next=active&&map(active);
+    if(changedActive){view?.destroy();view=null;cleanup();cleanup=()=>{};}
+    for(const [path,e] of [...tabs])if(affected(path)){
+      tabs.delete(path);if(result.deleted){disposeReport(e);e.reviewSync?.dispose();continue;}
+      e.path=map(path);if(e.review)e.review.path=e.path;disposeReport(e);tabs.set(e.path,e);
+    }
+    fileHistory.remap(map);historyControls?.remember();outlineController?.remap(map);
+    const folders=[...expandedFolders].map(map).filter(Boolean);expandedFolders.clear();folders.forEach(f=>expandedFolders.add(f));
+    if(result.destination){const parts=result.destination.split('/').slice(0,-1);parts.forEach((_,i)=>expandedFolders.add(parts.slice(0,i+1).join('/')));}localStorage.setItem('looking-glass-folders:'+root,JSON.stringify([...expandedFolders]));
+    if(changedActive){appStore.dispatch({type:'DOCUMENT_DISPLAYED',path:next});if(next){clearSurface();const session=tabs.get(next);await mountFileSurface(session);await session.ready;await refreshThreads();}else if(tabs.size){release();await openFile([...tabs.keys()].at(-1));}else{clearSurface();appStore.dispatch({type:'THREADS_RECEIVED',threads:[]});$('#threads').replaceChildren();lastThreadHTML='';lastThreadKey='';discussionView.reset();}}
+    remember();renderTabs();updateToolbar();window.htmx.trigger('#file-tree','refresh');if(changedActive&&next)view?.focus();notify(result.deleted?'Moved to workspace trash':'File location updated');
+  }finally{release();}
+}});
 function renderQuickResults(){const query=$('#quick-query').value;quickMatches=quickPaths.map(path=>({path,score:fuzzyScore(path,query)})).filter(item=>item.score!==null).sort((a,b)=>b.score-a.score||a.path.localeCompare(b.path)).slice(0,50);quickIndex=Math.min(quickIndex,Math.max(0,quickMatches.length-1));$('#quick-results').replaceChildren(...quickMatches.map((item,index)=>{const button=document.createElement('button');button.textContent=item.path;button.id='quick-option-'+index;button.setAttribute('role','option');button.setAttribute('aria-selected',String(index===quickIndex));button.classList.toggle('selected',index===quickIndex);button.onclick=guard(async()=>{await openFile(item.path);$('#quick-dialog').close();view?.focus();});return button;}));if(!quickMatches.length)$('#quick-results').textContent='No matching files.';$('#quick-query').setAttribute('aria-activedescendant',quickMatches.length?'quick-option-'+quickIndex:'');$('#quick-results .selected')?.scrollIntoView({block:'nearest'});}
 async function showQuickOpen(){closeComment();if(!$('#quick-dialog').open)$('#quick-dialog').showModal();$('#quick-query').value='';quickIndex=0;quickPaths=[...new Set([...$$('.file-entry').map(b=>b.dataset.path),...tabs.keys()])];renderQuickResults();$('#quick-query').focus();const workspace=await api('workspace');if($('#quick-dialog').open){quickPaths=[...new Set([...workspace.files,...tabs.keys()])];renderQuickResults();}}
 $('#quick-query').oninput=()=>{quickIndex=0;renderQuickResults();};

@@ -61,9 +61,9 @@ export function createReviewSync(session, ports) {
   }
   async function poll() {
     if (status !== 'clean' || !session.review || session.workMode !== 'review') return;
-    const draft = session.review, requestedEpoch = epoch;
+    const draft = session.review, requestedEpoch = epoch, requestedPath = session.path;
     const incoming = await ports.api('reviews/' + draft.id + '?' + new URLSearchParams({version: draft.version}));
-    if (!incoming || epoch !== requestedEpoch || session.review !== draft || status !== 'clean' || session.workMode !== 'review') return;
+    if (!incoming || epoch !== requestedEpoch || session.review !== draft || session.path !== requestedPath || status !== 'clean' || session.workMode !== 'review') return;
     if (incoming.status !== 'pending') {await ports.concluded?.(); return;}
     const before = session.content;
     adopt(incoming);

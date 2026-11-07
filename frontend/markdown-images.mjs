@@ -187,7 +187,8 @@ export function createImageTools({token,api,context,comment,focus,error,changed,
   function mount(img){
     if(img.closest('.markdown-image'))return;
     const src=img.getAttribute('src'),owner=context();owner.readonly||=!!img.closest('.comment-markdown');let id=imageID(src);
-    const wrap=document.createElement('span');wrap.className='markdown-image';wrap.hidden=true;if(owner.readonly)wrap.dataset.imageReadonly='';img._displayCaption??=img.alt;const caption=imageCaption(img._displayCaption);if(caption.width)wrap.style.width=caption.width+'px';img.alt=caption.alt;img.draggable=false;img.replaceWith(wrap);const pixels=document.createElement('span');pixels.className='image-pixels';pixels.append(img);wrap.append(pixels);
+    // Retain layout during decode: display:none can make Gecko reject the image.
+    const wrap=document.createElement('span');wrap.className='markdown-image';wrap.style.visibility='hidden';if(owner.readonly)wrap.dataset.imageReadonly='';img._displayCaption??=img.alt;const caption=imageCaption(img._displayCaption);if(caption.width)wrap.style.width=caption.width+'px';img.alt=caption.alt;img.draggable=false;img.replaceWith(wrap);const pixels=document.createElement('span');pixels.className='image-pixels';pixels.append(img);wrap.append(pixels);
     let url;const dispose=()=>{if(url)URL.revokeObjectURL(url);};
     const observer=new MutationObserver(()=>{if(!wrap.isConnected){dispose();observer.disconnect();}});queueMicrotask(()=>observer.observe(document.body,{childList:true,subtree:true}));
     run(async()=>{
@@ -195,7 +196,7 @@ export function createImageTools({token,api,context,comment,focus,error,changed,
         const path=imagePath(src,owner.path);
         const meta=await api('images/import','POST',{path});id=meta.id;
       }
-      if(id){references.set(id,src);url=await load(id);img.src=url;await img.decode();wrap.hidden=false;wrap.dataset.imageId=id;
+      if(id){references.set(id,src);url=await load(id);img.src=url;await img.decode();wrap.style.visibility='';wrap.dataset.imageId=id;
         if(owner.readonly)return;
         const controls=document.createElement('span');controls.className='image-actions';
         const pencil=iconButton('Annotate image','pen',run(()=>editor(id)));pencil.classList.add('image-pencil');
@@ -204,7 +205,7 @@ export function createImageTools({token,api,context,comment,focus,error,changed,
         const path=imagePath(src,owner.path);
         url=URL.createObjectURL(await (await request('binary?'+new URLSearchParams({path}))).blob());img.src=url;await img.decode();
       }
-      wrap.hidden=false;
+      wrap.style.visibility='';
       if(!owner.readonly){
         resizeHandle(wrap,img);
         if(owner.mode==='live'&&!wrap.querySelector('.image-actions')){const controls=document.createElement('span');controls.className='image-actions';controls.append(iconButton('Edit image source','code',()=>editSource(wrap)));wrap.append(controls);}

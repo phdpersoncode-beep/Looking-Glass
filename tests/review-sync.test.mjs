@@ -59,3 +59,10 @@ test('mode sessions restore history only for a compatible document and draft',as
  (await prepareWorkMode(session,'edit',ports)).commit();draft={...draft,id:2};
  (await prepareWorkMode(session,'review',ports)).commit();assert.equal(session.state,null);assert.equal(session.scrollSnapshot,null);
 });
+
+test('a poll begun before an explorer move cannot restore the old path or content',async()=>{
+ const remote=deferred();const {session,controller}=setup(()=>remote.promise);
+ const poll=controller.poll();session.path='dest/a.txt';session.review.path='dest/a.txt';
+ remote.resolve({id:1,path:'a.txt',version:'2',status:'pending',content:'Old completion',segments:[{text:'Old completion',kind:'base'}]});await poll;
+ assert.equal(session.path,'dest/a.txt');assert.equal(session.review.path,'dest/a.txt');assert.equal(session.content,'A');
+});

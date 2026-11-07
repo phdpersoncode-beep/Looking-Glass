@@ -123,10 +123,14 @@ def create_app(root):
     @app.get('/fragments/files')
     def tree():
         files = ws.files()
-        tag = hashlib.sha256(json.dumps(files, ensure_ascii=False).encode()).hexdigest()
+        folders=ws.folders()
+        tag = hashlib.sha256(json.dumps([files,folders], ensure_ascii=False).encode()).hexdigest()
         if request.if_none_match.contains(tag):
             return Response(status=304, headers={'ETag': '"' + tag + '"'})
         tree = {}
+        for folder in folders:
+            branch=tree
+            for part in folder.split('/'):branch=branch.setdefault(part,{})
         for path in files:
             branch = tree
             parts = path.split('/')
@@ -213,6 +217,17 @@ def create_app(root):
     @app.get('/api/locate')
     def locate():
         return jsonify(path=ws.locate(request.args.get('path')))
+
+    @app.get('/api/explorer')
+    def explorer_info():
+        from .file_operations import FileOperations
+        return jsonify(FileOperations(ws).info(request.args.get('path')))
+
+    @app.post('/api/explorer')
+    def explorer_change():
+        from .file_operations import FileOperations
+        data=body()
+        return jsonify(FileOperations(ws).change(data.get('path'),data.get('version'),data.get('destination'),data.get('delete') is True))
 
     @app.get('/api/file')
     def read_file():

@@ -29,3 +29,14 @@ test('history is bounded, restores a valid cursor and exposes an immutable snaps
   h.visit('e');h.visit('f');assert.deepEqual(h.snapshot,{entries:['c','e','f'],index:2});
   assert.deepEqual(createFileHistory({entries:'broken',index:100}).snapshot,{entries:[],index:-1});
 });
+
+test('file moves preserve history positions and deletion adjusts the current cursor',()=>{
+  const h=createFileHistory({entries:['a','src/b','src/c','d'],index:2});
+  h.remap(path=>path.startsWith('src/')?path.replace('src/','dest/'):path);
+  assert.deepEqual(h.snapshot,{entries:['a','dest/b','dest/c','d'],index:2});
+  h.remap(path=>path==='a'?null:path);
+  assert.deepEqual(h.snapshot,{entries:['dest/b','dest/c','d'],index:1});
+  assert.equal(h.target(-1).path,'dest/b');
+  h.remap(path=>path==='dest/c'?null:path);
+  assert.deepEqual(h.snapshot,{entries:['dest/b','d'],index:0});
+});

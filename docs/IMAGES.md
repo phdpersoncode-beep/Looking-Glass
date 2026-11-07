@@ -114,3 +114,9 @@ types, and run the normal paste listener, upload, and insertion assertions.
 This test-harness difference does not affect trusted OS paste events. Manual
 checks with each OS's screenshot utility remain necessary to establish its
 native clipboard integration.
+
+Image wrappers reserve layout space while bytes decode and stay invisible until
+ready. Using `display:none` here caused Gecko to reject decoding and prevented
+annotation controls from appearing. Browser regressions wait for decoded pixels
+and completed Review transitions before measuring resize geometry; image and
+container rectangles are captured in the same browser evaluation.

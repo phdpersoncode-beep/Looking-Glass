@@ -45,8 +45,12 @@ The terminal prints the new root, and the API token changes with it.
 `/home/you/.claude/projects/<project>/<session>.jsonl`. Files outside the
 workspace are keyed by their resolved absolute path. Their discussions are stored
 in the current workspace. The file sidebar lists files recursively
-as a collapsible tree and supports filtering. Use **Collapse all folders** to fold
-the tree. Drag the sidebar divider to resize the explorer; its width persists across
+as a collapsible tree and supports filtering. Use **Collapse all folders** or **Alt+Q** to fold
+the tree. Right-click files/folders to rename, delete, or copy paths; drag them
+onto another folder to move them. Python outlines support individual and
+collapse/expand-all controls. Type **@** in a discussion to find and reference a
+file with fuzzy completion respecting `.looking.ignore`. See
+[explorer and file references](docs/EXPLORER.md) for controls and data preservation. Drag the sidebar divider to resize the explorer; its width persists across
 refreshes. The focused divider also supports arrow keys, Home/End, and double-click
 to reset. Folder expansion persists across refreshes. Common dependency, Git and application metadata folders
 are excluded. Symlinks are not opened. No project code is executed.

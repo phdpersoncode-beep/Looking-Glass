@@ -963,3 +963,30 @@ Native OS screenshot clipboard integration was not manually exercised; browser
 journeys synthesize standard PNG/JPEG clipboard file payloads. The full browser
 collection has not been run for this feature. GitHub API access returned
 `Forbidden`, preventing a draft PR and remote browser workflow request here.
+
+## Explorer, file references, and browser repairs (2026-11-07)
+
+- **171 non-browser Python checks passed**. New coverage includes recoverable
+  deletion, stale/protected paths, collision rejection, filesystem rollback after
+  a metadata error, and review/discussion/image/PDF preservation through moves.
+- **19 JavaScript test files passed**, including shared fuzzy scoring, safe file
+  reference parsing, history remapping, and stale review polls after a move.
+- **48 Chromium checks passed** for images, explorer actions, mentions, and Python
+  navigation/outline. A further **30 Chromium checks passed** for focused comment
+  geometry, thread references, and navigation (six outline cases overlap).
+  The explorer drag journey also passed after adding a return-to-root drop.
+- Checked new outline/menu geometry in light/dark themes at 1440px/780px widths;
+  inspected screenshots. Mention completion stays within both viewports and
+  retains normal Enter/Escape/Ctrl+Enter behavior. Active image/PDF/JSONL rename
+  checks confirm the correct viewer remains mounted.
+- Frontend build, wheel/source packaging, whitespace checks, and the complete,
+  disjoint **761-case** browser collection passed; shard sizes are
+  **191/190/190/190**.
+
+The image decode wrapper keeps its layout while invisible instead of using
+`display:none`, addressing the previous Firefox image initialization failures.
+Review/resize browser checks await completed mode changes, decoded pixels, and
+fonts before measuring both rectangles in a single evaluation. No assertions
+were relaxed or retries introduced. Local Chromium passes do not establish
+Firefox correctness: the environment denies Playwright's Firefox download, so
+full Chromium/Firefox validation must use the final pushed CI run.
