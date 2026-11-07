@@ -32,8 +32,8 @@ imports, or earlier discussion text. Changes stay ordinary uncommitted disk edit
 
 For a Python file, open **Python outline** on the right. A small chevron beside a
 class or function folds its nested definitions; clicking the name still jumps to
-its source line. The **−** and **+** controls collapse or expand all nested outline
-elements. Each file's fold choices persist across navigation and reloads.
+its source line. The small stacked-panel minus/plus icons match the sidebar controls and collapse
+or expand all nested outline elements. Each file's fold choices persist across navigation and reloads.
 
 In a new comment, reply, or comment edit, type **@** followed by part of a file
 path. The fuzzy picker uses the same scoring as Quick Open and refreshes its

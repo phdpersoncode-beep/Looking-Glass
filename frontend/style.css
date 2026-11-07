@@ -364,6 +364,6 @@ html[data-theme="dark"] { --review-human: #78d49a; --review-agent: #84b4ff; --re
 .file-mentions [aria-selected=true]{background:var(--selection);color:var(--purple)}
 .drop-target{box-shadow:inset 0 0 0 2px var(--purple);background:var(--selection)}
 a[data-file-reference]{color:var(--purple);text-decoration:none;border-radius:3px;padding:0 2px}a[data-file-reference]:hover{background:var(--selection);text-decoration:underline}
-.outline-tools{display:flex;justify-content:flex-end;gap:4px;padding:3px 6px;height:30px;border-bottom:1px solid var(--border)}.outline-tools button{padding:0 7px;border:0;font-size:17px;color:var(--muted)}
+.outline-tools{display:flex;justify-content:flex-end;gap:4px;padding:3px 6px;height:30px;border-bottom:1px solid var(--border)}.outline-tools button{display:grid;place-items:center;padding:0 5px;border:0;color:var(--muted)}
 .code-outline nav{height:calc(100% - 66px)}.outline-item>.outline-item{margin-left:12px}.outline-item>div:not(.outline-row){padding-left:12px}
 .outline-row{display:flex;align-items:center}.code-outline nav .outline-fold{width:22px;flex:0 0 22px;padding:4px 0;text-align:center;justify-content:center}.code-outline nav .outline-row>button[data-kind]{min-width:0;flex:1;padding:5px 6px}.outline-row:not(:has(.outline-fold)){padding-left:22px}
