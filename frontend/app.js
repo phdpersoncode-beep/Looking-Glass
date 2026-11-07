@@ -46,6 +46,7 @@ import {json} from '@codemirror/lang-json';
 import {syntaxTree, syntaxHighlighting, HighlightStyle, ensureSyntaxTree, foldable, foldEffect, unfoldAll} from '@codemirror/language';
 import {codeLanguage,shellLanguage} from './code-languages.mjs';
 import {mountPythonOutline} from './python-outline.mjs';
+import {pythonNavigation,pythonPosition,definitionOffset,chooseDefinition} from './python-navigation.mjs';
 import {tags,highlightTree,classHighlighter} from '@lezer/highlight';
 import * as THREE from 'three';
 import {STLLoader} from 'three/addons/loaders/STLLoader.js';
@@ -592,13 +593,14 @@ function highlightMarkdown(preview){
     }
   }
 }
-function language(path){switch(ext(path)){case'md':case'markdown':return markdown({extensions:[TaskList,Table],codeLanguages:codeLanguage});case'py':return python();case'sh':case'bash':return shellLanguage;case'html':case'htm':return html();case'json':return json();case'yaml':case'yml':case'toml':return codeLanguage(ext(path));default:return [];}}
+function language(path){switch(ext(path)){case'md':case'markdown':return markdown({extensions:[TaskList,Table],codeLanguages:codeLanguage});case'py':case'pyi':return python();case'sh':case'bash':return shellLanguage;case'html':case'htm':return html();case'json':return json();case'yaml':case'yml':case'toml':return codeLanguage(ext(path));default:return [];}}
 function makeState(e){
   const tracked=e.workMode==='review'&&e.review;
   if(tracked)e.reviewField=reviewTracking({...e.review,segments:e.reviewSegments||e.review.segments},()=>({author:authorName,role:'human',at:new Date().toISOString()}));
   const docPath=e.sourcePath||e.path,prose=['md','markdown','txt'].includes(ext(docPath));
   return EditorState.create({doc:e.content,extensions:[EditorState.lineSeparator.of(e.diskContent.includes('\r\n')?'\r\n':'\n'),basicSetup,documentSearch,matchOverview,language(docPath),workLockSlot.of(EditorState.readOnly.of(changingWorkMode)),...(tracked?[e.reviewField]:[]),...(e.kind==='original'?[EditorState.readOnly.of(true),EditorView.editable.of(false)]:[]),syntaxHighlighting(colors),spanField,threadFocusField,gitField,gitSlot.of([]),
     themeSlot.of(theme()),liveSlot.of(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables,textSelection]:[]),
+    ...(!e.kind&&['py','pyi'].includes(ext(e.path))?pythonNavigation(guard(goToPythonDefinition)):[]),
     ...(prose?[EditorView.lineWrapping,EditorView.theme({'.cm-scroller':{fontFamily:'var(--prose)',fontSize:'var(--prose-font-size)'},'.cm-content':{maxWidth:'850px',margin:'0 auto',width:'100%',minWidth:'0'},'.cm-foldGutter':{display:'none'}})]:[]),
     EditorView.domEventHandlers({paste:(event,editor)=>pasteImage(event,editor,e),contextmenu:(event,editor)=>{
       if(e.kind||editor.state.readOnly)return false;
@@ -634,6 +636,30 @@ function cancelSidebarNavigation(){
   appStore.dispatch({type:'THREAD_NAVIGATION_CANCELLED'});
 }
 function openFile(path){cancelSidebarNavigation();return navigation.open(path);}
+let definitionRequest=0;
+async function goToPythonDefinition(editor,at){
+  const e=entry();if(!e||view!==editor||e.kind||changingWorkMode||fileMutation)return;
+  const request=++definitionRequest,doc=editor.state.doc,visit=navigation.requestId;
+  const current=()=>request===definitionRequest&&entry()===e&&view===editor&&editor.state.doc===doc&&navigation.requestId===visit;
+  notify('Finding definition…');
+  let result;
+  try{result=await api('python/definition','POST',{path:e.path,content:editor.state.sliceDoc(),...pythonPosition(doc,at)});}
+  catch(error){if(current())throw error;return;}
+  if(!current())return;
+  if(!result.definitions.length){notify('No definition found in this workspace.');return;}
+  const target=result.definitions.length>1?await chooseDefinition(result.definitions):result.definitions[0];
+  if(!target||!current())return;
+  if(target.path!==e.path){
+    const held=tabs.get(target.path),matchesDisk=session=>session.workMode==='review'?session.content===session.review?.base&&session.review?.base_version===target.version:session.version===target.version;
+    if(held&&(held.dirty||!matchesDisk(held))){notify('Save or leave the destination draft before going to its disk definition.',true);return;}
+    const opened=await openFile(target.path);
+    if(opened.status!=='ready'||request!==definitionRequest||appStore.state.displayedDocument!==target.path||!view)return;
+    if(!matchesDisk(entry())||entry().dirty){notify('The definition changed. Try again after saving or leaving the destination draft.',true);return;}
+  }
+  const offset=definitionOffset(view.state.doc,target);
+  if(offset===null){notify('The definition changed. Try again.',true);return;}
+  view.dispatch({selection:{anchor:offset},effects:EditorView.scrollIntoView(offset,{y:'center'})});view.focus();notify('Definition · '+target.path+':'+target.line);
+}
 async function loadFile(path,request){
     if(fileMutation)await fileMutation;
     await restoreReady;
@@ -813,6 +839,12 @@ function updateToolbar(){
   const locked=!!changingWorkMode||!!fileMutation||entry()?.reviewSync?.status==='approving'||entry()?.kind==='original';
   if(view&&view.state.readOnly!==locked)view.dispatch({effects:workLockSlot.reconfigure(EditorState.readOnly.of(locked))});
   const e=entry(), type=e?ext(e.path):'', viewer=!!e?.kind||['stl','jsonl','pdf'].includes(type)||isImage(e?.path||'');
+  const markerButton=$('#track-source-markers');
+  markerButton.disabled=locked||!e||viewer||e.trackingMarkers||e.workMode==='review'||!['py','pyi','md','markdown','sh','bash','yaml','yml','toml','r','rb','pl','js','mjs','cjs','ts','tsx','jsx','c','h','cpp','hpp','cs','java','go','rs','css','scss','swift','kt','php','html','htm','sql','lua'].includes(type);
+  markerButton.setAttribute('aria-pressed',String(!!e?.track_source_markers));
+  markerButton.textContent=e?.source_markers_truncated?'Track TODO / NOTE · 1,000 limit':'Track TODO / NOTE';
+  $('#python-definition').hidden=!!e?.kind||!['py','pyi'].includes(type);
+  if(['py','pyi'].includes(type)&&!e?.kind)$('#file-info').title='Go to definition: Ctrl/Cmd+click a name, or F12 at the cursor. Tab indents.';else $('#file-info').removeAttribute('title');
   outlineController?.setDocument(!e?.kind&&type==='py'?e.path:null,!e?.kind&&type==='py'?view?.state.doc||null:null);
   $('#markdown-contents').hidden=!!e?.kind||!['md','markdown'].includes(type)||e?.mode!=='live';
   for(const [id,direction] of [['font-smaller','Decrease'],['font-larger','Increase']]){const control=$('#'+id);control.setAttribute('aria-label',direction+(type==='pdf'?' PDF zoom':' document font size'));control.title=type==='pdf'?direction+' PDF zoom':direction+' document font size';control.textContent=type==='pdf'?(direction==='Increase'?'+':'−'):(direction==='Increase'?'A+':'A−');}
@@ -846,7 +878,7 @@ async function saveActive(){
   const e=entry();if(e?.workMode==='review'){await flushReview(e);return e;}if(!e||!e.dirty)return e;if(e.conflict)throw new Error('Resolve the external change before saving.');syncState();saving=true;updateToolbar();
   const content=e.content;
   try{
-    const saved=await api('file','PUT',{path:e.path,content,version:e.version});e.diskContent=content;e.version=saved.version;e.dirty=e.content!==content;
+    const saved=await api('file','PUT',{path:e.path,content,version:e.version});e.diskContent=content;e.version=saved.version;e.dirty=e.content!==content;e.source_markers_truncated=saved.source_markers_truncated;
     if(e.path===appStore.state.displayedDocument)await refreshThreads();notify('Saved to disk');renderTabs();return e;
   }catch(error){if(error.status===409){const disk=await api('file?'+new URLSearchParams({path:e.path}));e.conflict=disk;}throw error;}
   finally{saving=false;updateToolbar();}
@@ -996,7 +1028,7 @@ async function getNavigationIndex(){
   return navigationIndex;
 }
 function filterThreads(){
-  threadSearch.update(appStore.state.threads,threadSpotlight.active,$('#show-resolved').checked,discussionReview(),appStore.state.onlyUnattached);
+  threadSearch.update(appStore.state.threads,threadSpotlight.active,$('#show-resolved').checked,discussionReview(),appStore.state.onlyUnattached,appStore.state.onlySourceMarkers);
   const visible=new Set(selectVisibleThreads(appStore.state).map(t=>t.id));
   $$('.thread').forEach(t=>{
     const id=Number(t.dataset.thread);
@@ -1682,6 +1714,19 @@ $('#collapse-threads').onclick=guard(async()=>{if(contextVisit)await returnFromO
 $('#expand-threads').onclick=()=>{for(const id of visibleThreadIds())collapsedThreads.delete(id);rememberCollapsed();filterThreads();};
 $('#previous').onclick=guard(()=>navigate(-1));$('#next').onclick=guard(()=>navigate(1));$('#show-resolved').onchange=()=>{cancelSidebarNavigation();appStore.dispatch({type:'FILTERS_CHANGED',filters:{showResolved:$('#show-resolved').checked}});};
 $('#only-unattached').onchange=()=>{cancelSidebarNavigation();appStore.dispatch({type:'FILTERS_CHANGED',filters:{onlyUnattached:$('#only-unattached').checked}});};
+$('#only-source-markers').onclick=()=>{cancelSidebarNavigation();const value=!appStore.state.onlySourceMarkers;$('#only-source-markers').setAttribute('aria-pressed',String(value));appStore.dispatch({type:'FILTERS_CHANGED',filters:{onlySourceMarkers:value}});};
+$('#track-source-markers').onclick=guard(async()=>{
+  const e=entry();if(!e||e.kind||e.workMode==='review'||e.trackingMarkers)return;
+  e.trackingMarkers=true;updateToolbar();
+  try{
+    await saveActive();if(entry()!==e)return;
+    const result=await api('source-markers','POST',{path:e.path,version:e.version,enabled:!e.track_source_markers});
+    e.track_source_markers=result.enabled;
+    e.source_markers_truncated=result.truncated;
+    if(entry()===e){await refreshThreads();notify(result.truncated?'Tracking the first 1,000 comments; this file has additional TODO / NOTE markers':result.enabled?'Tracking saved TODO / NOTE comments':'Source comment tracking paused');}
+  }finally{e.trackingMarkers=false;updateToolbar();}
+});
+$('#python-definition').onclick=guard(()=>view&&goToPythonDefinition(view,view.state.selection.main.head));
 $('#thread-scope').checked=localStorage.getItem('looking-glass-thread-scope:'+root)==='all';
 $('#thread-scope').onchange=guard(async()=>{cancelSidebarNavigation();appStore.dispatch({type:'FILTERS_CHANGED',filters:{scope:$('#thread-scope').checked?'all':'file'}});clearSpotlight();localStorage.setItem('looking-glass-thread-scope:'+root,threadScope());await refreshThreads(true);});
 async function setMode(value){if(fileMutation)await fileMutation;const e=entry();if(!e||e.mode===value)return;await suspendHTMLPreview();syncState();e.mode=value;view?.destroy();view=null;cleanup();cleanup=()=>{};mountDocument(e);await e.ready;await refreshThreads();remember();}

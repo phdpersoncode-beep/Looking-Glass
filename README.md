@@ -159,6 +159,25 @@ corners in live Markdown and preview; blockquotes use a quiet rule, upright text
 and a subtle themed background. Bare square brackets such as `[0, 1]` stay literal;
 explicit Markdown links and references with definitions keep their link styling.
 
+For `# TODO`, `#TODO`, `# NOTE` and `#NOTE` comments, enable **Track TODO / NOTE**
+in the right sidebar for each Markdown or source file you want to review. It saves
+an unsaved Edit buffer, creates flagged discussions, and keeps them synchronized
+with later saves and external changes. **Markers only** filters discussions,
+search and the existing ↑/↓ passage arrows. Replies and original context persist;
+removed or unattached marker threads resolve automatically. Turning tracking off
+pauses imports and keeps existing discussions. New Review markers import on
+approval. Tracking handles up to 1,000 markers per file and shows when that limit
+is reached.
+
+In Python, **Ctrl+click** (or **Cmd+click**) a name to go to its definition, or
+press **F12** at the cursor. The ↗ button beside the filename exposes the same
+command. Functions, classes, methods, scoped variables and imports resolve through
+static analysis of the current buffer and saved workspace modules. Ambiguous
+names offer a definition chooser. File Back/Forward preserves drafts and undo.
+Local completion suggestions already work with **Ctrl+Space** and **Enter**;
+**Tab** continues to indent. See [coding support and completion options](docs/CODING_SUPPORT.md)
+for scope, limits and estimates.
+
 Your author name defaults to **User**. Use the pen icon beside the discussion
 collapse/expand controls to change it in a small popover. **Save** remembers the
 name for the current project in this browser; Cancel, Escape, or clicking outside

@@ -382,3 +382,5 @@ body.outline-resizing,body.outline-resizing *{cursor:col-resize!important;user-s
 .cm-match-map{position:absolute;right:1px;width:12px;pointer-events:none;z-index:4}
 .cm-match-marker{position:absolute;right:1px;width:9px;height:6px;min-height:0;padding:0;border:0;border-radius:1px;background:var(--occurrence-edge);pointer-events:auto;opacity:.85}
 .cm-match-marker:hover,.cm-match-marker:focus-visible{background:var(--occurrence-text);outline:1px solid var(--occurrence-edge);outline-offset:1px;opacity:1}
+.source-marker-controls{display:flex;flex-wrap:wrap;gap:4px;padding:8px 10px 0}.source-marker-controls button{font-size:10px;white-space:normal;min-width:0;flex:1;padding:5px 6px}.source-marker-controls button[aria-pressed=true]{color:var(--purple);background:var(--selection)}.source-marker-flag{display:inline-block;font:10px var(--mono);color:var(--purple);margin:4px 0}.cm-content .python-definition-link{color:var(--purple);text-decoration:underline;cursor:pointer}
+.definition-choices nav{display:grid;gap:6px;margin:12px 0}.definition-choices nav button{white-space:normal;overflow-wrap:anywhere;text-align:left}

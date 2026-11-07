@@ -89,7 +89,7 @@ class DiscussionQueries:
         with self.ws.connection() as db:
             start = 'COALESCE(a.start,t.start)' if review else 't.start'
             status = 'COALESCE(a.anchor_status,t.anchor_status)' if review else 't.anchor_status'
-            fields = f't.id,t.path,{start} AS start,t.resolved,{status} AS anchor_status,t.anchor_kind,t.target_ref,t.review_id'
+            fields = f't.id,t.path,{start} AS start,t.resolved,{status} AS anchor_status,t.anchor_kind,t.target_ref,t.review_id,t.source_marker'
             return [dict(row) for row in self.index_rows(db,review,fields,'t.path,start,t.id')]
 
     def thread_search_index(self, review=None):
@@ -97,7 +97,7 @@ class DiscussionQueries:
         with self.ws.lock, self.ws.connection() as db:
             quote = 'COALESCE(a.quote,t.quote)' if review else 't.quote'
             status = 'COALESCE(a.anchor_status,t.anchor_status)' if review else 't.anchor_status'
-            rows = self.index_rows(db,review,f't.id,t.path,{quote} AS quote,t.resolved,{status} AS anchor_status','t.id')
+            rows = self.index_rows(db,review,f't.id,t.path,{quote} AS quote,t.resolved,{status} AS anchor_status,t.source_marker','t.id')
             threads = {row['id']: {**dict(row), 'resolved': bool(row['resolved']), 'messages': []}
                        for row in rows}
             for row in db.execute('SELECT thread_id,body FROM messages ORDER BY id'):
@@ -132,7 +132,7 @@ class DiscussionQueries:
         page = items[offset:offset+limit]
         if summary == 'true':
             page = [dict(id=t['id'], path=t['path'], quote=t['quote'], resolved=t['resolved'],
-                         anchor_status=t['anchor_status'], anchor_kind=t['anchor_kind'],
+                         anchor_status=t['anchor_status'], anchor_kind=t['anchor_kind'], source_marker=t['source_marker'],
                          associated_with_image=t['associated_with_image'], image_annotation=t['image_annotation'],
                          git_target=t['git_target'],
                          commit_hash=t['commit_hash'], origin=t['origin'], created_at=t['created_at'], message_count=len(t['messages']),

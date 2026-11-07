@@ -215,6 +215,7 @@ class Reviews:
                 else:
                     db.execute("UPDATE review_anchors SET anchor_status='needs_reattachment' WHERE review_id=? AND thread_id=?",(identifier,anchor['thread_id']))
             db.execute('UPDATE review_edits SET operations=? WHERE id=?',(json.dumps(normalized,ensure_ascii=False),edit))
+            db.execute("UPDATE threads SET resolved=1 WHERE source_marker IS NOT NULL AND id IN (SELECT thread_id FROM review_anchors WHERE review_id=? AND anchor_status!='attached')", (identifier,))
             db.execute('UPDATE review_drafts SET content=?,segments=?,revision=revision+1,updated_at=? WHERE id=?',
                 (content,json.dumps(segments,ensure_ascii=False),timestamp,identifier))
             db.execute('UPDATE review_heads SET revision=revision+1,updated_at=? WHERE id=?',(timestamp,identifier))
@@ -254,6 +255,8 @@ class Reviews:
                 db.execute("UPDATE threads SET anchor_status='needs_reattachment' WHERE id IN (SELECT thread_id FROM review_anchors WHERE review_id=?) AND anchor_kind='review_removed'",(identifier,))
                 db.execute("UPDATE review_drafts SET status='approved',updated_at=? WHERE id=?",(self.stamp(),identifier))
                 db.execute("UPDATE review_heads SET status='approved',updated_at=? WHERE id=?",(self.stamp(),identifier))
+                self.ws.source_markers.sync(db, draft['path'], draft['content'])
+                self.ws.source_markers.resolve_unattached(db, draft['path'])
             return saved
 
     def create_thread(self, identifier, version, start, end, body, author, allow_empty=False):
