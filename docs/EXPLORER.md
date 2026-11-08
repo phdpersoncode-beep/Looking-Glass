@@ -75,7 +75,8 @@ changing files or modes creates the appropriate overview for that surface.
 
 **Ctrl+P** opens the fuzzy file picker with the most recent file visits first,
 using the history dropdown's order with duplicate paths removed. Other workspace
-files follow alphabetically. Type to filter; Up/Down choose a result and Enter
-opens it. Recently visited paths and open tabs remain available even when they
+files follow alphabetically. Reopening the picker while an earlier file visit is
+finishing keeps the new picker open and focused. Type to filter; Up/Down choose a
+result and Enter opens it. Recently visited paths and open tabs remain available even when they
 are outside workspace discovery, as with the history dropdown. Normal text input,
 including uppercase P, is unchanged.

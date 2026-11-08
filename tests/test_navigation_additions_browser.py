@@ -95,3 +95,31 @@ def test_recent_picker_keeps_closed_outside_visits_and_selection_during_refresh(
     with page.expect_response('**/api/workspace'):held[0].continue_()
     expect(options).to_have_count(3);expect(options.filter(has_text=str(outside))).to_have_attribute('aria-selected','true')
     page.locator('#quick-query').press('Enter');expect(page.locator('#document-name')).to_have_text(str(outside))
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_reopened_recent_picker_survives_an_earlier_navigation_finishing(workspace_page):
+    root,page,url,ws=workspace_page
+    for name in ['a.txt','b.txt']:(root/name).write_text(name)
+    page.goto(url);open_file(page,'a.txt')
+    held=[]
+    def hold_visit(route):
+        held.append(route)
+        page.evaluate('window.pickerNavigationHeld=true')
+    page.route('**/api/discussions?path=b.txt&scope=file',hold_visit)
+    page.keyboard.press('Control+p');query=page.locator('#quick-query')
+    query.fill('b.txt')
+    with page.expect_request('**/api/discussions?path=b.txt&scope=file'):
+        query.press('Enter')
+        expect(page.locator('#document-name')).to_have_text('b.txt')
+    page.wait_for_function('window.pickerNavigationHeld===true')
+    assert held
+    page.keyboard.press('Control+p');query.fill('a.txt')
+    expect(page.locator('#quick-results [role=option]')).to_have_text(['a.txt'])
+    with page.expect_response('**/api/discussions?path=b.txt&scope=file') as response:held.pop().continue_()
+    response.value.finished()
+    page.unroute('**/api/discussions?path=b.txt&scope=file')
+    # Flush completed navigation callbacks through the next rendered frame.
+    page.evaluate('()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+    expect(page.locator('#quick-dialog')).to_be_visible();expect(query).to_be_focused()
+    query.press('Enter');expect(page.locator('#document-name')).to_have_text('a.txt')
