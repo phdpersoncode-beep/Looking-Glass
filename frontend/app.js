@@ -1,6 +1,7 @@
 import {matchOverview} from './match-overview.mjs';
 import {mountOutlineResize} from './outline-resize.mjs';
 import {quickFileMatches} from './file-search.mjs';
+import {normalizeInputLineBreaks} from './text-input.mjs';
 import {createBridge,lockIcon,bridgeDiskReload} from './vscode-bridge.mjs';
 import {mountExplorer} from './explorer.mjs';
 import {linkFileReferences,mountFileMentions} from './file-references.mjs';
@@ -600,7 +601,7 @@ function makeState(e){
   const tracked=e.workMode==='review'&&e.review;
   if(tracked)e.reviewField=reviewTracking({...e.review,segments:e.reviewSegments||e.review.segments},()=>({author:authorName,role:'human',at:new Date().toISOString()}));
   const docPath=e.sourcePath||e.path,prose=['md','markdown','txt'].includes(ext(docPath));
-  return EditorState.create({doc:e.content,extensions:[EditorState.lineSeparator.of(e.diskContent.includes('\r\n')?'\r\n':'\n'),basicSetup,documentSearch,matchOverview,language(docPath),workLockSlot.of(EditorState.readOnly.of(changingWorkMode||!!bridge?.locked(e.path))),EditorState.transactionFilter.of(tr=>tr.docChanged&&bridge?.locked(e.path)&&!tr.effects.some(effect=>effect.is(remoteReview)||effect.is(bridgeDiskReload))?[]:tr),...(bridge&&!e.kind?bridge.extensions(e,()=>entry()===e):[]),...(tracked?[e.reviewField]:[]),...(e.kind==='original'?[EditorState.readOnly.of(true),EditorView.editable.of(false)]:[]),syntaxHighlighting(colors),spanField,threadFocusField,gitField,gitSlot.of([]),
+  return EditorState.create({doc:e.content,extensions:[EditorState.lineSeparator.of(e.diskContent.includes('\r\n')?'\r\n':'\n'),basicSetup,normalizeInputLineBreaks,documentSearch,matchOverview,language(docPath),workLockSlot.of(EditorState.readOnly.of(changingWorkMode||!!bridge?.locked(e.path))),EditorState.transactionFilter.of(tr=>tr.docChanged&&bridge?.locked(e.path)&&!tr.effects.some(effect=>effect.is(remoteReview)||effect.is(bridgeDiskReload))?[]:tr),...(bridge&&!e.kind?bridge.extensions(e,()=>entry()===e):[]),...(tracked?[e.reviewField]:[]),...(e.kind==='original'?[EditorState.readOnly.of(true),EditorView.editable.of(false)]:[]),syntaxHighlighting(colors),spanField,threadFocusField,gitField,gitSlot.of([]),
     themeSlot.of(theme()),liveSlot.of(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables,textSelection]:[]),
     ...(!e.kind&&['py','pyi'].includes(ext(e.path))?pythonNavigation(guard(goToPythonDefinition)):[]),
     ...(prose?[EditorView.lineWrapping,EditorView.theme({'.cm-scroller':{fontFamily:'var(--prose)',fontSize:'var(--prose-font-size)'},'.cm-content':{maxWidth:'850px',margin:'0 auto',width:'100%',minWidth:'0'},'.cm-foldGutter':{display:'none'}})]:[]),

@@ -106,7 +106,7 @@ def test_python_ctrl_click_import_alias_and_back_preserve_draft_undo(workspace_p
 @pytest.mark.parametrize('workspace_page', ['chromium','firefox'], indirect=True)
 def test_python_f12_current_buffer_review_unicode_and_tab_indentation(workspace_page):
     from playwright.sync_api import expect
-    root,page,url,_ = workspace_page
+    root,page,url,ws = workspace_page
     source='def café():\r\n    return 2\r\nvalue = "🦊"; café()\r\n'
     (root/'main.py').write_bytes(source.encode())
     page.goto(url); open_file(page,'main.py')
@@ -116,13 +116,19 @@ def test_python_f12_current_buffer_review_unicode_and_tab_indentation(workspace_
     expect(page.locator('#notice')).to_contain_text('Definition · main.py:1')
     page.locator('#work-mode').click(); expect(page.locator('#work-mode')).to_have_attribute('aria-checked','true')
     expect(page.locator('#work-mode')).to_be_enabled()
-    replace_source(page, '# changed draft\ndef draft_only():\n    return 1\ndraft_only()\n'.replace('\n','\r\n'))
+    draft='# changed draft\r\ndef draft_only():\r\n    return 1\r\ndraft_only()\r\n'
+    replace_source(page, draft)
     expect(page.locator('.cm-content')).to_contain_text('draft_only()')
+    expect(page.locator('.cm-line')).to_have_count(5)
+    expect(page.locator('.cm-specialChar')).to_have_count(0)
+    expect(page.locator('#review-status')).to_have_text('Review saved')
+    assert ws.reviews.start('main.py',ws.text('main.py')[1])['content']==draft
     page.locator('.cm-line').filter(has_text=re.compile('^draft_only')).click()
     page.keyboard.press('Home'); page.keyboard.press('ArrowRight')
     page.keyboard.press('F12'); expect(page.locator('.cm-activeLine')).to_contain_text('def draft_only')
     page.keyboard.press('Control+End'); page.keyboard.press('Tab'); page.keyboard.insert_text('x = 1')
-    expect(page.locator('.cm-activeLine')).to_have_text('    x = 1')
+    # Compare exact DOM text: to_have_text normalizes away leading whitespace.
+    expect(page.locator('.cm-activeLine')).to_have_js_property('textContent','  x = 1')
     assert (root/'main.py').read_bytes() == source.encode()
 
 
@@ -206,3 +212,39 @@ def test_existing_local_completions_need_no_analysis_requests(workspace_page):
     page.keyboard.press('Enter')
     expect(page.locator('.cm-activeLine')).to_have_text('current_document_symbol')
     assert requests == []
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+@pytest.mark.parametrize('mode',['edit','review'])
+@pytest.mark.parametrize('inserted_break',['\n','\r\n'],ids=['lf-input','crlf-input'])
+def test_crlf_multiline_input_undo_and_save_preserve_line_structure(workspace_page,mode,inserted_break):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    original='value = "🦊"\r\nsecond = 2\r\n'
+    expected='first = "🧠"\r\nsecond = 3\r\n'
+    (root/'main.py').write_bytes(original.encode())
+    page.goto(url);open_file(page,'main.py')
+    if mode=='review':
+        page.locator('#work-mode').click()
+        expect(page.locator('#work-mode')).to_have_attribute('aria-checked','true')
+        expect(page.locator('#work-mode')).to_be_enabled()
+    replace_source(page,expected.replace('\r\n',inserted_break))
+    expect(page.locator('.cm-line')).to_have_count(3)
+    expect(page.locator('.cm-specialChar')).to_have_count(0)
+    assert (root/'main.py').read_bytes()==original.encode()
+    page.keyboard.press('Control+z')
+    if mode=='review':
+        expect(page.locator('#review-status')).to_have_text('Review saved')
+        assert ws.reviews.start('main.py',ws.text('main.py')[1])['content']==original
+    else:
+        expect(page.locator('#dirty')).to_have_text('')
+    page.keyboard.press('Control+Shift+z')
+    expect(page.locator('.cm-line')).to_have_count(3)
+    page.keyboard.press('Control+s')
+    if mode=='edit':
+        expect(page.locator('#dirty')).to_have_text('')
+        assert (root/'main.py').read_bytes()==expected.encode()
+    else:
+        expect(page.locator('#review-status')).to_have_text('Review saved')
+        assert ws.reviews.start('main.py',ws.text('main.py')[1])['content']==expected
+        assert (root/'main.py').read_bytes()==original.encode()

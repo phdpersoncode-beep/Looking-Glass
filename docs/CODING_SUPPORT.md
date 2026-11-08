@@ -78,6 +78,11 @@ still identify the symbol. Missing names and timed-out analysis leave the readin
 position intact. Late results are discarded after edits, tab/mode changes or newer
 lookups; destination versions are checked before selecting a line. Unicode and
 CRLF positions convert between Python code points and CodeMirror UTF-16 offsets.
+Multiline typing/composition, paste and completion input is normalized into real
+editor lines even when a browser commits LF into a CRLF file. Saving retains the
+file's configured newline style; Review proposals retain the same style without
+changing the original. Selection, undo grouping and review provenance survive
+normalization.
 
 Jedi adds one direct Python dependency plus Parso, both locked in `uv.lock`.
 CodeMirror's existing Python parser remains responsible for highlighting, outline

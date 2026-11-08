@@ -234,8 +234,14 @@ reordered/duplicate snapshots, folder guards, request budgets/timeouts, Unicode/
 provider eligibility and stale results. Chromium journeys cover themed/narrow
 quiet locks, editing/paste/undo blocking, retained drafts/history, other tabs,
 Review, explicit disconnect, conflicts, accepted completions and sanitized hover.
-Firefox downloads were attempted but cloud policy denied `cdn.playwright.dev`
-and `playwright.download.prss.microsoft.com` (HTTP 403); Firefox remains pending.
+Local Playwright Firefox downloads were denied by cloud policy for
+`cdn.playwright.dev` and `playwright.download.prss.microsoft.com` (HTTP 403). The
+hosted run nevertheless passed all bridge journeys in both Chromium and Firefox.
+An additional local reproduction using Debian's Firefox ESR 153.5.1 and Mozilla
+Marionette verified normalized multiline CRLF input, Review draft persistence,
+F12 navigation and Tab indentation. It reproduced the same composition-commit
+mechanism as Playwright's Firefox driver; this is separate from running the full
+Playwright suite locally.
 
 ## Protocol and limits
 
