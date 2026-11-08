@@ -45,6 +45,7 @@ class FileOperations:
     def change(self, path, version, destination=None, delete=False):
         with self.ws.lock:
             info=self.info(path);source=self.path(path);path=info['path']
+            self.ws.bridge.guard(path, directory=source.is_dir())
             if version!=info['version']:raise Problem('Files changed. Reopen the menu and try again.',409)
             if delete:
                 target=self.ws.meta/'trash'/secrets.token_hex(16)/'files'/source.name

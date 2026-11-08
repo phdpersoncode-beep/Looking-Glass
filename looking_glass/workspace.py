@@ -77,6 +77,8 @@ class Workspace:
         self.pdfs = PDFs(self)
         from .source_markers import SourceMarkers
         self.source_markers = SourceMarkers(self)
+        from .vscode_bridge import Bridge
+        self.bridge = Bridge(self)
 
     def connection(self):
         return self.store.connection()
@@ -221,6 +223,7 @@ class Workspace:
         if not isinstance(content, str) or len(content.encode('utf-8')) > MAX_TEXT or '\x00' in content:
             raise Problem('Invalid or oversized text content.')
         with self.lock, self.connection() as db:
+            self.bridge.guard(path)
             self._fingerprints.pop(path,None)
             p = self.path(path)
             old, current_version = self.text(path)
@@ -242,6 +245,7 @@ class Workspace:
                 if os.path.exists(temporary):
                     os.unlink(temporary)
             self.reconcile(db, path, content)
+            self.bridge.saved(path, digest(content.encode('utf-8')))
             return dict(path=path, content=content, version=digest(content.encode('utf-8')),
                         source_markers_truncated=self.source_markers.truncated(db, path))
 

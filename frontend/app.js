@@ -1,6 +1,7 @@
 import {matchOverview} from './match-overview.mjs';
 import {mountOutlineResize} from './outline-resize.mjs';
 import {quickFileMatches} from './file-search.mjs';
+import {createBridge,lockIcon,bridgeDiskReload} from './vscode-bridge.mjs';
 import {mountExplorer} from './explorer.mjs';
 import {linkFileReferences,mountFileMentions} from './file-references.mjs';
 import {resizedImageSource,imageCaption} from './image-size.mjs';
@@ -76,6 +77,7 @@ const HISTORY='looking-glass://history',ORIGINAL='looking-glass://thread/';
 let contextVisit=null;
 let restoreReady=Promise.resolve();
 async function readTab(path){
+  await bridge?.ready;
   if(path===HISTORY)return {content:'',version:null,kind:'history'};
   if(path.startsWith(ORIGINAL)){
     const match=path.slice(ORIGINAL.length).match(/^(\d+)\/original(?:\/(\d+))?$/);if(!match)throw new Error('Invalid context tab.');
@@ -464,7 +466,7 @@ function renderTabs(){
     const open=document.createElement('button');open.className='tab-name';open.title=e.path;open.textContent=(e.pinned?'⌖ ':'')+(e.kind==='history'?'Commit history':e.kind==='original'?'Original · '+e.sourcePath.split('/').pop():e.path.split('/').pop())+(e.dirty&&e.workMode!=='review'?' •':'');open.onclick=guard(()=>openFile(e.path));
     const pin=document.createElement('button');pin.className='tab-control';pin.title=e.pinned?'Unpin tab':'Pin tab';pin.setAttribute('aria-label',pin.title);pin.textContent=e.pinned?'◆':'◇';pin.onclick=()=>{e.pinned=!e.pinned;renderTabs();remember();};
     const close=document.createElement('button');close.className='tab-control';close.title='Close tab';close.setAttribute('aria-label','Close '+e.path);close.textContent='×';close.onclick=guard(()=>closeTab(e.path));
-    tab.append(open,...(e.kind==='original'?[]:[pin]),close);
+    tab.append(open,...(bridge?.locked(e.path)?[lockIcon()]:[]),...(e.kind==='original'?[]:[pin]),close);
     tab.oncontextmenu=ev=>{ev.preventDefault();showTabMenu(e,ev.clientX,ev.clientY);};
     $('#tabs').append(tab);
   });
@@ -598,7 +600,7 @@ function makeState(e){
   const tracked=e.workMode==='review'&&e.review;
   if(tracked)e.reviewField=reviewTracking({...e.review,segments:e.reviewSegments||e.review.segments},()=>({author:authorName,role:'human',at:new Date().toISOString()}));
   const docPath=e.sourcePath||e.path,prose=['md','markdown','txt'].includes(ext(docPath));
-  return EditorState.create({doc:e.content,extensions:[EditorState.lineSeparator.of(e.diskContent.includes('\r\n')?'\r\n':'\n'),basicSetup,documentSearch,matchOverview,language(docPath),workLockSlot.of(EditorState.readOnly.of(changingWorkMode)),...(tracked?[e.reviewField]:[]),...(e.kind==='original'?[EditorState.readOnly.of(true),EditorView.editable.of(false)]:[]),syntaxHighlighting(colors),spanField,threadFocusField,gitField,gitSlot.of([]),
+  return EditorState.create({doc:e.content,extensions:[EditorState.lineSeparator.of(e.diskContent.includes('\r\n')?'\r\n':'\n'),basicSetup,documentSearch,matchOverview,language(docPath),workLockSlot.of(EditorState.readOnly.of(changingWorkMode||!!bridge?.locked(e.path))),EditorState.transactionFilter.of(tr=>tr.docChanged&&bridge?.locked(e.path)&&!tr.effects.some(effect=>effect.is(remoteReview)||effect.is(bridgeDiskReload))?[]:tr),...(bridge&&!e.kind?bridge.extensions(e,()=>entry()===e):[]),...(tracked?[e.reviewField]:[]),...(e.kind==='original'?[EditorState.readOnly.of(true),EditorView.editable.of(false)]:[]),syntaxHighlighting(colors),spanField,threadFocusField,gitField,gitSlot.of([]),
     themeSlot.of(theme()),liveSlot.of(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables,textSelection]:[]),
     ...(!e.kind&&['py','pyi'].includes(ext(e.path))?pythonNavigation(guard(goToPythonDefinition)):[]),
     ...(prose?[EditorView.lineWrapping,EditorView.theme({'.cm-scroller':{fontFamily:'var(--prose)',fontSize:'var(--prose-font-size)'},'.cm-content':{maxWidth:'850px',margin:'0 auto',width:'100%',minWidth:'0'},'.cm-foldGutter':{display:'none'}})]:[]),
@@ -637,13 +639,14 @@ function cancelSidebarNavigation(){
 }
 function openFile(path){cancelSidebarNavigation();return navigation.open(path);}
 let definitionRequest=0;
+let bridge;
 async function goToPythonDefinition(editor,at){
   const e=entry();if(!e||view!==editor||e.kind||changingWorkMode||fileMutation)return;
   const request=++definitionRequest,doc=editor.state.doc,visit=navigation.requestId;
   const current=()=>request===definitionRequest&&entry()===e&&view===editor&&editor.state.doc===doc&&navigation.requestId===visit;
   notify('Finding definition…');
   let result;
-  try{result=await api('python/definition','POST',{path:e.path,content:editor.state.sliceDoc(),...pythonPosition(doc,at)});}
+  try{result=await bridge?.provider(e,editor,at,'definition',current);if(!result)result=await api('python/definition','POST',{path:e.path,content:editor.state.sliceDoc(),...pythonPosition(doc,at)});}
   catch(error){if(current())throw error;return;}
   if(!current())return;
   if(!result.definitions.length){notify('No definition found in this workspace.');return;}
@@ -836,9 +839,11 @@ async function mountPDFDocument(e){
 }
 function supportsReview(e){return !!e&&!e.kind&&!['stl','jsonl','json','html','htm','pdf'].includes(ext(e.path))&&!isImage(e.path);}
 function updateToolbar(){
-  const locked=!!changingWorkMode||!!fileMutation||entry()?.reviewSync?.status==='approving'||entry()?.kind==='original';
+  const locked=!!bridge?.locked(entry()?.path)||!!changingWorkMode||!!fileMutation||entry()?.reviewSync?.status==='approving'||entry()?.kind==='original';
   if(view&&view.state.readOnly!==locked)view.dispatch({effects:workLockSlot.reconfigure(EditorState.readOnly.of(locked))});
   const e=entry(), type=e?ext(e.path):'', viewer=!!e?.kind||['stl','jsonl','pdf'].includes(type)||isImage(e?.path||'');
+  const indicator=$('#vscode-lock');indicator.hidden=!bridge?.locked(e?.path);
+  $('#bridge-disconnect').hidden=!bridge?.state.enabled;
   const markerButton=$('#track-source-markers');
   markerButton.disabled=locked||!e||viewer||e.trackingMarkers||e.workMode==='review'||!['py','pyi','md','markdown','sh','bash','yaml','yml','toml','r','rb','pl','js','mjs','cjs','ts','tsx','jsx','c','h','cpp','hpp','cs','java','go','rs','css','scss','swift','kt','php','html','htm','sql','lua'].includes(type);
   markerButton.setAttribute('aria-pressed',String(!!e?.track_source_markers));
@@ -855,7 +860,7 @@ function updateToolbar(){
   $('#copy-filepath').hidden=!e||e.kind==='history';
   $('#go-to-top').hidden=!e||['history','oversized'].includes(e.kind)||type==='stl'||isImage(e.path);
   $('#document-name').textContent=e?.kind==='history'?'Commit history':e?.kind==='original'?'Original · '+e.sourcePath:e?.path||'Open a file';$('#dirty').textContent=e?.dirty&&e.workMode!=='review'?' · Unsaved':'';
-  $('#save').disabled=!e||viewer||!e.dirty||saving;$('#annotate').disabled=!e||(viewer&&type!=='pdf')||!(type==='pdf'?cleanup.selection?.():renderedPreview?renderedSelection:removedSelection()||markdownSelection()||view&&!view.state.selection.main.empty);
+  $('#save').disabled=!e||viewer||!e.dirty||saving||!!bridge?.blocked(e.path);$('#annotate').disabled=!e||(viewer&&type!=='pdf')||!(type==='pdf'?cleanup.selection?.():renderedPreview?renderedSelection:removedSelection()||markdownSelection()||view&&!view.state.selection.main.empty);
   const mode=$('#mode');const modes=type==='md'||type==='markdown'?[['live','Live Markdown'],['source','Raw source'],['preview','Reading preview']]:type==='html'||type==='htm'?[['rendered','Rendered HTML'],['source','HTML source']]:[['source',viewer?'Viewer':'Source']];
   if(mode.dataset.path!==appStore.state.displayedDocument){mode.replaceChildren(...modes.map(([value,label])=>{const opt=document.createElement('option');opt.value=value;opt.textContent=label;return opt;}));mode.dataset.path=appStore.state.displayedDocument||'';}
   const html=type==='html'||type==='htm', toggle=$('#html-toggle');
@@ -866,7 +871,7 @@ function updateToolbar(){
   if(e?.workMode==='review')$('#conflict').hidden=true;
   if(e?.conflict)$('#conflict span').textContent=e.conflict.deleted?'This file was deleted or became unavailable on disk. Copy your draft before closing it.':'Changed on disk. Your unsaved edits are preserved. Compare and merge before saving.';
   $('#work-mode').hidden=!supportsReview(e);$('#work-mode').disabled=changingWorkMode||saving||!!fileMutation;$('#work-mode').setAttribute('aria-checked',String(e?.workMode==='review'));$('#work-mode').querySelectorAll('span').forEach(s=>s.classList.toggle('active',s.dataset.mode===(e?.workMode==='review'?'review':'edit')));
-  $('#approve-review').hidden=e?.workMode!=='review';$('#approve-review').disabled=saving||changingWorkMode||!!fileMutation||!!e?.reviewError;
+  $('#approve-review').hidden=e?.workMode!=='review';$('#approve-review').disabled=saving||changingWorkMode||!!fileMutation||!!e?.reviewError||!!bridge?.blocked(e?.path);
   $('#review-status').hidden=e?.workMode!=='review';$('#review-status').textContent=changingWorkMode?'Switching mode…':e?.reviewError?'Draft needs attention':['pending','saving'].includes(e?.reviewSync?.status)?'Saving review…':'Review saved';
   $('#review-history').hidden=e?.workMode!=='review';
   $('#review-conflict').hidden=!(e?.workMode==='review'&&e.reviewError);
@@ -875,7 +880,7 @@ function updateToolbar(){
 }
 async function saveActive(){
   if(fileMutation)await fileMutation;
-  const e=entry();if(e?.workMode==='review'){await flushReview(e);return e;}if(!e||!e.dirty)return e;if(e.conflict)throw new Error('Resolve the external change before saving.');syncState();saving=true;updateToolbar();
+  const e=entry();if(e&&bridge?.blocked(e.path))throw new Error(bridge.reason(e.path));if(e?.workMode==='review'){await flushReview(e);return e;}if(!e||!e.dirty)return e;if(e.conflict)throw new Error('Resolve the external change before saving.');syncState();saving=true;updateToolbar();
   const content=e.content;
   try{
     const saved=await api('file','PUT',{path:e.path,content,version:e.version});e.diskContent=content;e.version=saved.version;e.dirty=e.content!==content;e.source_markers_truncated=saved.source_markers_truncated;
@@ -920,6 +925,7 @@ async function applyRemoteReview(e,draft,before){
 }
 async function requestReviewApproval(){
   const e=entry();if(e?.workMode!=='review')return;
+  if(bridge?.blocked(e.path))throw new Error(bridge.reason(e.path));
   await flushReview(e);
   if(entry()!==e||e.workMode!=='review')return;
   approvalTarget=reviewSync(e).approvalTarget();
@@ -1411,6 +1417,7 @@ async function poll(){
         if(e.path!==requestedPath||e.version!==requestedVersion||navigation.busy||saving||fileMutation)continue;
         if(disk.version===e.version)continue;
         if(e.dirty){e.conflict=disk;if(e.path===appStore.state.displayedDocument)notify('External change detected; your draft is preserved.',true);}
+        else if(bridge?.state.enabled&&view&&e===entry()){const before=e.content,scroll=view.scrollSnapshot();e.diskContent=disk.content;e.version=disk.version;e.conflict=null;view.dispatch({changes:replacementFor(before,disk.content),effects:[scroll,bridgeDiskReload.of(true)],annotations:[Transaction.addToHistory.of(false),isolateHistory.of('full')]});e.content=disk.content;e.dirty=false;e.state=view.state;}
         else{disposeReport(e);e.content=disk.content;e.diskContent=disk.content;e.version=disk.version;e.state=null;e.conflict=null;if(e.path===appStore.state.displayedDocument){view?.destroy();view=null;cleanup();cleanup=()=>{};clearSurface();if(ext(e.path)==='jsonl')mountJSONL(e);else mountDocument(e);notify('Reloaded the external change');}}
       }catch(error){if(e.path!==requestedPath||fileMutation)continue;if(error.status===404){e.conflict={deleted:true};if(e.path===appStore.state.displayedDocument)notify(error.message,true);}else notify(error.message,true);}
     }
@@ -1885,6 +1892,8 @@ $('#directory-choose').onclick=dialogGuard('#directory-error',async()=>{
   await api('workspace','POST',{path:$('#directory-path').value});location.reload();
 });
 window.addEventListener('beforeunload',event=>{if([...tabs.values()].some(e=>e.dirty)||composers.hasPending()){event.preventDefault();event.returnValue='';}});
+bridge=createBridge(api,()=>{updateToolbar();renderTabs();const next=bridge.locked(entry()?.path)?bridge.reason(entry().path):'';if($('#bridge-announcement').textContent!==next)$('#bridge-announcement').textContent=next;});
+$('#bridge-disconnect').onclick=guard(async()=>{if(await confirmAction({title:'Disconnect VS Code?',message:'Dirty-file protection will end. Drafts in both applications stay unchanged.',confirmLabel:'Disconnect'}))await bridge.disconnect();});
 document.documentElement.dataset.theme=localStorage.getItem('looking-glass-theme')||'light';$('#theme').textContent=document.documentElement.dataset.theme==='dark'?'Light mode':'Dark mode';
 // Restore tab metadata only; unsaved text is never silently persisted over disk.
 let restored={tabs:[]};try{restored=JSON.parse(localStorage.getItem('looking-glass-tabs:'+root)||'{"tabs":[]}');if(Array.isArray(restored))restored={tabs:restored};}catch{}

@@ -5,6 +5,10 @@ a persistent discussion, and let an agent read or reply from its own terminal.
 Project files on disk stay authoritative. Saving writes a file; a Git checkpoint
 is a separate, explicit action.
 
+Optional: the [private VS Code companion](vs_code_extension/README.md) adds
+per-file dirty-buffer protection and saved-buffer language assistance. Build and
+install its local VSIX; no Marketplace publication is required.
+
 ## Install and run
 
 Requires [uv](https://docs.astral.sh/uv/), Git, and a modern browser. uv installs

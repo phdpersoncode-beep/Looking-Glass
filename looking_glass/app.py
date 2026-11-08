@@ -32,7 +32,7 @@ def create_app(root):
         if request.method=='POST' and (request.path.endswith(('/attachments','/replies')) or request.path=='/api/threads'):
             request.max_content_length=65*1024*1024
         if request.path.startswith(('/api/', '/fragments/')):
-            if not secrets.compare_digest(request.headers.get('X-Looking-Glass-Token',''), ws.token):
+            if not request.path.startswith('/api/bridge/session/') and not secrets.compare_digest(request.headers.get('X-Looking-Glass-Token',''), ws.token):
                 raise Problem('Missing or invalid local API token.', 401)
             origin = request.headers.get('Origin')
             if origin and origin != request.host_url.rstrip('/'):
@@ -68,6 +68,9 @@ def create_app(root):
         if not isinstance(data,dict):
             raise Problem('Send a JSON object.')
         return data
+
+    from .vscode_bridge import install_routes
+    install_routes(app, lambda: ws, body)
 
     def review_body():
         if request.mimetype != 'multipart/form-data':
@@ -202,6 +205,7 @@ def create_app(root):
         path = body().get('path')
         if not isinstance(path, str) or not path:
             raise Problem('Choose a directory.')
+        if ws.bridge.enabled: ws.bridge.disconnect()
         ws = Workspace(directories(path)['path'])
         git = Revisions(ws)
         previews.clear()

@@ -8,3 +8,6 @@ __pycache__/
 .looking-glass/
 test-results/
 playwright-report/
+
+/build/
+/dist/

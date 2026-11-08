@@ -238,6 +238,7 @@ class Reviews:
         with self.ws.lock:
             draft = self.read(identifier)
             self.check(draft,version)
+            self.ws.bridge.guard(draft['path'])
             # The ordinary save path preserves permissions and checks disk races.
             try:
                 saved = self.ws.save(draft['path'],draft['content'],draft['base_version'])

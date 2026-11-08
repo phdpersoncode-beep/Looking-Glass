@@ -1,7 +1,9 @@
 # Local VS Code bridge specification
 
-This specifies a future optional feature. The current application does not
-implement the extension, synchronization protocol or file locks described here.
+This is the target contract for the optional local bridge. A private companion,
+backend integration and validation harness now live in
+[`vs_code_extension/`](../vs_code_extension/README.md). Its README distinguishes
+verified behavior from pending desktop/provider acceptance cases.
 
 ## Agreed behavior
 
@@ -268,10 +270,11 @@ and do not extract or redistribute Microsoft extension binaries.
    tests, and Chromium/Firefox user journeys. Mock-provider tests alone do not
    establish native file-watcher, dirty-state or installed-provider behavior.
 
-This documentation change does not implement the feature or change current
-application behavior. Implementation begins with a small real extension-host
-prototype of clean-file refresh, dirty-state detection and provider forwarding;
-the race and licensing constraints must be verified before claiming readiness.
+The private implementation includes a real extension-host harness for clean-file
+refresh, dirty-state detection and provider forwarding. See the companion README
+for actual validation and remaining desktop/provider coverage. The race and
+licensing constraints above still apply; cloud tests do not establish full desktop
+acceptance.
 
 ## Reference contracts
 

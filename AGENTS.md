@@ -83,6 +83,7 @@ Keep this map and commands current when structure/workflows change.
 
 - `looking_glass/app.py`: routes/security; `workspace.py`: files/discussions; `anchors.py`: mapping; `reviews.py`: drafts/provenance/approval; `origins.py`: immutable context; `revisions.py`: Git checkpoints/history.
 - `looking_glass/pdfs.py`: read-only PDF metadata, database bookmarks, and version-bound passage anchors.
+- `vs_code_extension/`: private local VSIX, build/setup instructions, protocol/native host tests and cloud server script; `looking_glass/vscode_bridge.py`, `frontend/vscode-bridge.mjs`: pairing, guards and saved-buffer providers.
 - `looking_glass/cli.py`, `projects.py`, `instructions.py`: agent interface/discovery/guidance; `attachments.py`: uploads.
 - `looking_glass/templates/`: HTML/HTMX; `frontend/`: client sources; `looking_glass/static/`: committed `build.mjs` output.
 - `tests/`: backend/CLI/JavaScript/browser checks; `.github/workflows/`: automated gates; `scripts/verify_browser_shards.py`: completeness; `scripts/benchmark_*`: disposable benchmarks.
