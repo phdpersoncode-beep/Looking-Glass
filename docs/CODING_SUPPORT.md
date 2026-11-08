@@ -85,6 +85,12 @@ and local completion. A full Pyright/LSP integration would add a language-server
 process, document synchronization and an interpreter/project configuration UI;
 that ongoing cost is not needed for this definition-only feature.
 
+An optional connection to an existing local VS Code session is specified in
+[the VS Code bridge proposal](VSCODE_BRIDGE_SPEC.md). It proposes shared saved
+files, quiet per-file locks while VS Code has an unsaved draft, and saved-Edit-only
+provider requests. The bridge is not implemented; existing behavior above remains
+the current fallback in both Edit and Review.
+
 ## Completion assessment and effort
 
 These are engineering estimates for implementation, focused regressions and
