@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "A local file editor with anchored discussions for people and coding agents"
 requires-python = ">=3.10"
 dependencies = [
+    "jedi>=0.19.2,<0.20",
     "Flask>=3.1,<4",
     "pypdf>=6,<7",
     "pathspec>=1.1,<2",

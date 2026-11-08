@@ -382,3 +382,15 @@ body.outline-resizing,body.outline-resizing *{cursor:col-resize!important;user-s
 .cm-match-map{position:absolute;right:1px;width:12px;pointer-events:none;z-index:4}
 .cm-match-marker{position:absolute;right:1px;width:9px;height:6px;min-height:0;padding:0;border:0;border-radius:1px;background:var(--occurrence-edge);pointer-events:auto;opacity:.85}
 .cm-match-marker:hover,.cm-match-marker:focus-visible{background:var(--occurrence-text);outline:1px solid var(--occurrence-edge);outline-offset:1px;opacity:1}
+.source-marker-controls{display:flex;flex-wrap:wrap;gap:4px;padding:8px 10px 0}.source-marker-controls button{font-size:10px;white-space:normal;min-width:0;flex:1;padding:5px 6px}.source-marker-controls button[aria-pressed=true]{color:var(--purple);background:var(--selection)}.source-marker-flag{display:inline-block;font:10px var(--mono);color:var(--purple);margin:4px 0}.cm-content .python-definition-link{color:var(--purple);text-decoration:underline;cursor:pointer}
+.definition-choices nav{display:grid;gap:6px;margin:12px 0}.definition-choices nav button{white-space:normal;overflow-wrap:anywhere;text-align:left}
+
+.vscode-lock {display:inline-flex;align-items:center;color:var(--muted);flex:none;}
+.vscode-lock:focus-visible {outline:2px solid currentColor;outline-offset:2px;}
+.bridge-hover {padding:8px 12px;max-width:440px;max-height:260px;overflow:auto;}
+
+.vscode-lock:focus-visible::after {content:attr(aria-label);position:fixed;top:115px;left:20px;max-width:calc(100vw - 40px);padding:6px 10px;border:1px solid var(--border);border-radius:5px;background:var(--paper);color:var(--text);font:11px/1.5 var(--mono);z-index:60;}
+
+.document-filename {display:inline-flex;align-items:center;gap:6px;min-width:0;}
+.document-filename #document-name {white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:4ch;}
+.document-panel footer {flex-wrap:wrap;gap:4px;}

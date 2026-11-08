@@ -45,6 +45,7 @@ class FileOperations:
     def change(self, path, version, destination=None, delete=False):
         with self.ws.lock:
             info=self.info(path);source=self.path(path);path=info['path']
+            self.ws.bridge.guard(path, directory=source.is_dir())
             if version!=info['version']:raise Problem('Files changed. Reopen the menu and try again.',409)
             if delete:
                 target=self.ws.meta/'trash'/secrets.token_hex(16)/'files'/source.name
@@ -63,7 +64,7 @@ class FileOperations:
                     db.execute('BEGIN IMMEDIATE')
                     if not delete:
                         # Refuse to merge histories left at a formerly occupied destination.
-                        for table in ['snapshots','threads','review_drafts','review_heads','pdf_bookmarks']:
+                        for table in ['snapshots','threads','review_drafts','review_heads','pdf_bookmarks','source_marker_files']:
                             for row in db.execute(f'SELECT DISTINCT path FROM {table}'):
                                 value=row['path']
                                 if (value==new or value.startswith(new+'/')) and remap(value)==value:
@@ -73,8 +74,9 @@ class FileOperations:
                         for row in db.execute('SELECT id,path FROM threads').fetchall():
                             if row['path']==path or row['path'].startswith(path+'/'):
                                 db.execute("UPDATE threads SET anchor_status='needs_reattachment' WHERE id=?",(row['id'],))
+                        self.ws.source_markers.resolve_unattached(db)
                     else:
-                        for table in ['snapshots','threads','review_drafts','review_heads','pdf_bookmarks']:
+                        for table in ['snapshots','threads','review_drafts','review_heads','pdf_bookmarks','source_marker_files']:
                             for row in db.execute(f'SELECT DISTINCT path FROM {table}').fetchall():
                                 value=row['path'];mapped=remap(value)
                                 if mapped!=value:db.execute(f'UPDATE {table} SET path=? WHERE path=?',(mapped,value))

@@ -1,0 +1,25 @@
+{
+  "name": "looking-glass-companion", "displayName": "Looking Glass Companion (Private)",
+  "description": "Private local workspace coordination and saved-buffer language providers for Looking Glass.",
+  "version": "0.1.0", "publisher": "looking-glass-local", "private": true, "license": "UNLICENSED",
+  "repository": {"type": "git", "url": "https://github.com/phdpersoncode-beep/Looking-Glass.git", "directory": "vs_code_extension"},
+  "engines": {"vscode": "^1.96.0"}, "categories": ["Other"], "main": "./dist/extension.cjs", "extensionKind": ["workspace"],
+  "capabilities": {"untrustedWorkspaces": {"supported": false}, "virtualWorkspaces": {"supported": false}},
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "commands": [
+      {"command": "lookingGlass.connect", "title": "Looking Glass: Connect to Looking Glass"},
+      {"command": "lookingGlass.disconnect", "title": "Looking Glass: Disconnect (End Dirty-file Protection)"}
+    ],
+    "configuration": {"title": "Looking Glass", "properties": {
+      "lookingGlass.serverUrl": {"type": "string", "default": "http://127.0.0.1:8765", "scope": "resource", "description": "Local server origin. Used only after explicit Connect; credentials are never stored in settings."}
+    }}
+  },
+  "scripts": {
+    "build": "node build.cjs", "test": "node --test test/*.test.cjs",
+    "package": "npm run build && vsce package --no-dependencies --allow-missing-repository --skip-license --out looking-glass-companion-0.1.0.vsix",
+    "vscode:prepublish": "npm run build",
+    "publish": "node -e \"throw new Error('Private extension: install the local VSIX; publishing is disabled')\""
+  },
+  "devDependencies": {"@vscode/vsce": "3.6.2", "esbuild": "0.25.10", "@types/vscode": "1.96.0"}
+}
