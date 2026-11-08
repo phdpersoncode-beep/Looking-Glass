@@ -935,3 +935,120 @@ PR #19 is retargeted to `main` and integrates that entire history.
   KaTeX CSS/fonts and PDF renderer/worker, CMaps, fonts, and decoder resources.
   Frontend assets are rebuilt from the combined sources. The earlier PDF-only
   full run does not validate this integration commit.
+
+## Markdown image annotations (2026-11-05)
+
+Based on `hotfix/clear-stale-reply-sending` at `aedbbfe`.
+
+- Full fast Python gate: **162 passed**.
+- JavaScript gate: **18 test files passed**, including image syntax, source
+  coordinates, safe wiki attributes, and stable managed-image identifiers.
+- Final image Chromium journeys: **4 passed** (PNG paste/annotation/threads/
+  rename/reload/restore; light and dark disk-image erasing; JPEG paste with
+  concurrent typing and a tab switch). Dialog layouts inspected at 850px width.
+- Related Markdown, math, review, discussion, and prior-hotfix selection:
+  **55 passed** in an earlier integration run.
+- Viewer, reply-hotfix, context-return, and image selection: **118 passed**,
+  **1 environment-blocked failure**. The existing
+  `test_html_and_jsonl_downloads` fails when navigating to a downloaded
+  `file://` HTML report with Chromium `ERR_BLOCKED_BY_ADMINISTRATOR`.
+  Reproduced on an untouched worktree of the hotfix base with the same browser.
+- Browser shard completeness: **645 cases**, all assigned exactly once.
+- Frontend build, wheel/source distribution build, and whitespace checks pass.
+  Pillow is locked and included as the only added runtime dependency.
+
+Firefox journeys are defined but were not executed: downloads from both
+Playwright browser hosts were denied by the environment's outbound policy.
+Native OS screenshot clipboard integration was not manually exercised; browser
+journeys synthesize standard PNG/JPEG clipboard file payloads. The full browser
+collection has not been run for this feature. GitHub API access returned
+`Forbidden`, preventing a draft PR and remote browser workflow request here.
+
+## Explorer, file references, and browser repairs (2026-11-07)
+
+- **171 non-browser Python checks passed**. New coverage includes recoverable
+  deletion, stale/protected paths, collision rejection, filesystem rollback after
+  a metadata error, and review/discussion/image/PDF preservation through moves.
+- **19 JavaScript test files passed**, including shared fuzzy scoring, safe file
+  reference parsing, history remapping, and stale review polls after a move.
+- **48 Chromium checks passed** for images, explorer actions, mentions, and Python
+  navigation/outline. A further **30 Chromium checks passed** for focused comment
+  geometry, thread references, and navigation (six outline cases overlap).
+  The explorer drag journey also passed after adding a return-to-root drop.
+- Checked new outline/menu geometry in light/dark themes at 1440px/780px widths;
+  inspected screenshots. Mention completion stays within both viewports and
+  retains normal Enter/Escape/Ctrl+Enter behavior. Active image/PDF/JSONL rename
+  checks confirm the correct viewer remains mounted.
+- Frontend build, wheel/source packaging, whitespace checks, and the complete,
+  disjoint **761-case** browser collection passed; shard sizes are
+  **191/190/190/190**.
+
+The image decode wrapper keeps its layout while invisible instead of using
+`display:none`. The following full run showed this alone did not resolve the
+Firefox image initialization failures; see the follow-up below.
+Review/resize browser checks await completed mode changes, decoded pixels, and
+fonts before measuring both rectangles in a single evaluation. No assertions
+were relaxed or retries introduced. Local Chromium passes do not establish
+Firefox correctness: the environment denies Playwright's Firefox download, so
+full Chromium/Firefox validation must use the final pushed CI run.
+
+## Browser run follow-up (2026-11-07)
+
+Run [42407895085](https://github.com/phdpersoncode-beep/Looking-Glass/actions/runs/42407895085)
+tested the PR head `e5a9ca1`: **726 passed, 35 failed**. All **20 new explorer,
+outline, and file-reference cases passed** across Chromium and Firefox.
+
+- 33 Firefox image cases still failed during initialization with “Invalid image
+  request.” Retaining layout alone was insufficient. Image setup now registers
+  load/error listeners before assigning the replacement URL, awaiting the new
+  request's load event rather than decoding immediately against a stale request.
+  This includes current/original buffers in the annotation editor. Unit checks
+  cover pending readiness, error rejection, and recovery on the same element.
+- The Chromium resize/Review test read disk while approval was still pending;
+  it now verifies redo content and waits for completed approval before asserting
+  persisted bytes. The disk assertion is unchanged.
+- The refresh test expected an empty tree after removing files but leaving their
+  folder. It now checks that the empty folder remains as a drop target, then
+  removes the folder and checks the original empty-workspace message.
+
+Firefox remains unavailable locally because its download is denied by the
+managed environment. A fresh full CI run must validate these changes.
+
+Follow-up local validation: **35 Chromium image/tree cases**, **171 Python
+checks**, and **20 JavaScript test files passed**. Build, wheel/source packaging,
+whitespace, and the unchanged complete/disjoint 761-case shard guard passed.
+Firefox results remain pending in the next full hosted run.
+
+## Git status colors and navigation controls
+
+- Explorer paths use Git's real ignored/modified/new status, with staged additions,
+  tracked files matched by later ignore rules, renames, unusual filenames, nested
+  workspace roots, and status-only ETag changes covered. The automatic status read
+  disables optional index writes and external filesystem monitoring; index bytes
+  remain unchanged in the regression test. Git decoration failure leaves the tree
+  usable. `.looking.ignore` discovery and Git ignore coloring stay independent.
+- Ctrl+P sorts unique recent visits first using the file-history dropdown order.
+  Coverage includes closed outside files, persistence, fuzzy filtering, arrows and
+  Enter, and retaining the chosen result while fresh workspace discovery arrives.
+  Shift+P remains ordinary text input, per the clarified request.
+- Python outlines resize from their left edge, remember workspace-specific width,
+  fit narrow panes, support keyboard resizing/reset, and cancel a drag with Escape.
+  File switches, unsaved content, undo, and reloads retain their existing behavior.
+- Selected strings have clickable amber scrollbar markers, including offscreen
+  matches, with at most 250 line bands. Markers clear with the selection and update
+  safely after shortening a document. Scans preserve Unicode normalization and
+  yield/cancel between bounded chunks so new input supersedes stale work.
+- Diagnostic Node measurements: 1.2 million characters / 100,001 lines with dense
+  matches produced 250 markers in about 42 ms total; a sparse 2.8-million-character /
+  200,002-line file produced two markers in about 22 ms (previously about 306 ms).
+  Production scanning yields between chunks; these are measurements, not test
+  timing thresholds.
+- Local validation: **173 Python checks**, **21 JavaScript test files**, and
+  **25 focused Chromium cases** passed; the final occurrence editing/clearing
+  regression passed after the scan refinements. Both themes and desktop/narrow
+  layouts inspected. Build/clean rebuild, wheel/source packaging, whitespace,
+  and complete/disjoint **773-case** browser sharding checked (194/193/193/193).
+
+The prior full run on `8297c62` passed all 763 cases. Firefox remains unavailable
+locally because its browser download is blocked; the new cases require the final
+hosted Chromium/Firefox run.

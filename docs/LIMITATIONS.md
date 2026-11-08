@@ -29,7 +29,8 @@
   multimedia, signatures, and editing/export of PDF bytes are not exposed.
   Bookmark targets are page-level; embedded vertical offsets are not imported.
   Outlines import at most 2,000 entries and 32 nesting levels. They belong to
-  the workspace database and do not follow a renamed/moved file automatically.
+  the workspace database and follow files moved through the explorer; external
+  filesystem moves do not remap bookmarks or discussions.
   If PDF bytes change, all existing geometry anchors require explicit
   reattachment and bookmark targets must be checked and saved again. Original
   discussion context retains the selected text and page metadata, not a copy

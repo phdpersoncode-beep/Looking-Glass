@@ -14,6 +14,7 @@ export function createFileHistory(saved={},limit=100){
       if(entries[index]===path)return;
       entries=entries.slice(0,index+1).concat(path).slice(-limit);index=entries.length-1;
     },
+    remap(map){const mapped=entries.map(map);index=mapped.slice(0,index+1).filter(Boolean).length-1;entries=mapped.filter(Boolean);requested=null;},
     clear(){entries=[];index=-1;requested=null;}
   };
 }

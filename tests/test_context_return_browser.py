@@ -116,8 +116,8 @@ def test_context_restores_reader_and_drafts(workspace_page, work, mode, exit):
     elif exit == 'resolve':
         page.get_by_role('button', name='Resolve thread', exact=True).click()
     elif exit == 'delete':
-        page.once('dialog', lambda dialog: dialog.accept())
         page.get_by_role('button', name='Delete thread', exact=True).click()
+        page.locator('.lg-dialog button[type=submit]').click()
     elif exit == 'external_resolve':
         ws.update_thread(thread['id'], resolved=True)
     elif exit == 'external_delete':
@@ -186,8 +186,8 @@ def test_deleting_one_comment_closes_context_while_thread_survives(workspace_pag
     if external:
         ws.delete_message(thread['id'], thread['messages'][0]['id'])
     else:
-        page.once('dialog', lambda dialog: dialog.accept())
         page.get_by_role('button', name='Delete comment', exact=True).first.click()
+        page.locator('.lg-dialog button[type=submit]').click()
     expect(page.locator('#document-name')).to_have_text('note.txt', timeout=10000)
     assert len(ws.get_thread(thread['id'])['messages']) == 1
 

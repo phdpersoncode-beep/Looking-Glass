@@ -67,6 +67,8 @@ class Workspace:
 
         from .attachments import Attachments
         self.attachments = Attachments(self)
+        from .images import Images
+        self.images = Images(self)
         from .origins import Origins
         self.origins = Origins(self)
         from .reviews import Reviews
@@ -152,6 +154,21 @@ class Workspace:
                 if len(found) >= 10000:
                     return sorted(found)
         return sorted(found)
+
+    def folders(self):
+        # Empty folders are valid explorer drop targets; use discovery's ignore rules.
+        rules=self.root/'.looking.ignore'
+        if rules.is_symlink():raise Problem('.looking.ignore must not be a symlink.',403)
+        try:ignored=GitIgnoreSpec.from_lines(self.text('.looking.ignore')[0].splitlines() if rules.exists() else [])
+        except GitIgnorePatternError as error:raise Problem(f'Invalid .looking.ignore pattern: {error}') from error
+        result=[]
+        def fail(error):raise error
+        for directory,dirs,_ in os.walk(self.root,onerror=fail):
+            relative=Path(directory).relative_to(self.root)
+            dirs[:]=sorted(d for d in dirs if d not in EXCLUDED and not (Path(directory)/d).is_symlink() and not ignored.match_file((relative/d).as_posix()+'/'))
+            result.extend((relative/d).as_posix() for d in dirs)
+            if len(result)>10000:raise Problem('Too many folders to display.',413)
+        return result
 
     def bytes(self, path):
         p = self.path(path)

@@ -27,6 +27,8 @@ def create_app(root):
 
     @app.before_request
     def protect():
+        if request.path.startswith('/api/images'):
+            request.max_content_length=33*1024*1024
         if request.method=='POST' and (request.path.endswith(('/attachments','/replies')) or request.path=='/api/threads'):
             request.max_content_length=65*1024*1024
         if request.path.startswith(('/api/', '/fragments/')):
@@ -121,17 +123,23 @@ def create_app(root):
     @app.get('/fragments/files')
     def tree():
         files = ws.files()
-        tag = hashlib.sha256(json.dumps(files, ensure_ascii=False).encode()).hexdigest()
+        folders=ws.folders()
+        try:statuses=git.explorer_status([*files,*folders])
+        except (Problem,FileNotFoundError):statuses={}
+        tag = hashlib.sha256(json.dumps([files,folders,statuses], ensure_ascii=False).encode()).hexdigest()
         if request.if_none_match.contains(tag):
             return Response(status=304, headers={'ETag': '"' + tag + '"'})
         tree = {}
+        for folder in folders:
+            branch=tree
+            for part in folder.split('/'):branch=branch.setdefault(part,{})
         for path in files:
             branch = tree
             parts = path.split('/')
             for part in parts[:-1]:
                 branch = branch.setdefault(part, {})
             branch[parts[-1]] = path
-        response = app.make_response(render_template('files.html', tree=tree))
+        response = app.make_response(render_template('files.html', tree=tree, statuses=statuses))
         response.set_etag(tag)
         return response
 
@@ -211,6 +219,17 @@ def create_app(root):
     @app.get('/api/locate')
     def locate():
         return jsonify(path=ws.locate(request.args.get('path')))
+
+    @app.get('/api/explorer')
+    def explorer_info():
+        from .file_operations import FileOperations
+        return jsonify(FileOperations(ws).info(request.args.get('path')))
+
+    @app.post('/api/explorer')
+    def explorer_change():
+        from .file_operations import FileOperations
+        data=body()
+        return jsonify(FileOperations(ws).change(data.get('path'),data.get('version'),data.get('destination'),data.get('delete') is True))
 
     @app.get('/api/file')
     def read_file():
@@ -436,6 +455,44 @@ def create_app(root):
                 raise Problem('Reattach a PDF passage with its current version only.')
             return jsonify(ws.pdfs.reattach(identifier, data['pdf_anchor'], data.get('version')))
         return jsonify(ws.update_thread(identifier,**data))
+
+    @app.post('/api/images')
+    def add_image():
+        upload = request.files.get('file')
+        if not upload: raise Problem('Choose an image.')
+        return jsonify(ws.images.add(upload.stream, upload.filename)), 201
+
+    @app.post('/api/images/import')
+    def import_image():
+        return jsonify(ws.images.import_file(body().get('path')))
+
+    @app.get('/api/images/<identifier>')
+    def image_metadata(identifier):
+        return jsonify(ws.images.public(ws.images.get(identifier)))
+
+    @app.get('/api/images/<identifier>/content')
+    def image_content(identifier):
+        row = ws.images.get(identifier)
+        raw = row['original'] if request.args.get('original') == '1' else row['current']
+        return send_file(io.BytesIO(raw), mimetype=ws.images.validate(raw), download_name=row['name'])
+
+    @app.patch('/api/images/<identifier>')
+    def update_image(identifier):
+        if request.mimetype == 'multipart/form-data':
+            upload = request.files.get('file')
+            if not upload: raise Problem('Choose an image.')
+            from .images import MAX_IMAGE
+            return jsonify(ws.images.update(identifier, request.form.get('version'), raw=upload.stream.read(MAX_IMAGE + 1)))
+        data = body()
+        return jsonify(ws.images.update(identifier, data.get('version'), name=data.get('name'), restore=data.get('restore') is True))
+
+    @app.post('/api/images/<identifier>/comments')
+    def image_comment(identifier):
+        return jsonify(ws.images.comment(identifier, body())), 201
+
+    @app.patch('/api/images/<identifier>/comments/<int:thread_id>')
+    def move_image_comment(identifier, thread_id):
+        return jsonify(ws.images.move_comment(identifier, thread_id, body()))
 
     @app.post('/api/threads/<int:identifier>/attachments')
     def upload_attachment(identifier):

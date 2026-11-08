@@ -44,6 +44,16 @@ with its body limited to 240 characters. Use `--full` for complete messages.
 `read` includes current passage context with 10 surrounding lines by default.
 Commands print JSON; `instructions` prints text. Errors use stderr and a nonzero exit code.
 
+## File references in messages
+
+Use `@src/part.py` or `@"notes/design sketch.md"` in a comment/reply body to
+reference a workspace file. The browser renders a clickable link with the same
+styling as thread references; CLI/API bodies remain plain Markdown. Code spans,
+code blocks, existing links, and email addresses are left alone. The human's
+comment editor offers fuzzy `@` completion respecting `.looking.ignore`.
+References are explicit paths and are not rewritten after file moves. See
+[explorer behavior](EXPLORER.md) for moving files while preserving discussions.
+
 ## Non-destructive review drafts
 
 In review mode, edit the saved draft through the local interface; direct filesystem

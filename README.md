@@ -45,8 +45,12 @@ The terminal prints the new root, and the API token changes with it.
 `/home/you/.claude/projects/<project>/<session>.jsonl`. Files outside the
 workspace are keyed by their resolved absolute path. Their discussions are stored
 in the current workspace. The file sidebar lists files recursively
-as a collapsible tree and supports filtering. Use **Collapse all folders** to fold
-the tree. Drag the sidebar divider to resize the explorer; its width persists across
+as a collapsible tree and supports filtering. Use **Collapse all folders** or **Alt+Q** to fold
+the tree. Right-click files/folders to rename, delete, or copy paths; drag them
+onto another folder to move them. Python outlines support individual and
+collapse/expand-all controls. Type **@** in a discussion to find and reference a
+file with fuzzy completion respecting `.looking.ignore`. See
+[explorer and file references](docs/EXPLORER.md) for controls and data preservation. Drag the sidebar divider to resize the explorer; its width persists across
 refreshes. The focused divider also supports arrow keys, Home/End, and double-click
 to reset. Folder expansion persists across refreshes. Common dependency, Git and application metadata folders
 are excluded. Symlinks are not opened. No project code is executed.
@@ -212,7 +216,8 @@ rounding large numbers or removing duplicate keys. Formatting is undoable and st
 unsaved until you save. Invalid JSON stays unchanged and produces an error.
 
 Ctrl+P opens fuzzy file search throughout the application and overrides browser printing.
-Type parts of a filename or path, use ↑/↓ to select, and press Enter to open.
+Recent file visits appear first. Type parts of a filename or path, use ↑/↓ to
+select, and press Enter to open.
 Escape closes the picker. The picker includes workspace files and open outside files.
 The arrows to the left of the file path move backward and forward through recent
 file visits. The dropdown beside them jumps to a visit or clears the history.
@@ -549,3 +554,5 @@ are supported. Click an image filename to preview it, or use **⋯** for downloa
 rename, and removal. Text and files stay in the composer if sending fails.
 Reply progress clears after a successful send; text typed while sending stays
 as the next unsent draft.
+
+PNG/JPEG clipboard paste, Markdown image embeds, drawing annotations, and image-linked threads are described in [Images](docs/IMAGES.md).

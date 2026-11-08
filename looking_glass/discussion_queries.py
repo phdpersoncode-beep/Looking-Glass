@@ -62,6 +62,7 @@ class DiscussionQueries:
                 messages.setdefault(message['thread_id'],[]).append({**dict(message), 'origin':origins.get(message['origin_id']), 'commit_hash':origins.get(message['origin_id'],{}).get('commit_hash')})
             for item in db.execute('SELECT * FROM attachments'+suffix+' ORDER BY id',(path,) if path else ()):
                 attachments.setdefault(item['thread_id'],[]).append(self.ws.attachments.public(item))
+            image_comments = {r["thread_id"]: dict(r) for r in db.execute("SELECT * FROM image_comments"+suffix, (path,) if path else ())}
             result = []
             for row in rows:
                 t = dict(row)
@@ -69,6 +70,8 @@ class DiscussionQueries:
                     t.update({k:anchors[t['id']][k] for k in ('start','end','quote','anchor_status')})
                     if anchors[t['id']]['render_anchor'] is not None: t['render_anchor']=anchors[t['id']]['render_anchor']
                     t['review_context'] = anchors[t['id']]['review_id']
+                t['image_annotation'] = image_comments.get(t['id'])
+                t['associated_with_image'] = t['image_annotation'] is not None
                 t['origin'] = origins.get(t['origin_id'])
                 t['commit_hash'] = (t['origin'] or {}).get('commit_hash')
                 t['git_target'] = (dict(kind=t['anchor_kind'],ref=t['target_ref'],commit_hash=t['commit_hash'],
@@ -130,6 +133,7 @@ class DiscussionQueries:
         if summary == 'true':
             page = [dict(id=t['id'], path=t['path'], quote=t['quote'], resolved=t['resolved'],
                          anchor_status=t['anchor_status'], anchor_kind=t['anchor_kind'],
+                         associated_with_image=t['associated_with_image'], image_annotation=t['image_annotation'],
                          git_target=t['git_target'],
                          commit_hash=t['commit_hash'], origin=t['origin'], created_at=t['created_at'], message_count=len(t['messages']),
                          last_message={**t['messages'][-1], 'body':t['messages'][-1]['body'][:240]})

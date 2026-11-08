@@ -137,9 +137,9 @@ def test_zen_completion_advances_and_wraps_in_both_views(workspace_page, action,
     if not spotlight:
         page.keyboard.press('Escape')
     page.locator('#zen-toggle').click()
-    if action.startswith('delete'):
-        page.once('dialog', lambda dialog: dialog.accept())
     card.locator(f'[data-action="{action}"]').first.click()
+    if action.startswith('delete'):
+        page.locator('.lg-dialog button[type=submit]').click()
     current = page.locator('.thread.active')
     expect(current).to_have_attribute('data-thread', str(threads[2]['id']))
     expect(current).to_be_focused()

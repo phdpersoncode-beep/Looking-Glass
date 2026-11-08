@@ -1,3 +1,11 @@
+import {matchOverview} from './match-overview.mjs';
+import {mountOutlineResize} from './outline-resize.mjs';
+import {quickFileMatches} from './file-search.mjs';
+import {mountExplorer} from './explorer.mjs';
+import {linkFileReferences,mountFileMentions} from './file-references.mjs';
+import {resizedImageSource,imageCaption} from './image-size.mjs';
+import {confirmAction,requestText} from './dialogs.mjs';
+import {createImageTools,imageRanges,imageID,imageLink,imagePath} from './markdown-images.mjs';
 import {mountPDF} from './pdf-reader.mjs';
 import {createDiscussionView} from './discussion-view.mjs';
 import {createDiscussionRetention} from './discussion-lifetime.mjs';
@@ -91,9 +99,9 @@ let expandedFolders=new Set();try{expandedFolders=new Set(JSON.parse(localStorag
 let zenCollapsed=false;
 let collapsedThreads=new Set();try{collapsedThreads=new Set(JSON.parse(localStorage.getItem('looking-glass-collapsed-threads:'+root)||'[]'));}catch{}
 function rememberCollapsed(){localStorage.setItem('looking-glass-collapsed-threads:'+root,JSON.stringify([...collapsedThreads]));}
-let quickPaths=[],quickMatches=[],quickIndex=0;
+let quickPaths=[],quickMatches=[],quickIndex=0,quickRequest=0;
 let view = null, cleanup = () => {}, pending = null;
-let polling = false, saving = false, refreshNumber = 0;
+let polling = false, saving = false, refreshNumber = 0, fileMutation = null;
 let selectingText = false, selectionFrame = 0, postingComment = false;
 let pressedPassage=null,passageActivation=0;
 let passagePosition=null;
@@ -105,7 +113,7 @@ const markdownViews=new Set();
 function markdownSelection(){for(const rendered of markdownViews){if(rendered.host.isConnected){const selection=rendered.selection();if(selection)return selection;}}return null;}
 function markdownSpans(){const e=entry();return view?view.state.field(spanField):e?(e.dirty&&e.state?e.state.field(spanField):spansFor(appStore.state.threads,e.content)).map(span=>({...span,from:toRawUnits(e.content,span.from),to:toRawUnits(e.content,span.to)})):[];}
 function currentReviewRanges(normalized=false){const e=entry();return e?.review&&e.workMode==='review'?reviewRanges(e.reviewSegments||e.review.segments,normalized):[];}
-function refreshMarkdownHighlights(){if(entry()?.kind==='original')return;const spans=markdownSpans();for(const rendered of markdownViews){if(rendered.host.isConnected)rendered.highlight(spans,appStore.state.focusedThread);else markdownViews.delete(rendered);}}
+function refreshMarkdownHighlights(){imageTools.refresh();if(entry()?.kind==='original')return;const spans=markdownSpans();for(const rendered of markdownViews){if(rendered.host.isConnected)rendered.highlight(spans,appStore.state.focusedThread);else markdownViews.delete(rendered);}}
 
 
 function previewMessage(type,data={}){const preview=renderedPreview;if(preview?.ready)preview.frame.contentWindow.postMessage({lookingGlass:preview.channel,type,...data},'*');}
@@ -213,6 +221,9 @@ const theme = () => EditorView.theme({
   '.cm-activeLine, .cm-activeLineGutter':{backgroundColor:'var(--active-line)'},
   '.cm-cursor':{borderLeftColor:'var(--purple)'},
   '.cm-selectionBackground, &.cm-focused .cm-selectionBackground':{backgroundColor:'var(--selection)'},
+  '.cm-selectionMatch':{backgroundColor:'var(--occurrence-bg)',color:'var(--occurrence-text)',boxShadow:'inset 0 -1px var(--occurrence-edge)',borderRadius:'2px'},
+  '.cm-selectionMatch span':{color:'inherit'},
+  '.cm-searchMatch .cm-selectionMatch':{backgroundColor:'transparent',boxShadow:'none',color:'inherit'},
   '.cm-searchMatch':{backgroundColor:'var(--selection)',outline:'1px solid var(--purple)'},
   '.cm-panels':{backgroundColor:'var(--panel)',color:'var(--text)'},
   '.cm-panel input, .cm-panel button':{color:'var(--text)',background:'var(--paper)'}
@@ -238,7 +249,7 @@ class MarkdownTable extends WidgetType {
     const edit=document.createElement('button');edit.className='markdown-source-edit';edit.textContent='Edit source';edit.setAttribute('aria-label','Edit table source');
     edit.onclick=()=>{v.dispatch({effects:blockSourceEffect.of({from:this.from,to:this.from+this.source.length,kind:'table'}),selection:{anchor:this.from}});v.focus();};
     const table=document.createElement('div');el.append(edit,table);
-    const rendered=mountMappedMarkdown(table,this.source,this.from);rendered.setReview(this.review);rendered.highlight(this.spans,this.focused);markdownViews.add(rendered);el._markdown=rendered;
+    const rendered=mountMappedMarkdown(table,this.source,this.from,highlightMarkdown);rendered.setReview(this.review);rendered.highlight(this.spans,this.focused);markdownViews.add(rendered);el._markdown=rendered;
     return el;
   }
   destroy(el){markdownViews.delete(el._markdown);}
@@ -289,6 +300,11 @@ function tableDecorations(state){
     if(diagram){const first=state.doc.lineAt(node.from),last=state.doc.lineAt(node.to);const closed=/^(`{3,}|~{3,})\s*$/.test(last.text.trim());const source=state.doc.sliceString(Math.min(first.to+1,state.doc.length),closed?last.from:node.to);ranges.push(Decoration.replace({block:true,widget:new MermaidDiagram(source,node.from,node.to)}).range(node.from,node.to));return false;}
     ranges.push(Decoration.replace({block:true,widget:new MarkdownTable(state.doc.sliceString(node.from,node.to),node.from,spans.filter(s=>s.from<node.to&&s.to>node.from),review)}).range(node.from,node.to));return false;
   }});
+  for(const image of imageRanges(state.doc.toString())){
+    if(occupied.some(r=>r.from<image.to&&r.to>image.from)||editing&&editing.from<=image.to&&editing.to>=image.from)continue;
+    const line=state.doc.lineAt(image.from),block=line.from===image.from&&line.to===image.to;
+    ranges.push(Decoration.replace({block,widget:new MarkdownImage(state.doc.sliceString(image.from,image.to),image.href,image.alt)}).range(image.from,image.to));
+  }
   for(const formula of math){
     if(occupied.some(r=>r.from<formula.to&&r.to>formula.from)||editing&&editing.from<=formula.to&&editing.to>=formula.from)continue;
     const source=state.doc.sliceString(formula.from,formula.to),block=source.includes('\n')||formula.display&&state.doc.lineAt(formula.from).from===formula.from&&state.doc.lineAt(formula.to).to===formula.to;
@@ -301,7 +317,7 @@ function tableDecorations(state){
   for(const from of mathGaps)ranges.push(Decoration.line({class:'md-math-gap'}).range(from));
   return Decoration.set(ranges,true);
 }
-const liveTables=[blockEditing,StateField.define({create:tableDecorations,update:(_value,tr)=>tableDecorations(tr.state),provide:field=>EditorView.decorations.from(field)})];
+const liveTables=[blockEditing,EditorView.atomicRanges.of(v=>{const editing=v.state.field(blockEditing);return Decoration.set(imageRanges(v.state.doc.toString()).filter(r=>!editing||r.to<editing.from||r.from>editing.to).map(r=>Decoration.mark({}).range(r.from,r.to)));}),StateField.define({create:tableDecorations,update:(_value,tr)=>tableDecorations(tr.state),provide:field=>EditorView.decorations.from(field)})];
 class MarkdownRule extends WidgetType {
   toDOM(){const el=document.createElement('hr');el.className='md-rule';return el;}
 }
@@ -318,7 +334,7 @@ class TaskCheckbox extends WidgetType {
 }
 function liveDecorations(v, activeRange) {
   const ranges=[], doc=v.state.doc, links=markdownLinks(syntaxTree(v.state),doc);
-  const math=markdownMathRanges(doc.toString()),editing=v.state.field(blockEditing);
+  const math=markdownMathRanges(doc.toString()),images=imageRanges(doc.toString()),editing=v.state.field(blockEditing);
   const {from:activeFrom,to:activeTo}=activeRange;
   for(const line of markdownListLines(syntaxTree(v.state),doc)){
     ranges.push(Decoration.line({class:'md-list-line',attributes:{'data-list-depth':String(line.depth),style:`--md-list-depth:${line.depth};--md-list-marker-width:${line.width}em`}}).range(line.from));
@@ -332,6 +348,7 @@ function liveDecorations(v, activeRange) {
   syntaxTree(v.state).iterate({
     enter(node){
       const name=node.name, a=node.from, b=node.to;
+      if(images.some(image=>image.from<=a&&image.to>=b))return false;
       if(math.some(m=>m.from<=a&&m.to>=b&&!(editing&&editing.from<=m.to&&editing.to>=m.from)))return false;
       if(name==='Table'||name==='FencedCode'&&/^(`{3,}|~{3,})\s*mermaid\s*$/i.test(doc.lineAt(a).text.trim()))return false;
       if(b<=a) return;
@@ -459,10 +476,11 @@ function showTabMenu(e,x,y){
   const others=document.createElement('button');others.textContent='Close other tabs';others.onclick=guard(async()=>{menu.remove();for(const name of [...tabs.keys()])if(name!==e.path&&!tabs.get(name).pinned)await closeTab(name);});menu.append(others);document.body.append(menu);setTimeout(()=>document.addEventListener('click',()=>menu.remove(),{once:true}),0);
 }
 async function closeTab(path,returning=false){
+  if(fileMutation){const session=tabs.get(path);await fileMutation;path=session?.path||path;}
   if(!tabs.has(path))return;
   if(tabs.get(path).kind==='original'&&!returning){await returnFromOriginal();return;}
   if(contextVisit?.path===path&&entry()?.kind==='original'){await returnFromOriginal();await closeTab(path);return;}
-  const e=tabs.get(path);if(e.workMode==='review')await flushReview(e);if(e.dirty&&!confirm('Discard unsaved edits in '+path+'?'))return;
+  const e=tabs.get(path);if(e.workMode==='review')await flushReview(e);if(e.dirty&&!await confirmAction({title:'Discard unsaved edits?',message:path,confirmLabel:'Discard edits',symbol:'trash',danger:true}))return;
   if(contextVisit?.path===path){contextVisit.surface.dispose();contextVisit=null;}
   if(returning)contextVisit=null;
   if(path===appStore.state.displayedDocument){clearSpotlight();closeComment();syncState();view?.destroy();view=null;cleanup();cleanup=()=>{};appStore.dispatch({type:'DOCUMENT_DISPLAYED',path:null});}
@@ -471,7 +489,91 @@ async function closeTab(path,returning=false){
   else if(!appStore.state.displayedDocument){lastThreadHTML='';lastThreadKey='';clearSurface();const welcome=document.createElement('div');welcome.className='welcome';welcome.innerHTML='<h1>Open a file to begin.</h1>';$('#surface').append(welcome);$('#threads').replaceChildren();discussionView.reset();appStore.dispatch({type:'THREADS_RECEIVED',threads:[]});$('#thread-count').textContent='0';updateToolbar();await refreshThreads();}
 }
 
+function imageRangeAt(wrap){
+  if(!wrap.isConnected||!wrap.closest('#surface'))throw new Error('Document changed. Reopen the image.');
+  const content=entry().content,ranges=imageRanges(content.replace(/\r\n/g,'\n')),mapped=wrap.querySelector('img')?.dataset.mdImageFrom;
+  const position=mapped!==undefined?(view?Number(mapped):content.slice(0,Number(mapped)).replace(/\r\n/g,'\n').length):view?.posAtDOM(wrap);
+  const range=position!==undefined?ranges.find(r=>r.from<=position&&r.to>=position):ranges[[...$('#surface').querySelectorAll('.markdown-image')].indexOf(wrap)];
+  if(!range)throw new Error('Reopen the image before editing it.');return range;
+}
+const imageTools=createImageTools({token,api,context:()=>({path:entry()?.sourcePath||entry()?.path,readonly:!!entry()?.kind,mode:entry()?.mode,threads:appStore.state.threads}),
+  error:message=>notify(message,true),changed:id=>imageTools.refresh(id),focus:id=>showThread(id),
+  removeComment:deleteDiscussion,
+  move:async(id,thread,point)=>{
+    await api(`images/${id}/comments/${thread.id}`,'PATCH',{...point,previous:{x:thread.image_annotation.x,y:thread.image_annotation.y}});
+    await refreshThreads();
+  },
+  editSource:wrap=>{
+    if(!view)return;const range=imageRangeAt(wrap);
+    view.dispatch({effects:blockSourceEffect.of({...range,kind:'image'}),selection:{anchor:range.from}});view.focus();
+  },
+  resized:(wrap,width)=>{
+    const e=entry();if(!e||e.kind)return;const range=imageRangeAt(wrap);
+    const source=e.content.replace(/\r\n/g,'\n').slice(range.from,range.to);
+    const change=replacementFor(source,resizedImageSource(source,width,!!wrap.closest('table')));
+    applyImageChanges(e,{...change,from:range.from+change.from,to:range.from+change.to});
+  },
+  remove:async wrap=>{
+    const e=entry();if(!e||e.kind)return;
+    const content=e.content,range=imageRangeAt(wrap);
+    if(!range)throw new Error('Reopen the image before deleting it.');
+    if(!await confirmAction({title:'Delete image?',message:'Remove this image from the document? The original image and discussions are kept. You can undo this edit.',confirmLabel:'Delete image',symbol:'trash',danger:true}))return;
+    if(entry()!==e||e.content!==content)throw new Error('Document changed. Reopen the image before deleting it.');
+    applyImageChanges(e,{from:range.from,to:range.to,insert:''});
+    notify('Image removed · undo to restore');
+  },
+  renamed:(id,reference,meta)=>{
+    const e=entry();if(!e||e.kind)return;
+    const changes=imageRanges(e.content).filter(r=>imageID(r.href)===id||r.href===reference).map(r=>({from:r.from,to:r.to,insert:e.content.slice(r.from,r.to).replace(r.href,imageID(r.href)?imageLink(meta):r.href.replace(/[^/]+$/,encodeURIComponent(meta.name)))}));
+    if(!changes.length)return;
+    applyImageChanges(e,changes);
+  },
+  comment:async(id,point,body,thread)=>{
+    const e=entry();if(!e||e.kind)throw new Error('Open the current document to comment.');
+    if(thread){await api(`threads/${thread.id}/replies`,'POST',{body,author:authorName});}
+    else{
+      await saveActive();if(entry()!==e)throw new Error('Document changed. Reopen the image.');
+      const ranges=imageRanges(e.content).filter(r=>imageID(r.href)===id||r.href===imageTools.reference(id));
+      if(!ranges.length)throw new Error('The image embed is no longer in this document.');
+      const range=ranges[0],review=e.workMode==='review'?e.review:null;
+      await api(`images/${id}/comments`,'POST',{path:e.path,start:Array.from(e.content.slice(0,range.from)).length,end:Array.from(e.content.slice(0,range.to)).length,version:review?.version||e.version,review_id:review?.id,reference:range.href,body,author:authorName,...point});
+    }
+    await refreshThreads();imageTools.refresh();
+  }
+});
+class MarkdownImage extends WidgetType {
+  constructor(source,href,alt){super();this.source=source;this.href=href;this.alt=alt;}
+  eq(other){return this.source===other.source;}
+  updateDOM(el,_view,previous){
+    if(this.href!==previous.href)return false;
+    const wrap=el.querySelector('.markdown-image'),img=wrap?.querySelector('img');if(!img)return false;
+    const caption=imageCaption(this.alt);img._displayCaption=this.alt;img.alt=caption.alt;wrap.style.width=caption.width?caption.width+'px':'';return true;
+  }
+  toDOM(){const host=document.createElement('span'),img=document.createElement('img');img.setAttribute('src',this.href);img.alt=this.alt;host.append(img);imageTools.mount(img);return host;}
+  ignoreEvent(){return true;}
+}
+function applyImageChanges(e,changes){
+  if(entry()===e&&view){view.dispatch({changes});return;}
+  const tr=(e.state||makeState(e)).update({changes});e.state=tr.state;e.content=tr.state.sliceDoc();e.dirty=e.content!==e.diskContent;
+  if(e.reviewField){queueReviewOperations(e,operationsFor(tr),tr.state.field(e.reviewField).segments);scheduleReviewSave(e);}
+  if(entry()===e)mountDocument(e);updateToolbar();renderTabs();
+}
+const pendingImagePastes=new Set();
+function pasteImage(event,editor,e){
+  if(e.kind||editor.state.readOnly||!['md','markdown'].includes(ext(e.path)))return false;
+  const files=[...event.clipboardData?.items||[]].filter(i=>i.kind==='file'&&['image/png','image/jpeg'].includes(i.type)).map(i=>i.getAsFile()).filter(Boolean);
+  if(!files.length)return false;event.preventDefault();
+  const pending={e,from:editor.state.selection.main.from,to:editor.state.selection.main.to};pendingImagePastes.add(pending);
+  guard(async()=>{try{
+    const images=[];for(const file of files)images.push(await imageTools.upload(file));
+    if(tabs.get(e.path)!==e)throw new Error('Images were stored, but the document was closed before insertion.');
+    const changes={from:pending.from,to:pending.to,insert:images.map(image=>`![](${imageLink(image)})`).join('\n')};
+    applyImageChanges(e,changes);
+  }finally{pendingImagePastes.delete(pending);}})();return true;
+}
+
 function highlightMarkdown(preview){
+  for(const img of preview.querySelectorAll("img"))imageTools.mount(img);
   for(const block of preview.querySelectorAll('pre code')){
     const language=codeLanguage(block.className.replace(/^language-/,''));if(!language)continue;
     // Color individual text nodes so source mappings and discussion marks stay
@@ -495,12 +597,21 @@ function makeState(e){
   const tracked=e.workMode==='review'&&e.review;
   if(tracked)e.reviewField=reviewTracking({...e.review,segments:e.reviewSegments||e.review.segments},()=>({author:authorName,role:'human',at:new Date().toISOString()}));
   const docPath=e.sourcePath||e.path,prose=['md','markdown','txt'].includes(ext(docPath));
-  return EditorState.create({doc:e.content,extensions:[EditorState.lineSeparator.of(e.diskContent.includes('\r\n')?'\r\n':'\n'),basicSetup,documentSearch,language(docPath),workLockSlot.of(EditorState.readOnly.of(changingWorkMode)),...(tracked?[e.reviewField]:[]),...(e.kind==='original'?[EditorState.readOnly.of(true),EditorView.editable.of(false)]:[]),syntaxHighlighting(colors),spanField,threadFocusField,gitField,gitSlot.of([]),
+  return EditorState.create({doc:e.content,extensions:[EditorState.lineSeparator.of(e.diskContent.includes('\r\n')?'\r\n':'\n'),basicSetup,documentSearch,matchOverview,language(docPath),workLockSlot.of(EditorState.readOnly.of(changingWorkMode)),...(tracked?[e.reviewField]:[]),...(e.kind==='original'?[EditorState.readOnly.of(true),EditorView.editable.of(false)]:[]),syntaxHighlighting(colors),spanField,threadFocusField,gitField,gitSlot.of([]),
     themeSlot.of(theme()),liveSlot.of(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables,textSelection]:[]),
     ...(prose?[EditorView.lineWrapping,EditorView.theme({'.cm-scroller':{fontFamily:'var(--prose)',fontSize:'var(--prose-font-size)'},'.cm-content':{maxWidth:'850px',margin:'0 auto',width:'100%',minWidth:'0'},'.cm-foldGutter':{display:'none'}})]:[]),
+    EditorView.domEventHandlers({paste:(event,editor)=>pasteImage(event,editor,e),contextmenu:(event,editor)=>{
+      if(e.kind||editor.state.readOnly)return false;
+      const pos=editor.posAtCoords({x:event.clientX,y:event.clientY});if(pos==null)return false;
+      const range=imageRanges(editor.state.doc.toString()).find(r=>r.from<=pos&&r.to>=pos),id=range&&imageID(range.href);
+      if(!range||!id&&/^(?:[a-z][\w+.-]*:|\/)/i.test(range.href))return false;event.preventDefault();guard(async()=>{
+        const managed=id||(await api('images/import','POST',{path:imagePath(range.href,e.path)})).id;
+        await imageTools.rename(managed,range.href);
+      })();return true;
+    }}),
     EditorView.scrollHandler.of(editor=>passagePosition?.editor===editor),
     keymap.of([{key:'Mod-s',run:()=>{guard(saveActive)();return true;}},{key:'Mod-Enter',run:()=>{guard(startComment)();return true;}},indentWithTab]),
-    EditorView.updateListener.of(u=>{if(u.docChanged){if(tracked){if(!u.transactions.some(t=>t.effects.some(effect=>effect.is(remoteReview)))){for(const tr of u.transactions)if(tr.docChanged)queueReviewOperations(e,operationsFor(tr),u.state.field(e.reviewField).segments);scheduleReviewSave(e);}}e.content=u.state.sliceDoc();e.dirty=e.content!==e.diskContent;e.state=u.state;contentsController?.update();updateToolbar();renderTabs();}if(u.selectionSet)updateToolbar();if(u.selectionSet||u.docChanged||u.viewportChanged||u.geometryChanged)scheduleSelectionTools();})
+    EditorView.updateListener.of(u=>{if(u.docChanged){for(const pending of pendingImagePastes)if(pending.e===e){pending.from=u.changes.mapPos(pending.from,1);pending.to=u.changes.mapPos(pending.to,1);}if(tracked){if(!u.transactions.some(t=>t.effects.some(effect=>effect.is(remoteReview)))){for(const tr of u.transactions)if(tr.docChanged)queueReviewOperations(e,operationsFor(tr),u.state.field(e.reviewField).segments);scheduleReviewSave(e);}}e.content=u.state.sliceDoc();e.dirty=e.content!==e.diskContent;e.state=u.state;contentsController?.update();updateToolbar();renderTabs();}if(u.selectionSet)updateToolbar();if(u.selectionSet||u.docChanged||u.viewportChanged||u.geometryChanged)scheduleSelectionTools();})
   ]});
 }
 
@@ -524,6 +635,7 @@ function cancelSidebarNavigation(){
 }
 function openFile(path){cancelSidebarNavigation();return navigation.open(path);}
 async function loadFile(path,request){
+    if(fileMutation)await fileMutation;
     await restoreReady;
     if(!request.current())return;
     if(appStore.state.displayedDocument===path){await entry()?.ready;rememberFileVisit(entry(),request.context?.fileHistoryIndex);return;}
@@ -581,21 +693,24 @@ async function loadFile(path,request){
       }else{held.surface.dispose();}
     }
     renderTabs();revealFile(path);updateToolbar();remember();
-    if(resume){/* The suspended reading surface is already mounted. */}
-    else if(e.kind==='history')cleanup=mountHistory($('#surface'),e.history??={},api,{onTarget:guard(async()=>{closeComment();clearThreadFocus();remember();await refreshThreads();}),onComment:guard(startGitComment),onState:remember});
-    else if(e.kind==='original')mountOriginal(e);
-    else if(e.kind==='oversized')mountOversized(e);
-    else if(ext(path)==='pdf')await mountPDFDocument(e);
-    else if(isImage(path))await mountImage(e);
-    else if(ext(path)==='stl')await mountSTL(e);
-    else if(ext(path)==='jsonl')mountJSONL(e);
-    else mountDocument(e);
+    if(!resume)await mountFileSurface(e);
     if(held&&!resume&&e.kind!=='original'&&path===held.path){const scroller=view?.scrollDOM||$('#surface');requestAnimationFrame(()=>{if(appStore.state.displayedDocument===path){scroller.scrollTop=held.top;scroller.scrollLeft=held.left;}});}
     await e.ready;
     if(!request.current())return;
     if(discussions){if(activation.current())receiveDiscussions(discussions.data,discussions.key,true,activation);}
     else await refreshThreads();
     notify('');
+}
+
+async function mountFileSurface(e){
+  if(e.kind==='history')cleanup=mountHistory($('#surface'),e.history??={},api,{onTarget:guard(async()=>{closeComment();clearThreadFocus();remember();await refreshThreads();}),onComment:guard(startGitComment),onState:remember});
+  else if(e.kind==='original')mountOriginal(e);
+  else if(e.kind==='oversized')mountOversized(e);
+  else if(ext(e.path)==='pdf')await mountPDFDocument(e);
+  else if(isImage(e.path))await mountImage(e);
+  else if(ext(e.path)==='stl')await mountSTL(e);
+  else if(ext(e.path)==='jsonl')mountJSONL(e);
+  else mountDocument(e);
 }
 
 function mountOversized(e){
@@ -695,7 +810,7 @@ async function mountPDFDocument(e){
 }
 function supportsReview(e){return !!e&&!e.kind&&!['stl','jsonl','json','html','htm','pdf'].includes(ext(e.path))&&!isImage(e.path);}
 function updateToolbar(){
-  const locked=!!changingWorkMode||entry()?.reviewSync?.status==='approving'||entry()?.kind==='original';
+  const locked=!!changingWorkMode||!!fileMutation||entry()?.reviewSync?.status==='approving'||entry()?.kind==='original';
   if(view&&view.state.readOnly!==locked)view.dispatch({effects:workLockSlot.reconfigure(EditorState.readOnly.of(locked))});
   const e=entry(), type=e?ext(e.path):'', viewer=!!e?.kind||['stl','jsonl','pdf'].includes(type)||isImage(e?.path||'');
   outlineController?.setDocument(!e?.kind&&type==='py'?e.path:null,!e?.kind&&type==='py'?view?.state.doc||null:null);
@@ -718,8 +833,8 @@ function updateToolbar(){
   $('#conflict').hidden=!e?.conflict;
   if(e?.workMode==='review')$('#conflict').hidden=true;
   if(e?.conflict)$('#conflict span').textContent=e.conflict.deleted?'This file was deleted or became unavailable on disk. Copy your draft before closing it.':'Changed on disk. Your unsaved edits are preserved. Compare and merge before saving.';
-  $('#work-mode').hidden=!supportsReview(e);$('#work-mode').disabled=changingWorkMode||saving;$('#work-mode').setAttribute('aria-checked',String(e?.workMode==='review'));$('#work-mode').querySelectorAll('span').forEach(s=>s.classList.toggle('active',s.dataset.mode===(e?.workMode==='review'?'review':'edit')));
-  $('#approve-review').hidden=e?.workMode!=='review';$('#approve-review').disabled=saving||changingWorkMode||!!e?.reviewError;
+  $('#work-mode').hidden=!supportsReview(e);$('#work-mode').disabled=changingWorkMode||saving||!!fileMutation;$('#work-mode').setAttribute('aria-checked',String(e?.workMode==='review'));$('#work-mode').querySelectorAll('span').forEach(s=>s.classList.toggle('active',s.dataset.mode===(e?.workMode==='review'?'review':'edit')));
+  $('#approve-review').hidden=e?.workMode!=='review';$('#approve-review').disabled=saving||changingWorkMode||!!fileMutation||!!e?.reviewError;
   $('#review-status').hidden=e?.workMode!=='review';$('#review-status').textContent=changingWorkMode?'Switching mode…':e?.reviewError?'Draft needs attention':['pending','saving'].includes(e?.reviewSync?.status)?'Saving review…':'Review saved';
   $('#review-history').hidden=e?.workMode!=='review';
   $('#review-conflict').hidden=!(e?.workMode==='review'&&e.reviewError);
@@ -727,6 +842,7 @@ function updateToolbar(){
   scheduleSelectionTools();
 }
 async function saveActive(){
+  if(fileMutation)await fileMutation;
   const e=entry();if(e?.workMode==='review'){await flushReview(e);return e;}if(!e||!e.dirty)return e;if(e.conflict)throw new Error('Resolve the external change before saving.');syncState();saving=true;updateToolbar();
   const content=e.content;
   try{
@@ -748,6 +864,7 @@ function flushReview(e){return e?reviewSync(e).flush():Promise.resolve();}
 const modePorts={api,sync:reviewSync,supports:supportsReview,resumed:e=>{if(e.workMode==='review'&&e.state&&e.reviewField)e.state=e.state.update({effects:reviewEffect.of(e.reviewSegments)}).state;}};
 async function ensureWorkMode(e){const prepared=await prepareWorkMode(e,appStore.state.reviewPreference?'review':'edit',modePorts);prepared.commit();}
 async function setWorkMode(value){
+  if(fileMutation)await fileMutation;
   if(changingWorkMode)return;changingWorkMode=true;syncState();updateToolbar();
   const activeSession=entry();
   try{
@@ -800,7 +917,7 @@ async function showReviewHistory(){
 
 function threadScope(){return appStore.state.scope;}
 const discussionCache=new Map();let lastThreadHTML='',lastThreadKey='',navigationIndex=[],indexTime=0;
-const discussionView=createDiscussionView($('#threads'),{composers,renderBody:(host,source)=>{renderMarkdown(host,source,highlightMarkdown);linkThreadReferences(host);markdownDiagrams(host);}});
+const discussionView=createDiscussionView($('#threads'),{composers,renderBody:(host,source)=>{renderMarkdown(host,source,highlightMarkdown);linkThreadReferences(host);linkFileReferences(host);markdownDiagrams(host);}});
 const discussionRetention=createDiscussionRetention();
 async function readDiscussions(path,scope,review){
   const key=scope+':'+(path||'')+':'+(review||''),cached=discussionCache.get(key);
@@ -984,6 +1101,7 @@ function activateThread(id,target=null,spotlight=false,focusEditor=true,options=
 function revealSourcePassage(t,focusEditor){
   const id=t.id;
   if(t.anchor_status!=='attached'){notify('This passage needs reattachment. Select the new passage and click “Attach to selection”.');return;}
+  if(t.image_annotation){const image=$(`#surface .markdown-image[data-image-id="${t.image_annotation.image_id}"]`);if(image){image.scrollIntoView({block:'center',behavior:focusEditor?'auto':'instant'});return;}}
   if(entry().mode==='preview'&&[...markdownViews].some(rendered=>rendered.host.isConnected&&rendered.jump(toRawUnits(entry().content,toUnits(entry().content,t.start)),toRawUnits(entry().content,toUnits(entry().content,t.end)),focusEditor?'auto':'instant')))return;
   if(!view){entry().mode='source';mountDocument(entry());view.dispatch({effects:spansEffect.of(spansFor(appStore.state.threads,entry().content))});}
   const resolved=resolveSourcePassage(t,{path:entry().path,content:entry().content,version:entry().version,dirty:entry().dirty,localRanges:view.state.field(spanField)});
@@ -1030,6 +1148,13 @@ async function completeThread(id,operation,completes=true){
     const target=appStore.state.threads.find(thread=>thread.id===reveal.threadId&&!thread.resolved);
     if(target){await jump(target.id,target,spotlight,false);if(appStore.state.focusedThread===target.id)$(`.thread[data-thread="${target.id}"]`)?.focus({preventScroll:true});}
   }
+}
+async function deleteDiscussion(id,messageId=null){
+  await completeThread(id,()=>api('threads/'+id+(messageId==null?'':'/messages/'+messageId),'DELETE'));
+  if(!appStore.state.threads.some(t=>t.id===appStore.state.focusedThread))clearThreadFocus();
+  if(view)view.dispatch({effects:spansEffect.of(view.state.field(spanField).filter(span=>appStore.state.threads.some(t=>t.id===span.id)))});
+  notify(messageId==null?'Thread deleted':'Comment deleted');
+  return appStore.state.threads.find(t=>t.id===id)||null;
 }
 function startGitComment(target){
   if(entry()?.kind!=='history'||!target)return;
@@ -1227,34 +1352,35 @@ async function mountSTL(e){
 }
 
 async function poll(){
-  if(polling||saving||navigation.busy||document.hidden)return;polling=true;
+  if(polling||saving||fileMutation||navigation.busy||document.hidden)return;polling=true;
   try{
     for(const e of [...tabs.values()]){
       if(e.kind)continue;
+      const requestedPath=e.path;
       try{
         if(e.workMode==='review'){await pollReview(e);continue;}
         const requestedVersion=e.version;
         if(ext(e.path)==='pdf'){
           const disk=await api('pdf?'+new URLSearchParams({path:e.path,version:requestedVersion,bookmark_revision:e.bookmark_revision}));
           if(!disk)continue;
-          if(e.version!==requestedVersion||navigation.busy||saving)continue;
+          if(e.path!==requestedPath||e.version!==requestedVersion||navigation.busy||saving||fileMutation)continue;
           if(disk.version!==e.version){Object.assign(e,disk);if(e.path===appStore.state.displayedDocument){closeComment();cleanup();cleanup=()=>{};clearSurface();await mountPDFDocument(e);notify('PDF changed; previous passage comments need reattachment.');}}
           else if(disk.bookmark_revision!==e.bookmark_revision){notify('PDF bookmarks changed elsewhere. Use Reload contents to load them.');}
           continue;
         }
         if(ext(e.path)==='stl'||isImage(e.path)){
           const disk=await api('stat?'+new URLSearchParams({path:e.path}));
-          if(e.version!==requestedVersion||navigation.busy||saving)continue;
+          if(e.path!==requestedPath||e.version!==requestedVersion||navigation.busy||saving||fileMutation)continue;
           if(disk.version!==e.version){e.version=disk.version;if(e.path===appStore.state.displayedDocument){cleanup();cleanup=()=>{};clearSurface();if(isImage(e.path))await mountImage(e);else await mountSTL(e);notify('Reloaded the external viewer change');}}
           continue;
         }
         const disk=await api('file?'+new URLSearchParams({path:e.path,version:requestedVersion}));
         if(!disk)continue;
-        if(e.version!==requestedVersion||navigation.busy||saving)continue;
+        if(e.path!==requestedPath||e.version!==requestedVersion||navigation.busy||saving||fileMutation)continue;
         if(disk.version===e.version)continue;
         if(e.dirty){e.conflict=disk;if(e.path===appStore.state.displayedDocument)notify('External change detected; your draft is preserved.',true);}
         else{disposeReport(e);e.content=disk.content;e.diskContent=disk.content;e.version=disk.version;e.state=null;e.conflict=null;if(e.path===appStore.state.displayedDocument){view?.destroy();view=null;cleanup();cleanup=()=>{};clearSurface();if(ext(e.path)==='jsonl')mountJSONL(e);else mountDocument(e);notify('Reloaded the external change');}}
-      }catch(error){if(error.status===404){e.conflict={deleted:true};if(e.path===appStore.state.displayedDocument)notify(error.message,true);}else notify(error.message,true);}
+      }catch(error){if(e.path!==requestedPath||fileMutation)continue;if(error.status===404){e.conflict={deleted:true};if(e.path===appStore.state.displayedDocument)notify(error.message,true);}else notify(error.message,true);}
     }
     updateToolbar();
     await refreshBaseline();
@@ -1305,6 +1431,7 @@ window.addEventListener('message',guard(async event=>{
   }
   if(message.type==='comment')await startComment();
   if(message.type==='quick-open')await showQuickOpen();
+  if(message.type==='collapse-files')$('#collapse-files').click();
   if(message.type==='zen')toggleZen();
   if(message.type==='exit-spotlight'){passageActivation++;clearSpotlight();}
   if(message.type==='thread'&&appStore.state.threads.some(t=>t.id===message.id&&t.path===appStore.state.displayedDocument))showPassage(Array.isArray(message.ids)?message.ids:[message.id]);
@@ -1355,7 +1482,10 @@ document.addEventListener('focusin',event=>{if(appStore.state.requestedThread!==
 document.addEventListener('scroll',scheduleSelectionTools,true);
 window.addEventListener('resize',()=>{scheduleSelectionTools();if($('#comment-dialog').open){const location=selectionLocation();if(location)placeNearSelection($('#comment-dialog'),location);}});
 document.addEventListener('keydown',event=>{
-  if(event.target.closest?.('#author-popover'))return;
+  if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='s'&&!document.querySelector('dialog:modal')){event.preventDefault();guard(saveActive)();return;}
+  if(event.altKey&&!event.ctrlKey&&!event.metaKey&&event.key.toLowerCase()==='q'){event.preventDefault();$('#collapse-files').click();return;}
+  if($('#file-mentions')&&event.target.matches('#comment-body,.reply-form textarea,#edit-comment-body')&&['Escape','ArrowUp','ArrowDown','Enter'].includes(event.key)&&!event.ctrlKey&&!event.metaKey)return;
+  if(event.target.closest?.('#author-popover,.lg-dialog,.image-editor,.image-comment-box,.image-comment-marker,.image-resize'))return;
   passagePosition=null;
   if(event.key==='Escape'){passageActivation++;pressedPassage=null;}
   // Let the focused navigation panel consume Escape before context/spotlight.
@@ -1424,6 +1554,7 @@ document.addEventListener('keydown',event=>{
   }
 });
 document.addEventListener('click',guard(async event=>{
+  const fileReference=event.target.closest('a[data-file-reference]');if(fileReference){event.preventDefault();await openFile(fileReference.dataset.fileReference);return;}
   const reference=event.target.closest('a[data-thread-reference]');
   if(reference){
     event.preventDefault();
@@ -1460,8 +1591,8 @@ document.addEventListener('click',guard(async event=>{
   if(action.dataset.action==='original'||action.dataset.action==='message-original'){await openOriginal(id,action.dataset.message);spotlightSidebarThread(id,t);return;}
   if(action.dataset.action.endsWith('-attachment')){
     const attachmentId=Number(action.closest('[data-attachment]').dataset.attachment),item=t.attachments.find(a=>a.id===attachmentId);
-    if(action.dataset.action==='rename-attachment'){const name=prompt('Attachment name',item.name);if(name!==null){await api('attachments/'+attachmentId,'PATCH',{name});await refreshThreads();}return;}
-    if(action.dataset.action==='delete-attachment'){if(confirm('Remove '+item.name+'?')){await api('attachments/'+attachmentId,'DELETE');await refreshThreads();}return;}
+    if(action.dataset.action==='rename-attachment'){await requestText({title:'Rename attachment',value:item.name,onSubmit:async name=>{await api('attachments/'+attachmentId,'PATCH',{name});await refreshThreads();}});return;}
+    if(action.dataset.action==='delete-attachment'){if(await confirmAction({title:'Remove attachment?',message:item.name,confirmLabel:'Remove attachment',symbol:'trash',danger:true})){await api('attachments/'+attachmentId,'DELETE');await refreshThreads();}return;}
     const response=await fetch('/api/attachments/'+attachmentId,{headers:{'X-Looking-Glass-Token':token}});
     if(!response.ok)throw new Error((await response.json()).error);
     const url=URL.createObjectURL(await response.blob());
@@ -1478,11 +1609,8 @@ document.addEventListener('click',guard(async event=>{
     }finally{action.disabled=false;}
   }
   if(action.dataset.action==='delete-thread'||action.dataset.action==='delete-message'){
-    const whole=action.dataset.action==='delete-thread';if(!confirm(whole?'Delete this thread and all its comments?':'Delete this comment?'))return;
-    await completeThread(id,()=>api('threads/'+id+(whole?'':'/messages/'+action.dataset.message),'DELETE'));
-    if(!appStore.state.threads.some(t=>t.id===appStore.state.focusedThread))clearThreadFocus();
-    if(view)view.dispatch({effects:spansEffect.of(view.state.field(spanField).filter(span=>appStore.state.threads.some(t=>t.id===span.id)))});
-    notify(whole?'Thread deleted':'Comment deleted');
+    const whole=action.dataset.action==='delete-thread';if(!await confirmAction({title:whole?'Delete thread?':'Delete comment?',message:whole?'This thread and all its comments will be deleted.':'This comment will be deleted.',confirmLabel:whole?'Delete thread':'Delete comment',symbol:'trash',danger:true}))return;
+    await deleteDiscussion(id,whole?null:action.dataset.message);
   }
   if(action.dataset.action==='reattach'){
     if(t.path!==appStore.state.displayedDocument){await openFile(t.path);showThread(id);notify('Select the new passage in this file, then attach the thread.');return;}
@@ -1556,7 +1684,7 @@ $('#previous').onclick=guard(()=>navigate(-1));$('#next').onclick=guard(()=>navi
 $('#only-unattached').onchange=()=>{cancelSidebarNavigation();appStore.dispatch({type:'FILTERS_CHANGED',filters:{onlyUnattached:$('#only-unattached').checked}});};
 $('#thread-scope').checked=localStorage.getItem('looking-glass-thread-scope:'+root)==='all';
 $('#thread-scope').onchange=guard(async()=>{cancelSidebarNavigation();appStore.dispatch({type:'FILTERS_CHANGED',filters:{scope:$('#thread-scope').checked?'all':'file'}});clearSpotlight();localStorage.setItem('looking-glass-thread-scope:'+root,threadScope());await refreshThreads(true);});
-async function setMode(value){const e=entry();if(!e||e.mode===value)return;await suspendHTMLPreview();syncState();e.mode=value;view?.destroy();view=null;cleanup();cleanup=()=>{};mountDocument(e);await e.ready;await refreshThreads();remember();}
+async function setMode(value){if(fileMutation)await fileMutation;const e=entry();if(!e||e.mode===value)return;await suspendHTMLPreview();syncState();e.mode=value;view?.destroy();view=null;cleanup();cleanup=()=>{};mountDocument(e);await e.ready;await refreshThreads();remember();}
 $('#mode').onchange=guard(()=>setMode($('#mode').value));
 $('#html-toggle').onclick=guard(()=>setMode(entry().mode==='rendered'?'source':'rendered'));
 $('#theme').onclick=()=>{const value=document.documentElement.dataset.theme==='light'?'dark':'light';document.documentElement.dataset.theme=value;localStorage.setItem('looking-glass-theme',value);$('#theme').textContent=value==='dark'?'Light mode':'Dark mode';if(view)view.dispatch({effects:themeSlot.reconfigure(theme())});$$('.mermaid-diagram').forEach(host=>{const source=host.dataset.diagramSource;if(source)renderMermaid(host,source);});};
@@ -1618,18 +1746,49 @@ function setDiscussionsHidden(hidden,focus=false){
 $('#discussions-toggle').onclick=()=>setDiscussionsHidden(!discussionsHidden,true);
 setDiscussionsHidden(discussionsHidden);
 $('#expand-files').onclick=()=>{$$('.file-folder').forEach(folder=>expandedFolders.add(folder.dataset.directory));localStorage.setItem('looking-glass-folders:'+root,JSON.stringify([...expandedFolders]));filterFiles();};
+$('#collapse-files').title='Collapse all folders (Alt+Q)';$('#collapse-files').setAttribute('aria-keyshortcuts','Alt+Q');
 $('#collapse-files').onclick=()=>{expandedFolders.clear();localStorage.setItem('looking-glass-folders:'+root,'[]');$('#file-filter').value='';filterFiles();};
-function fuzzyScore(path,query){const text=path.toLowerCase();let cursor=0,score=0,previous=-2;for(const character of query.toLowerCase().replace(/\s/g,'')){const index=text.indexOf(character,cursor);if(index<0)return null;score+=index===previous+1?8:0;score+=index===0||'/._-'.includes(text[index-1])?12:0;score-=index-cursor;previous=index;cursor=index+1;}return score-text.length/100;}
+
 contentsController=mountMarkdownContents($('#markdown-contents'),()=>view?.state.doc.toString()||'',from=>{
   if(!view)return;view.dispatch({selection:{anchor:from},effects:EditorView.scrollIntoView(from,{y:'start',yMargin:16})});view.focus();
 });
 $('#code-outline').open=localStorage.getItem('looking-glass-python-outline:'+root)==='true';
 outlineController=mountPythonOutline($('#code-outline'),{
+  storageKey:'looking-glass-outline-folds:'+root,
   navigate:from=>{if(!view)return;view.dispatch({selection:{anchor:from},effects:EditorView.scrollIntoView(from,{y:'start',yMargin:16})});view.focus();},
   saveOpen:open=>localStorage.setItem('looking-glass-python-outline:'+root,String(open))
 });
-function renderQuickResults(){const query=$('#quick-query').value;quickMatches=quickPaths.map(path=>({path,score:fuzzyScore(path,query)})).filter(item=>item.score!==null).sort((a,b)=>b.score-a.score||a.path.localeCompare(b.path)).slice(0,50);quickIndex=Math.min(quickIndex,Math.max(0,quickMatches.length-1));$('#quick-results').replaceChildren(...quickMatches.map((item,index)=>{const button=document.createElement('button');button.textContent=item.path;button.id='quick-option-'+index;button.setAttribute('role','option');button.setAttribute('aria-selected',String(index===quickIndex));button.classList.toggle('selected',index===quickIndex);button.onclick=guard(async()=>{await openFile(item.path);$('#quick-dialog').close();view?.focus();});return button;}));if(!quickMatches.length)$('#quick-results').textContent='No matching files.';$('#quick-query').setAttribute('aria-activedescendant',quickMatches.length?'quick-option-'+quickIndex:'');$('#quick-results .selected')?.scrollIntoView({block:'nearest'});}
-async function showQuickOpen(){closeComment();if(!$('#quick-dialog').open)$('#quick-dialog').showModal();$('#quick-query').value='';quickIndex=0;quickPaths=[...new Set([...$$('.file-entry').map(b=>b.dataset.path),...tabs.keys()])];renderQuickResults();$('#quick-query').focus();const workspace=await api('workspace');if($('#quick-dialog').open){quickPaths=[...new Set([...workspace.files,...tabs.keys()])];renderQuickResults();}}
+mountOutlineResize($('#code-outline'),{storageKey:'looking-glass-outline-width:'+root,changed:()=>view?.requestMeasure()});
+mountFileMentions({api,error:message=>notify(message,true)});
+mountExplorer($('#file-tree'),{root,api,error:message=>notify(message,true),change:async(info,options)=>{
+  if(contextVisit)throw new Error('Return from original context before moving files.');
+  if(navigation.busy||saving||changingWorkMode||fileMutation)throw new Error('Wait for the current file operation to finish.');
+  syncState();const affected=path=>path===info.path||path.startsWith(info.path+'/');
+  if(options.delete&&[...tabs.values()].some(e=>affected(e.path)&&e.dirty))throw new Error('Save or close unsaved files before deleting them.');
+  if([...tabs.values()].some(e=>affected(e.path)&&e.reviewSync?.status==='approving'))throw new Error('Wait for review approval to finish before moving files.');
+  let finish;fileMutation=new Promise(resolve=>finish=resolve);
+  let released=false;const release=()=>{if(released)return;released=true;fileMutation=null;finish();updateToolbar();};
+  updateToolbar();
+  try{
+    for(const e of tabs.values())if(affected(e.path)&&e.workMode==='review')await flushReview(e);
+    const result=await api('explorer','POST',{path:info.path,version:info.version,...options});
+    const map=path=>affected(path)?result.deleted?null:result.destination+path.slice(info.path.length):path;
+    syncState();
+    const active=appStore.state.displayedDocument,changedActive=active&&affected(active),next=active&&map(active);
+    if(changedActive){view?.destroy();view=null;cleanup();cleanup=()=>{};}
+    for(const [path,e] of [...tabs])if(affected(path)){
+      tabs.delete(path);if(result.deleted){disposeReport(e);e.reviewSync?.dispose();continue;}
+      e.path=map(path);if(e.review)e.review.path=e.path;disposeReport(e);tabs.set(e.path,e);
+    }
+    fileHistory.remap(map);historyControls?.remember();outlineController?.remap(map);
+    const folders=[...expandedFolders].map(map).filter(Boolean);expandedFolders.clear();folders.forEach(f=>expandedFolders.add(f));
+    if(result.destination){const parts=result.destination.split('/').slice(0,-1);parts.forEach((_,i)=>expandedFolders.add(parts.slice(0,i+1).join('/')));}localStorage.setItem('looking-glass-folders:'+root,JSON.stringify([...expandedFolders]));
+    if(changedActive){appStore.dispatch({type:'DOCUMENT_DISPLAYED',path:next});if(next){clearSurface();const session=tabs.get(next);await mountFileSurface(session);await session.ready;await refreshThreads();}else if(tabs.size){release();await openFile([...tabs.keys()].at(-1));}else{clearSurface();appStore.dispatch({type:'THREADS_RECEIVED',threads:[]});$('#threads').replaceChildren();lastThreadHTML='';lastThreadKey='';discussionView.reset();}}
+    remember();renderTabs();updateToolbar();window.htmx.trigger('#file-tree','refresh');if(changedActive&&next)view?.focus();notify(result.deleted?'Moved to workspace trash':'File location updated');
+  }finally{release();}
+}});
+function renderQuickResults(keepPath=null){const query=$('#quick-query').value;quickMatches=quickFileMatches(quickPaths,query,[...fileHistory.snapshot.entries].reverse());quickIndex=keepPath&&quickMatches.some(item=>item.path===keepPath)?quickMatches.findIndex(item=>item.path===keepPath):Math.min(quickIndex,Math.max(0,quickMatches.length-1));$('#quick-results').replaceChildren(...quickMatches.map((item,index)=>{const button=document.createElement('button');button.textContent=item.path;button.id='quick-option-'+index;button.setAttribute('role','option');button.setAttribute('aria-selected',String(index===quickIndex));button.classList.toggle('selected',index===quickIndex);button.onclick=guard(async()=>{await openFile(item.path);$('#quick-dialog').close();view?.focus();});return button;}));if(!quickMatches.length)$('#quick-results').textContent='No matching files.';$('#quick-query').setAttribute('aria-activedescendant',quickMatches.length?'quick-option-'+quickIndex:'');$('#quick-results .selected')?.scrollIntoView({block:'nearest'});}
+async function showQuickOpen(){const request=++quickRequest;closeComment();if(!$('#quick-dialog').open)$('#quick-dialog').showModal();$('#quick-query').value='';quickIndex=0;quickPaths=[...new Set([...fileHistory.snapshot.entries,...$$('.file-entry').map(b=>b.dataset.path),...tabs.keys()])];renderQuickResults();$('#quick-query').focus();const workspace=await api('workspace');if($('#quick-dialog').open&&request===quickRequest){const selected=quickMatches[quickIndex]?.path;quickPaths=[...new Set([...fileHistory.snapshot.entries,...workspace.files,...tabs.keys()])];renderQuickResults(selected);}}
 $('#quick-query').oninput=()=>{quickIndex=0;renderQuickResults();};
 $('#quick-query').onkeydown=event=>{if(['ArrowDown','ArrowUp'].includes(event.key)){event.preventDefault();quickIndex=(quickIndex+(event.key==='ArrowDown'?1:-1)+quickMatches.length)%Math.max(1,quickMatches.length);renderQuickResults();}if(event.key==='Enter'){event.preventDefault();$('#quick-results .selected')?.click();}};
 $('#agent-open').onclick=guard(async()=>{const result=await api('agent-instructions');$('#agent-instructions').value=result.instructions;$('#agent-dialog').showModal();});
@@ -1656,7 +1815,7 @@ $('#author-form').onsubmit=event=>{
 window.addEventListener('resize',placeAuthorPopover);
 $('#author-edit').disabled=false;
 $('#reload-disk').onclick=guard(async()=>{
-  const e=entry();if(!e)return;if(e.dirty&&!confirm('Discard your unsaved edits and reload the current disk file?'))return;const disk=await api('file?'+new URLSearchParams({path:e.path}));disposeReport(e);e.content=disk.content;e.diskContent=disk.content;e.version=disk.version;e.dirty=false;e.conflict=null;e.state=null;view?.destroy();view=null;mountDocument(e);await refreshThreads();renderTabs();notify('Reloaded from disk');
+  const e=entry();if(!e)return;if(e.dirty&&!await confirmAction({title:'Reload from disk?',message:'Your unsaved edits will be discarded.',confirmLabel:'Discard edits',symbol:'restore',danger:true}))return;const disk=await api('file?'+new URLSearchParams({path:e.path}));disposeReport(e);e.content=disk.content;e.diskContent=disk.content;e.version=disk.version;e.dirty=false;e.conflict=null;e.state=null;view?.destroy();view=null;mountDocument(e);await refreshThreads();renderTabs();notify('Reloaded from disk');
 });
 $('#copy-draft').onclick=guard(async()=>{await navigator.clipboard.writeText(entry().content);notify('Draft copied');});
 $('#merge-disk').onclick=guard(async()=>{const e=entry();const disk=await api('file?'+new URLSearchParams({path:e.path}));pending={mergePath:e.path,disk};$('#disk-text').textContent=disk.content;$('#merge-text').value=e.content;$('#merge-dialog').showModal();});

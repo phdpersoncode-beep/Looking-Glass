@@ -320,9 +320,10 @@ def test_thread_attachments(workspace_page):
     expect(page.locator('#attachment-image')).to_be_visible()
     assert page.locator('#attachment-image').evaluate('el=>el.naturalWidth')==30
     page.locator('#attachment-dialog [data-close]').click()
-    page.once('dialog',lambda dialog:dialog.accept('renamed.stl'))
     page.get_by_label('Options for model.stl',exact=True).click()
     page.get_by_role('button',name='Rename model.stl').click()
+    page.locator('.lg-dialog input').fill('renamed.stl')
+    page.locator('.lg-dialog button[type=submit]').click()
     expect(page.locator('.attachment').last).to_contain_text('renamed.stl')
     with page.expect_download() as download:page.get_by_role('button',name='renamed.stl',exact=True).click()
     assert download.value.suggested_filename=='renamed.stl'
@@ -515,6 +516,9 @@ def test_file_tree_refresh_preserves_state_and_recovers(workspace_page, monkeypa
     expect(folder).to_have_attribute('open', '')
     (root/'folder'/'note.txt').unlink(); (root/'folder'/'new.txt').unlink()
     page.locator('#refresh-files').click()
+    expect(page.locator('.file-entry')).to_have_count(0)
+    expect(folder).to_be_visible()  # Empty folders remain useful drop targets.
+    (root/'folder').rmdir();page.locator('#refresh-files').click()
     expect(page.locator('#file-tree')).to_contain_text('No files in this directory.')
 
 

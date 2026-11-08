@@ -5,6 +5,7 @@ existing ones; browser sharding changes where tests run, never which cases run.
 
 | Behavior | Main coverage |
 | --- | --- |
+| Image paste, PNG/JPEG validation, disk updates, rename aliases/escaped filenames, original recovery, drawing/eraser, persistent image threads, large/narrow themed layouts and edge markers, symbol controls, keyboard comment/reply submission, duplicate-send/error handling, exact-embed deletion/cancel/undo in Edit/Review, stale saves, stable arrow navigation, centered per-embed resize/undo/Review/table/CRLF persistence, draggable markers with cancellation/conflicts and automatic drop exit, per-comment/whole-thread deletion with cancel/retry/draft retention/last-marker cleanup, portable synthetic Firefox paste, and themed application dialogs | `test_images.py`, `markdown-images.test.mjs`, `test_images_browser.py`, `test_dialogs_browser.py` |
 | Edit/save, undo/redo, find/replace, tabs, external changes and conflict recovery | `test_browser.py`, `test_workspace.py`, `test_app_integration_browser.py` |
 | Non-destructive review, human/agent provenance, removed text, autosave, approval and concurrent edits | `test_reviews.py`, `review-model.test.mjs`, `test_review_mode_browser.py` |
 | Passage anchors, reattachment, immutable context and restart persistence | `test_anchors.py`, `test_origins.py`, `test_context_return_browser.py`, `test_cli.py` |
@@ -21,6 +22,8 @@ existing ones; browser sharding changes where tests run, never which cases run.
 | Native oversized downloads without browser buffering, expiring file-scoped download URLs, document top/copy controls, stable spotlight search, sidebar arrow focus, scoped queues and zen resolve/delete advancement | `test_file_downloads.py`, `test_reading_controls_browser.py`, `test_spotlight_controls_browser.py`, `app-state.test.mjs` |
 | Monospace line numbers through editing and narrow layouts, uniform rounded fenced code, quiet multiline blockquotes in both themes | `test_reading_pane_polish_browser.py` |
 | Recent-file Back/Forward, history dropdown/clear, rapid and failed navigation, saved visits, preserved drafts/scroll, Python outline parsing/jumps/live edits/review and layouts | `file-history.test.mjs`, `python-outline.test.mjs`, `test_file_navigation_outline_browser.py` |
+| Git explorer colors/ignore rules/status-only refresh, recent-first fuzzy picker, resizable outline persistence/keyboard limits, whole-document occurrence markers/jumps/clearing and bounded dense matches | `test_explorer_status.py`, `test_navigation_additions_browser.py`, `match-overview.test.mjs` |
+| Explorer rename/delete/copy, recoverable trash, stale/collision/protected-path rejection, preserved review/discussion/image/PDF metadata, empty-folder drag/drop, Alt+Q, Python outline folding, file-mention fuzzy completion/ignore rules, agent references and navigation | `test_file_operations.py`, `test_explorer_browser.py`, `file-references.test.mjs`, `file-history.test.mjs` |
 | Thread references across files/resolved/HTML/unattached targets, preserved replies, literal interval brackets, horizontal filters, unattached-only lists/search/navigation and status counts | `markdown-links.test.mjs`, `app-state.test.mjs`, `test_thread_reference_polish_browser.py` |
 | Per-project author popover, default identity, cancel/dismiss, comment/reply/review attribution, sidebar controls and layouts, immediate popover placement when reopened after resizing | `test_sidebar_controls_browser.py`, `test_navigation_browser.py` |
 | Compact search/replace toggles, search options and regex navigation, replacement undo, read-only context, full reading height and stable toolbar position across modes | `test_document_search_browser.py`, `test_reading_controls_browser.py`, `test_interaction_polish_browser.py` |
@@ -33,6 +36,11 @@ existing ones; browser sharding changes where tests run, never which cases run.
 | Pure application transitions, awaited navigation, stale completions, independent mode undo and unchanged node/cursor identity | `app-state.test.mjs`, `navigation.test.mjs`, `passages.test.mjs`, `review-sync.test.mjs`, `discussion-lifetime.test.mjs`, `test_architecture_browser.py` |
 | Shared Python/JavaScript Unicode/CRLF review operations | `tests/fixtures/review-operations.json`, `test_review_operations_shared.py`, `review-model.test.mjs` |
 | Cross-feature approval, discussion origins/attachments, stale writes, other file drafts and Git staging | `test_app_integration.py`, `test_app_integration_browser.py` |
+
+The comment composer reserves permanent row spacing for focus outlines.
+`test_comment_layout_browser.py` checks actual focus-ring clearance for HTML source
+and rendered-only anchor notes, Markdown/plain-text selections, wrapped quotes,
+attachments, and submission errors in both themes and narrow windows.
 
 Fast feedback (no browser installation needed):
 
