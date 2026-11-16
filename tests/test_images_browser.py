@@ -213,7 +213,8 @@ def test_comment_shortcut_errors_and_duplicate_submission(workspace_page):
     root,page,url,ws=workspace_page
     setup_disk_image(root,ws)
     page.goto(url);open_file(page,'notes.md');page.get_by_role('button',name='Annotate image',exact=True).click()
-    page.get_by_role('button',name='Comment',exact=True).click();page.locator('.image-editor canvas').click()
+    page.get_by_role('button',name='Comment',exact=True).click()
+    expect(page.locator('.image-editor .image-comment-marker.draft')).to_be_visible()
     text=page.get_by_role('textbox',name='Comment on image')
     page.keyboard.press('Control+Enter')
     expect(page.locator('.image-comment-box [role=alert]')).to_have_text('Write a comment before sending.')
@@ -527,3 +528,48 @@ def test_discussion_image_previews_keep_controls_out_during_refresh(workspace_pa
     expect(page.locator('.comment-markdown').last).to_contain_text('Refresh this discussion',timeout=10000)
     expect(preview.locator('button')).to_have_count(0)
     expect(page.locator('#surface .image-comment-marker')).to_have_count(1)
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_image_draft_marker_is_immediate_movable_and_only_persists_on_send(workspace_page):
+    root,page,url,ws=workspace_page
+    setup_disk_image(root,ws)
+    page.goto(url);open_file(page,'notes.md')
+    page.get_by_role('button',name='Annotate image',exact=True).click()
+    editor=page.locator('.image-editor');canvas=editor.locator('canvas')
+    editor.get_by_role('button',name='Comment',exact=True).click()
+    marker=editor.locator('.image-comment-marker.draft')
+    expect(marker).to_be_visible();expect(marker).to_have_attribute('aria-label','New image comment')
+    assert ws.threads('notes.md')==[]
+    field=editor.get_by_role('textbox',name='Comment on image');field.fill('Draft stays while positioning')
+    canvas.click(position={'x':30,'y':25})
+    expect(field).to_have_value('Draft stays while positioning')
+    stage=editor.locator('.image-stage').bounding_box();b=marker.bounding_box()
+    page.keyboard.down('Control');page.mouse.move(b['x']+b['width']/2,b['y']+b['height']/2);page.mouse.down()
+    page.mouse.move(stage['x']+stage['width']*.8,stage['y']+stage['height']*.7,steps=8);page.mouse.up();page.keyboard.up('Control')
+    expect(marker).to_have_attribute('aria-pressed','false');expect(field).to_have_value('Draft stays while positioning')
+    assert ws.threads('notes.md')==[]
+    # Failed sends preserve both the draft text and its selected image position.
+    page.route('**/api/images/*/comments',lambda route:route.fulfill(status=409,json={'error':'Try again'}))
+    field.press('Control+Enter');expect(editor.locator('[role=alert]')).to_have_text('Try again')
+    expect(marker).to_be_visible();expect(field).to_have_value('Draft stays while positioning')
+    page.unroute('**/api/images/*/comments');field.press('Control+Enter')
+    expect(editor.locator('.image-comment-box')).to_have_count(0)
+    expect(editor.locator('.image-comment-marker.draft')).to_have_count(0)
+    expect(editor.locator('.image-comment-marker[data-thread]')).to_have_count(1)
+    thread=ws.threads('notes.md')[0]
+    assert abs(thread['image_annotation']['x']-.8)<.03 and abs(thread['image_annotation']['y']-.7)<.03
+    editor.get_by_role('button',name='Comment',exact=True).click();expect(marker).to_be_visible()
+    field.fill('Cancel this repositioned draft')
+    marker.click(modifiers=['Control']);expect(marker).to_have_attribute('aria-pressed','true')
+    b=marker.bounding_box();page.mouse.move(b['x']+b['width']/2,b['y']+b['height']/2);page.mouse.down()
+    page.mouse.move(stage['x']+5,stage['y']+5,steps=5);marker.press('Escape');page.mouse.up()
+    expect(marker).to_have_attribute('aria-pressed','false')
+    assert marker.evaluate('el=>el.style.left')=='50%'
+    expect(field).to_have_value('Cancel this repositioned draft')
+    editor.get_by_role('button',name='Cancel',exact=True).click();expect(marker).to_have_count(0)
+    assert len(ws.threads('notes.md'))==1
+    editor.get_by_role('button',name='Close',exact=True).click()
+    page.reload();open_file(page,'notes.md')
+    expect(page.locator('.markdown-image .image-comment-marker[data-thread]')).to_have_count(1)
+    assert ws.threads('notes.md')[0]['messages'][0]['body']=='Draft stays while positioning'

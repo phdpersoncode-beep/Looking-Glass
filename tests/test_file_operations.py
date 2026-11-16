@@ -113,3 +113,42 @@ def test_metadata_error_rolls_back_disk_move_and_trash_manifest_cannot_clobber_p
     payload=next((ws.meta/'trash').glob('*/files/restore.json'))
     assert payload.read_text()=='User data'
     assert json.loads((payload.parent.parent/'restore.json').read_text())=={'path':'restore.json'}
+
+
+def test_create_files_and_folders_are_empty_persistent_and_never_overwrite(tmp_path):
+    ws=Workspace(tmp_path);op=FileOperations(ws)
+    assert op.create('src', 'folder') == {'path':'src','directory':True}
+    assert op.create('src/🪞 new.py', 'file') == {'path':'src/🪞 new.py','directory':False}
+    assert Workspace(tmp_path).read('src/🪞 new.py')['content'] == ''
+    (tmp_path/'src/🪞 new.py').write_text('Keep original')
+    for kind in ['file','folder']:
+        with pytest.raises(Problem, match='already exists'):
+            op.create('src/🪞 new.py',kind)
+        with pytest.raises(Problem, match='already exists'):
+            op.create('src',kind)
+    assert (tmp_path/'src/🪞 new.py').read_text() == 'Keep original'
+    assert 'src' in ws.folders()
+    assert 'src/🪞 new.py' in ws.files()
+
+
+@pytest.mark.parametrize('path', ['../escape','/tmp/escape','.looking-glass/token','node_modules/a','src/../a','missing/a','.', 'bad\\name', 'bad\x00name'])
+def test_create_rejects_protected_invalid_and_missing_parent_paths(tmp_path,path):
+    ws=Workspace(tmp_path)
+    with pytest.raises(Problem):FileOperations(ws).create(path,'file')
+
+
+def test_create_api_authentication_symlinks_and_prior_history(tmp_path):
+    app=create_app(tmp_path);ws=app.extensions['workspace'];client=app.test_client()
+    headers={'X-Looking-Glass-Token':ws.token};data={'path':'new.txt','kind':'file'}
+    assert client.post('/api/explorer/create',json=data).status_code==401
+    assert client.post('/api/explorer/create',headers={**headers,'Origin':'https://evil.invalid'},json=data).status_code==403
+    assert client.post('/api/explorer/create',headers=headers,json={**data,'kind':'other'}).status_code==400
+    assert client.post('/api/explorer/create',headers=headers,json=data).status_code==201
+    assert client.post('/api/explorer/create',headers=headers,json=data).status_code==409
+    ws.read('new.txt');(tmp_path/'new.txt').unlink()
+    assert client.post('/api/explorer/create',headers=headers,json=data).status_code==409
+    (tmp_path/'link').symlink_to(tmp_path,target_is_directory=True)
+    for name in ['link/escape.txt','link','broken']:
+        if name=='broken':(tmp_path/'broken').symlink_to(tmp_path/'absent')
+        assert client.post('/api/explorer/create',headers=headers,json={**data,'path':name}).status_code==403
+    assert not (tmp_path/'escape.txt').exists()

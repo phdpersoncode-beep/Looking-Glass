@@ -1522,7 +1522,7 @@ document.addEventListener('keydown',event=>{
   if(event.key==='Escape'){passageActivation++;pressedPassage=null;}
   // Let the focused navigation panel consume Escape before context/spotlight.
   if(event.key==='Escape'&&event.target.closest?.('#file-history[open],#code-outline[open]'))return;
-  if((event.ctrlKey||event.metaKey)&&event.altKey&&!event.shiftKey&&event.key.toLowerCase()==='z'){event.preventDefault();event.stopPropagation();toggleZen();return;}
+  if(event.altKey&&!event.shiftKey&&!event.isComposing&&(event.key.toLowerCase()==='z'||event.code==='KeyZ')){event.preventDefault();event.stopPropagation();toggleZen();return;}
   if(view&&event.target.closest?.('.document-panel')&&!document.querySelector('dialog:modal')&&documentSearchShortcut(view,event)){event.preventDefault();event.stopPropagation();return;}
   // Focusable table regions keep native cell selection/copying, while editor
   // commands still target the document rather than the browser page.
@@ -1805,7 +1805,17 @@ outlineController=mountPythonOutline($('#code-outline'),{
 });
 mountOutlineResize($('#code-outline'),{storageKey:'looking-glass-outline-width:'+root,changed:()=>view?.requestMeasure()});
 mountFileMentions({api,error:message=>notify(message,true)});
-mountExplorer($('#file-tree'),{root,api,error:message=>notify(message,true),change:async(info,options)=>{
+mountExplorer($('#file-tree'),{root,api,error:message=>notify(message,true),created:kind=>{if(kind==='file')view?.focus();},create:async options=>{
+  if(contextVisit)throw new Error('Return from original context before creating files.');
+  if(navigation.busy||saving||changingWorkMode||fileMutation)throw new Error('Wait for the current file operation to finish.');
+  const result=await api('explorer/create','POST',options);
+  const parts=result.path.split('/');if(!result.directory)parts.pop();
+  parts.forEach((_,i)=>expandedFolders.add(parts.slice(0,i+1).join('/')));
+  localStorage.setItem('looking-glass-folders:'+root,JSON.stringify([...expandedFolders]));
+  $('#file-filter').value='';window.htmx.trigger('#file-tree','refresh');
+  if(!result.directory)await openFile(result.path);
+  notify(result.directory?'Folder created':'File created');
+},change:async(info,options)=>{
   if(contextVisit)throw new Error('Return from original context before moving files.');
   if(navigation.busy||saving||changingWorkMode||fileMutation)throw new Error('Wait for the current file operation to finish.');
   syncState();const affected=path=>path===info.path||path.startsWith(info.path+'/');

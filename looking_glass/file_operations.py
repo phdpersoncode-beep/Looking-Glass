@@ -42,6 +42,29 @@ class FileOperations:
             s=item.stat();signature.append((str(item.relative_to(full.parent)),s.st_ino,s.st_size,s.st_mtime_ns))
         return dict(path=full.relative_to(self.ws.root).as_posix(),directory=full.is_dir(),version=hashlib.sha256(json.dumps(signature).encode()).hexdigest())
 
+    def create(self, path, kind):
+        if kind not in ('file', 'folder'):
+            raise Problem('Choose a file or folder to create.')
+        with self.ws.lock:
+            full = self.path(path, existing=False)
+            key = full.relative_to(self.ws.root).as_posix()
+            if full.exists():
+                raise Problem('A file or folder with that name already exists.', 409)
+            with self.ws.connection() as db:
+                for table in ['snapshots', 'threads', 'review_drafts', 'review_heads', 'pdf_bookmarks', 'source_marker_files']:
+                    if db.execute(f'SELECT 1 FROM {table} WHERE path=? OR substr(path,1,?)=? LIMIT 1',
+                                  (key, len(key)+1, key+'/')).fetchone():
+                        raise Problem('This path has existing review history. Choose another name.', 409)
+            try:
+                if kind == 'folder':
+                    full.mkdir()
+                else:
+                    with full.open('x', encoding='utf-8'):
+                        pass
+            except FileExistsError as error:
+                raise Problem('A file or folder with that name already exists.', 409) from error
+            return dict(path=key, directory=kind == 'folder')
+
     def change(self, path, version, destination=None, delete=False):
         with self.ws.lock:
             info=self.info(path);source=self.path(path);path=info['path']

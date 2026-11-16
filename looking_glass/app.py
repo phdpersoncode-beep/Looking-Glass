@@ -122,11 +122,12 @@ def create_app(root):
 
     @app.get('/fragments/files')
     def tree():
-        files = ws.files()
+        listing = ws.file_listing()
+        files = listing['files']
         folders=ws.folders()
         try:statuses=git.explorer_status([*files,*folders])
         except (Problem,FileNotFoundError):statuses={}
-        tag = hashlib.sha256(json.dumps([files,folders,statuses], ensure_ascii=False).encode()).hexdigest()
+        tag = hashlib.sha256(json.dumps([listing,folders,statuses], ensure_ascii=False).encode()).hexdigest()
         if request.if_none_match.contains(tag):
             return Response(status=304, headers={'ETag': '"' + tag + '"'})
         tree = {}
@@ -139,7 +140,7 @@ def create_app(root):
             for part in parts[:-1]:
                 branch = branch.setdefault(part, {})
             branch[parts[-1]] = path
-        response = app.make_response(render_template('files.html', tree=tree, statuses=statuses))
+        response = app.make_response(render_template('files.html', tree=tree, statuses=statuses, listing=listing))
         response.set_etag(tag)
         return response
 
@@ -192,7 +193,8 @@ def create_app(root):
 
     @app.get('/api/workspace')
     def workspace():
-        return jsonify(root=str(ws.root), files=ws.files())
+        listing = ws.file_listing()
+        return jsonify(root=str(ws.root), files=listing['files'], files_truncated=listing['truncated'], file_limit=listing['limit'])
 
     @app.post('/api/workspace')
     def switch_workspace():
@@ -230,6 +232,12 @@ def create_app(root):
         from .file_operations import FileOperations
         data=body()
         return jsonify(FileOperations(ws).change(data.get('path'),data.get('version'),data.get('destination'),data.get('delete') is True))
+
+    @app.post('/api/explorer/create')
+    def explorer_create():
+        from .file_operations import FileOperations
+        data = body()
+        return jsonify(FileOperations(ws).create(data.get('path'), data.get('kind'))), 201
 
     @app.get('/api/file')
     def read_file():

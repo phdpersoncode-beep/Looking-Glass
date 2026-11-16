@@ -207,7 +207,7 @@ document.addEventListener('pointerup',()=>setTimeout(capture,0));
 document.addEventListener('keydown',event=>{
   readingPosition=null;readingGesture=null;
   if(event.key==='Escape')send('exit-spotlight');
-  if((event.ctrlKey||event.metaKey)&&event.altKey&&!event.shiftKey&&event.key.toLowerCase()==='z'){event.preventDefault();event.stopPropagation();send('zen');return;}
+  if(event.altKey&&!event.shiftKey&&!event.isComposing&&(event.key.toLowerCase()==='z'||event.code==='KeyZ')){event.preventDefault();event.stopPropagation();send('zen');return;}
   if(event.altKey&&!event.ctrlKey&&!event.metaKey&&event.key.toLowerCase()==='q'){event.preventDefault();event.stopPropagation();send('collapse-files');return;}
   if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='p'){event.preventDefault();event.stopPropagation();send('quick-open');}
 },true);

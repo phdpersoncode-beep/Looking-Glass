@@ -1052,3 +1052,29 @@ Firefox results remain pending in the next full hosted run.
 The prior full run on `8297c62` passed all 763 cases. Firefox remains unavailable
 locally because its browser download is blocked; the new cases require the final
 hosted Chromium/Firefox run.
+
+## Explorer creation, file-limit warning, zen shortcut, and image draft pins
+
+- File discovery distinguishes a complete 10,000-file listing from a truncated
+  listing. The explorer warning recommends `.looking.ignore`; API metadata and
+  tree ETags change with truncation. Ignore refresh retains open unsaved work.
+- Header/context-menu creation covers empty workspaces, selected folders,
+  root context actions, Unicode names, collisions, cancellation, empty disk
+  files, preserved dirty tabs/undo, and focused new-file editors. The API rejects
+  protected paths, symlinks, missing parents, and retained review-history paths.
+- Alt+Z toggles zen from editor and sandboxed HTML; Ctrl/Cmd+Alt+Z remain aliases
+  and Ctrl+Z retains undo. The toolbar advertises Alt+Z.
+- The image Comment tool immediately shows a draft pin and composer. Clicking
+  a new point or Ctrl+dragging moves it without clearing text. Failed sends retain
+  both; cancellation removes it; successful send persists its chosen coordinates.
+  Saved-marker dragging, cancellation, replies, and deletion remain covered.
+- Local validation: 204 fast Python checks, 107 JavaScript checks, and 51 relevant
+  Chromium cases passed across focused runs. The previous canvas-center click in
+  the submission test was updated to use the immediate composer because the new
+  draft pin now occupies that location; error and duplicate-send assertions remain.
+- Light desktop and dark narrow image/composer dialogs were visually inspected
+  in Chromium 154.0.8037.57. Creation controls also fit the 120px sidebar width.
+- Frontend assets rebuilt; wheel/source distributions built. All 803 collected
+  Chromium/Firefox browser cases form complete, disjoint shards (201/201/201/200).
+  Firefox could not download locally, so full cross-browser validation is requested
+  through hosted CI after the final push.

@@ -13,6 +13,7 @@ from pathspec.patterns.gitignore import GitIgnorePatternError
 
 MAX_TEXT = 8 * 1024 * 1024
 MAX_BINARY = 64 * 1024 * 1024
+FILE_LIMIT = 10000
 EXCLUDED = {'.git', '.looking-glass', 'node_modules', '.venv', '__pycache__', '.pytest_cache'}
 
 
@@ -120,6 +121,9 @@ class Workspace:
         return key
 
     def files(self):
+        return self.file_listing()['files']
+
+    def file_listing(self):
         # Reload once per scan so the existing refresh action also reloads rules.
         # Keep this separate from path(): ignore rules control discovery, not
         # access to open tabs, explicit paths, or persistent discussions.
@@ -152,10 +156,10 @@ class Workspace:
                     continue
                 file = Path(directory) / name
                 if not file.is_symlink() and file.is_file():
+                    if len(found) == FILE_LIMIT:
+                        return dict(files=sorted(found), truncated=True, limit=FILE_LIMIT)
                     found.append(key)
-                if len(found) >= 10000:
-                    return sorted(found)
-        return sorted(found)
+        return dict(files=sorted(found), truncated=False, limit=FILE_LIMIT)
 
     def folders(self):
         # Empty folders are valid explorer drop targets; use discovery's ignore rules.
