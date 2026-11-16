@@ -25,7 +25,7 @@ def test_thread_search_index_is_lean_authenticated_cached_and_never_reads_files(
     data=response.json;assert [item['id'] for item in data]==[t['id'],other['id']]
     assert data[0]['messages']==[{'body':'Review'},{'body':'Second message'}]
     assert data[1]['resolved'] is True
-    assert all(set(item)=={'id','path','quote','resolved','anchor_status','messages'} for item in data)
+    assert all(set(item)=={'id','path','quote','resolved','anchor_status','messages','source_marker'} for item in data)
     assert all(item['anchor_status']=='attached' for item in data)
     conditional={**h,'If-None-Match':response.headers['ETag']}
     assert c.get('/api/thread-search-index',headers=conditional).status_code==304

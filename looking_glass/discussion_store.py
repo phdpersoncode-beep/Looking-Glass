@@ -27,6 +27,11 @@ class DiscussionStore:
                 db.execute('ALTER TABLE threads ADD COLUMN render_anchor TEXT')
             if 'target_ref' not in columns:
                 db.execute('ALTER TABLE threads ADD COLUMN target_ref TEXT')
+            if 'source_marker' not in columns:
+                db.execute('ALTER TABLE threads ADD COLUMN source_marker TEXT')
+            db.execute('CREATE TABLE IF NOT EXISTS source_marker_files(path TEXT PRIMARY KEY)')
+            if 'truncated' not in {row['name'] for row in db.execute('PRAGMA table_info(source_marker_files)')}:
+                db.execute('ALTER TABLE source_marker_files ADD COLUMN truncated INTEGER NOT NULL DEFAULT 0')
 
 
     @contextmanager
