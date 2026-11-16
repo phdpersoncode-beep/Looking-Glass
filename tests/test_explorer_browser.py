@@ -23,6 +23,7 @@ def test_explorer_rename_copy_delete_preserves_dirty_tabs_and_discussions(worksp
     menu(page,'a.txt').get_by_role('menuitem',name='Rename',exact=True).click()
     page.locator('.lg-dialog input').fill('renamed.txt');page.locator('.lg-dialog button[type=submit]').click()
     expect(page.locator('#document-name')).to_have_text('renamed.txt');expect(page.locator('.cm-content')).to_contain_text('Draft')
+    expect(page.locator('.lg-dialog')).not_to_be_visible()
     page.keyboard.press('Control+s');expect(page.locator('#dirty')).to_have_text('')
     assert ws.get_thread(thread['id'])['path']=='renamed.txt'
     menu(page,'renamed.txt').get_by_role('menuitem',name='Delete',exact=True).click();page.locator('.lg-dialog').get_by_role('button',name='Cancel',exact=True).click()

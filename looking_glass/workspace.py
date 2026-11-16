@@ -194,14 +194,14 @@ class Workspace:
         except UnicodeDecodeError:
             raise Problem('Text editing supports UTF-8 files only.', 415)
 
-    def reconcile(self, db, path, content):
-        return self.reconciler.reconcile(db, path, content)
+    def reconcile(self, db, path, content, *, sync_markers=True):
+        return self.reconciler.reconcile(db, path, content, sync_markers=sync_markers)
 
-    def read(self, path):
+    def read(self, path, *, sync_markers=True):
         with self.lock, self.connection() as db:
             before = self.fingerprint(path)
             content, version = self.text(path)
-            self.reconcile(db, path, content)
+            self.reconcile(db, path, content, sync_markers=sync_markers)
             if before == self.fingerprint(path):
                 self._fingerprints[path] = (before, version)
             return dict(path=path, content=content, version=version,
@@ -217,7 +217,7 @@ class Workspace:
             cached = self._fingerprints.get(path)
             return bool(cached and cached[1] == version and cached[0] == self.fingerprint(path))
 
-    def save(self, path, content, version):
+    def save(self, path, content, version, *, sync_markers=True):
         if not isinstance(content, str) or len(content.encode('utf-8')) > MAX_TEXT or '\x00' in content:
             raise Problem('Invalid or oversized text content.')
         with self.lock, self.connection() as db:
@@ -226,7 +226,7 @@ class Workspace:
             old, current_version = self.text(path)
             if current_version != version:
                 raise Problem('File changed on disk. Reload or merge before saving.', 409)
-            self.reconcile(db, path, old)
+            self.reconcile(db, path, old, sync_markers=sync_markers)
             mode = stat.S_IMODE(p.stat().st_mode)
             fd, temporary = tempfile.mkstemp(dir=p.parent, prefix='.' + p.name + '.lg-')
             try:
@@ -241,7 +241,7 @@ class Workspace:
             finally:
                 if os.path.exists(temporary):
                     os.unlink(temporary)
-            self.reconcile(db, path, content)
+            self.reconcile(db, path, content, sync_markers=sync_markers)
             return dict(path=path, content=content, version=digest(content.encode('utf-8')),
                         source_markers_truncated=self.source_markers.truncated(db, path))
 

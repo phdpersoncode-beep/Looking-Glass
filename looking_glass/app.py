@@ -124,7 +124,9 @@ def create_app(root):
     def tree():
         files = ws.files()
         folders=ws.folders()
-        tag = hashlib.sha256(json.dumps([files,folders], ensure_ascii=False).encode()).hexdigest()
+        try:statuses=git.explorer_status([*files,*folders])
+        except (Problem,FileNotFoundError):statuses={}
+        tag = hashlib.sha256(json.dumps([files,folders,statuses], ensure_ascii=False).encode()).hexdigest()
         if request.if_none_match.contains(tag):
             return Response(status=304, headers={'ETag': '"' + tag + '"'})
         tree = {}
@@ -137,7 +139,7 @@ def create_app(root):
             for part in parts[:-1]:
                 branch = branch.setdefault(part, {})
             branch[parts[-1]] = path
-        response = app.make_response(render_template('files.html', tree=tree))
+        response = app.make_response(render_template('files.html', tree=tree, statuses=statuses))
         response.set_etag(tag)
         return response
 

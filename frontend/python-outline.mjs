@@ -1,3 +1,4 @@
+import {foldIcon} from './fold-icon.mjs';
 import {python} from '@codemirror/lang-python';
 
 const parser=python().language.parser;
@@ -42,7 +43,7 @@ export function mountPythonOutline(host,{navigate,saveOpen,storageKey='looking-g
   let path=null,doc=null,timer=null,folds={};try{const saved=JSON.parse(localStorage.getItem(storageKey)||'{}');folds=Object.fromEntries(Object.entries(saved||{}).filter(([,v])=>Array.isArray(v)).map(([k,v])=>[k,v.filter(x=>typeof x==='string')]));}catch{}
   const tools=document.createElement('div');tools.className='outline-tools';
   function all(collapsed){folds[path]=collapsed?[...list.querySelectorAll('.outline-node')].map(el=>el.dataset.key):[];save();render();}
-  for(const [label,collapsed,symbol] of [['Collapse all outline elements',true,'−'],['Expand all outline elements',false,'+']]){const b=document.createElement('button');b.type='button';b.title=label;b.setAttribute('aria-label',label);b.textContent=symbol;b.onclick=()=>all(collapsed);tools.append(b);}host.insertBefore(tools,list);
+  for(const [label,collapsed] of [['Collapse all outline elements',true],['Expand all outline elements',false]]){const b=document.createElement('button');b.type='button';b.title=label;b.setAttribute('aria-label',label);b.append(foldIcon(!collapsed));b.onclick=()=>all(collapsed);tools.append(b);}host.insertBefore(tools,list);
   const save=()=>localStorage.setItem(storageKey,JSON.stringify(folds));
   function render(){
     clearTimeout(timer);if(!doc||!host.open)return;

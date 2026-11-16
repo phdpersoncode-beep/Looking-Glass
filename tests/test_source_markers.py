@@ -118,3 +118,32 @@ def test_marker_sync_handles_duplicates_conservatively_and_bounds_imports(tmp_pa
     track(ws, 'dense.md')
     assert len(ws.threads('dense.md')) == 1000
     assert ws.read('dense.md')['source_markers_truncated']
+
+
+def test_workspace_reads_discover_first_external_marker_in_tracked_file(tmp_path):
+    file = tmp_path/'a.py'; file.write_text('value = 1\n')
+    ws = Workspace(tmp_path); track(ws, 'a.py')
+    assert ws.threads() == []
+    file.write_text('value = 1\n# TODO implement first task\n')
+    threads = ws.threads()
+    assert len(threads) == 1
+    assert threads[0]['quote'] == 'TODO implement first task'
+    assert not threads[0]['resolved']
+
+
+def test_review_reworded_marker_keeps_thread_replies_and_open_state(tmp_path):
+    (tmp_path/'a.py').write_text('# TODO original task\n')
+    ws = Workspace(tmp_path); track(ws, 'a.py')
+    thread = ws.threads('a.py')[0]
+    ws.reply(thread['id'], 'Keep this discussion', 'Reviewer')
+    draft = ws.reviews.start('a.py', ws.read('a.py')['version'])
+    draft = ws.reviews.update(draft['id'], draft['version'],
+        [dict(start=2, end=len(draft['content'])-1, insert='TODO completely different task')], 'User', 'human')
+    ws.reviews.approve(draft['id'], draft['version'])
+    threads = ws.threads('a.py')
+    assert len(threads) == 1
+    assert threads[0]['id'] == thread['id']
+    assert threads[0]['quote'] == 'TODO completely different task'
+    assert threads[0]['anchor_status'] == 'attached'
+    assert not threads[0]['resolved']
+    assert threads[0]['messages'][-1]['body'] == 'Keep this discussion'

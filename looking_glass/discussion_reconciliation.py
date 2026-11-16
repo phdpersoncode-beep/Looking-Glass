@@ -7,7 +7,7 @@ class DiscussionReconciler:
     def __init__(self, workspace):
         self.ws = workspace
 
-    def reconcile(self, db, path, content):
+    def reconcile(self, db, path, content, *, sync_markers=True):
         row = db.execute('SELECT content FROM snapshots WHERE path=?', (path,)).fetchone()
         if row and row['content'] == content:
             return
@@ -24,13 +24,14 @@ class DiscussionReconciler:
                 else:
                     db.execute("UPDATE threads SET anchor_status='needs_reattachment' WHERE id=?", (t['id'],))
         db.execute('INSERT INTO snapshots VALUES(?,?) ON CONFLICT(path) DO UPDATE SET content=excluded.content', (path, content))
-        self.ws.source_markers.sync(db, path, content)
-        self.ws.source_markers.resolve_unattached(db, path)
+        if sync_markers:
+            self.ws.source_markers.sync(db, path, content)
+            self.ws.source_markers.resolve_unattached(db, path)
 
     def refresh(self, db, path=None, enabled=True):
         if not enabled:
             return
-        paths = [path] if path else [row[0] for row in db.execute('SELECT DISTINCT path FROM threads')]
+        paths = [path] if path else [row[0] for row in db.execute('SELECT path FROM threads UNION SELECT path FROM source_marker_files')]
         for name in paths:
             if name.startswith('looking-glass://git/'):
                 continue

@@ -240,12 +240,13 @@ class Reviews:
             self.check(draft,version)
             # The ordinary save path preserves permissions and checks disk races.
             try:
-                saved = self.ws.save(draft['path'],draft['content'],draft['base_version'])
+                # Review anchors must be promoted before synchronizing tracked markers.
+                saved = self.ws.save(draft['path'],draft['content'],draft['base_version'],sync_markers=False)
             except Problem as error:
                 # Recover if a process stopped after the atomic disk write but
                 # before promoting anchors. Never rewrite different disk bytes.
                 if error.status!=409: raise
-                saved=self.ws.read(draft['path'])
+                saved=self.ws.read(draft['path'],sync_markers=False)
                 if saved['content']!=draft['content']: raise error
             with self.ws.connection() as db:
                 for anchor in db.execute('SELECT * FROM review_anchors WHERE review_id=?',(identifier,)).fetchall():

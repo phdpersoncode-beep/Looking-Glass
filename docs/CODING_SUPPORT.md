@@ -136,3 +136,8 @@ cases run in Chromium and Firefox in the hosted suite. Local Firefox installatio
 is blocked by the environment's denied browser-download domains; local browser
 results use Chromium. The sentinel test verifies that importing a reference for
 analysis does not execute project module bodies or project `sitecustomize.py`.
+
+Tracked marker reconciliation includes opted-in files with no existing discussions,
+so workspace-wide reads discover their first externally added TODO/NOTE. During
+Review approval, marker synchronization waits until operation-based anchors are
+promoted, retaining the original discussion and replies when a marker is reworded.
