@@ -26,7 +26,7 @@ def test_shared_planning_board(workspace_page):
     task.click(modifiers=['Control'])
     page.get_by_label('Assign selected cards to milestone').select_option('1')
     page.get_by_role('button', name='Assign', exact=True).click()
-    expect(task).to_contain_text('◇ #C01 Release')
+    expect(task).to_contain_text('◇ #M1 Release')
     page.get_by_role('button', name='Clear', exact=True).click()
     task.drag_to(page.locator('.task-lane[data-status=done]'))
     expect(page.locator('.task-lane[data-status=done] .task-card')).to_have_count(1)
@@ -178,7 +178,7 @@ def test_card_comments_updates_references_and_milestone_style(workspace_page):
     page.goto(url);page.locator('#tasks-open').click()
     epic=page.get_by_role('article',name='Epic',exact=True)
     task=page.get_by_role('article',name='Implement',exact=True)
-    expect(epic.locator('.task-reference')).to_have_text('#C01')
+    expect(epic.locator('.task-reference')).to_have_text('#M1')
     expect(task.locator('.task-reference')).to_have_text('#C02')
     for theme in ('light','dark'):
         page.evaluate('(theme)=>document.documentElement.dataset.theme=theme',theme)
@@ -222,4 +222,91 @@ def test_card_comments_updates_references_and_milestone_style(workspace_page):
     page.get_by_role('article',name='Renamed',exact=True).click()
     expect(page.locator('.task-update',has_text='Title: Implement → Renamed')).to_be_visible()
     page.reload()
-    expect(page.locator('.task-card .task-reference')).to_have_text(['#C01','#C02'])
+    expect(page.locator('.task-card .task-reference')).to_have_text(['#M1','#C02'])
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_milestone_aliases_update_without_losing_card_identity_or_drafts(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    def change(**data):
+        return ws.tasks.mutate(dict(revision=ws.tasks.read()['revision'],**data))
+    for title in ('First milestone','Second milestone','Child task'):
+        change(action='create',title=title)
+    change(action='update',ids=[1,2],changes={'milestone':True})
+    change(action='update',ids=[3],changes={'milestone_id':2})
+    page.goto(url);page.locator('#tasks-open').click()
+    first=page.get_by_role('article',name='First milestone',exact=True)
+    second=page.get_by_role('article',name='Second milestone',exact=True)
+    child=page.get_by_role('article',name='Child task',exact=True)
+    expect(first.locator('.task-reference')).to_have_text('#M1')
+    expect(second.locator('.task-reference')).to_have_text('#M2')
+    change(action='update',ids=[1],changes={'archived':True})
+    expect(first).to_have_count(0)
+    expect(second.locator('.task-reference')).to_have_text('#M2')
+    page.get_by_label('Show archive').check()
+    expect(first.locator('.task-reference')).to_have_text('#M1')
+    page.get_by_label('Show archive').uncheck()
+    change(action='update',ids=[1],changes={'archived':False})
+    expect(first.locator('.task-reference')).to_have_text('#M1')
+    second.click()
+    expect(page.locator('.task-dialog h2')).to_have_text('◇ Milestone · #M2')
+    expect(page.locator('.task-permanent-reference')).to_have_text('Card #C02')
+    page.get_by_role('button',name='Cancel',exact=True).click()
+    child.click()
+    page.get_by_label('Title',exact=True).fill('Unsent title')
+    change(action='update',ids=[1],changes={'milestone':False})
+    expect(page.get_by_label('Milestone',exact=True).locator('option:checked')).to_have_text('◇ #M1 Second milestone')
+    expect(page.get_by_label('Title',exact=True)).to_have_value('Unsent title')
+    expect(second.locator('.task-reference')).to_have_text('#M1')
+    page.get_by_role('button',name='Cancel',exact=True).click()
+    expect(first.locator('.task-reference')).to_have_text('#C01')
+    first.get_by_role('button',name='Promote to milestone').click()
+    expect(second.locator('.task-reference')).to_have_text('#M2')
+    page.get_by_label('Search cards',exact=True).fill('#M2')
+    expect(page.locator('.task-card')).to_have_count(1)
+    second.click()
+    page.locator('.task-dialog').get_by_role('button',name='Convert to task',exact=True).click()
+    expect(page.locator('.task-dialog')).to_have_count(0)
+    page.get_by_label('Search cards',exact=True).fill('#C02')
+    expect(second.locator('.task-reference')).to_have_text('#C02')
+    page.reload()
+    expect(second.locator('.task-reference')).to_have_text('#C02')
+    second.get_by_role('button',name='Promote to milestone').click()
+    expect(second.locator('.task-reference')).to_have_text('#M2')
+    # An open milestone view also follows renumbering while retaining unsent text.
+    second.click();page.get_by_label('Description',exact=True).fill('Draft description')
+    change(action='delete',ids=[1])
+    expect(page.locator('.task-dialog h2')).to_have_text('◇ Milestone · #M1')
+    expect(page.locator('.task-permanent-reference')).to_have_text('Card #C02')
+    expect(page.get_by_label('Description',exact=True)).to_have_value('Draft description')
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_compact_updates_and_larger_tasks_symbol(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    ws.tasks.mutate(dict(action='create',revision=0,title='Compact activity'))
+    ws.tasks.mutate(dict(action='update',revision=1,ids=[1],changes={'status':'in_progress'},author='Agent'))
+    ws.tasks.mutate(dict(action='comment',id=1,body='A readable comment.',author='Reviewer'))
+    page.goto(url)
+    symbol=page.locator('#tasks-open svg')
+    expect(symbol).to_be_visible()
+    assert symbol.bounding_box()['width']>=20 and symbol.bounding_box()['height']>=20
+    assert symbol.bounding_box()['width']>page.locator('#history-open svg').bounding_box()['width']
+    page.locator('#tasks-open').click()
+    page.get_by_role('article',name='Compact activity',exact=True).click()
+    update=page.locator('.task-update',has_text='Status: Backlog → In progress')
+    comment=page.locator('.task-comment')
+    expect(update).to_be_visible();expect(comment).to_be_visible()
+    for theme in ('light','dark'):
+        page.evaluate('(theme)=>document.documentElement.dataset.theme=theme',theme)
+        assert update.bounding_box()['height']<=36
+        assert update.bounding_box()['height']<comment.bounding_box()['height']
+        assert update.evaluate('e=>parseFloat(getComputedStyle(e).fontSize)')<comment.evaluate('e=>parseFloat(getComputedStyle(e).fontSize)')
+    page.set_viewport_size({'width':800,'height':800})
+    expect(update.get_by_role('button',name='Delete update')).to_be_visible()
+    assert update.get_by_role('button',name='Delete update').bounding_box()['width']>=22
+    update.get_by_role('button',name='Delete update').click()
+    expect(update).to_have_count(0)
+    expect(comment).to_contain_text('A readable comment.')

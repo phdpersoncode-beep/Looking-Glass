@@ -35,8 +35,14 @@ class Tasks:
 
     @staticmethod
     def snapshot(db):
-        return dict(revision=db.execute('SELECT revision FROM task_board_revision WHERE id=1').fetchone()[0],
-                    cards=[dict(row, reference=f"#C{row['id']:02d}") for row in db.execute('SELECT * FROM tasks ORDER BY position,id')])
+        cards = [dict(row) for row in db.execute('SELECT * FROM tasks ORDER BY position,id')]
+        milestones = {card['id']:f'#M{number}' for number, card in enumerate(
+            sorted((card for card in cards if card['milestone']), key=lambda card:card['id']), 1)}
+        for card in cards:
+            card['card_reference'] = f"#C{card['id']:02d}"
+            card['milestone_reference'] = milestones.get(card['id'])
+            card['reference'] = card['milestone_reference'] or card['card_reference']
+        return dict(revision=db.execute('SELECT revision FROM task_board_revision WHERE id=1').fetchone()[0], cards=cards)
 
     def read(self, known_revision=None):
         with self.ws.connection() as db:

@@ -39,7 +39,10 @@ Use list/read's revision for every update, move, or delete. On conflict, reread 
 reconsider; never blindly retry over human changes. Use --archived/--no-archived to
 archive/restore. Deleting a milestone keeps its tasks and unassigns them. Milestones
 are one level deep; completing children does not automatically complete the milestone.
-Cards and milestones share stable references such as #C01 (quote shell arguments containing #).
+Every card keeps a stable #C01 identity (quote shell arguments containing #).
+Milestones display dynamic #M1 numbers; use tasks list --query M1 to look one up,
+then use its permanent card_reference for read/write commands. Milestones renumber
+in creation order after promotion/demotion/deletion, including archived milestones.
 Field changes generate named updates in each card conversation. Comments and updates
 can be deleted without reverting card changes; activity can be paged with --before.
 Board writes plan work; they never execute tasks or change project files.

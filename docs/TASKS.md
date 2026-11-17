@@ -11,9 +11,18 @@ status, and milestone. Changing status in the editor is the keyboard alternative
 to dragging. All titles and descriptions are treated as plain text.
 
 Milestone cards have a purple left bar; task assignment labels stay small and muted.
-Every card, including milestones, has a stable reference such as **#C01**.
-References survive renames, promotion, archiving, and restarts; deleted numbers
-are never reused. Search `#C01` or `C01` to find a specific card.
+Every card keeps a permanent reference such as **#C01**, including while promoted.
+Milestones display **#M1**, **#M2**, and so on, in card-creation order. The milestone
+sequence updates after promotion, demotion, or deletion to close gaps. Column moves,
+search/filter changes, and archive/restore do not renumber it: archived milestones
+keep their place. Demotion restores the original #C reference; re-promotion computes
+the current #M number. The milestone editor also shows its permanent #C identity.
+
+Search `#M1` or `M1` for a current milestone, or `#C01` / `C01` for a permanent card.
+Both searches work while the card is promoted. Stable #C numbers survive restarts,
+are never reused after deletion, and remain the references stored in activity history.
+Assignments and edit headings follow milestone renumbering without changing the
+underlying relationships or clearing unsent fields.
 
 Use the **◇** button, with its hover tooltip, to promote a task to a milestone.
 Milestones remain movable cards with their own status and description. Opening a
@@ -42,7 +51,8 @@ are downloaded.
 Each task and milestone edit view has **Comments & activity** below its fields
 (and below the child checklist for milestones). People and agents share one
 chronological conversation. Comments show their author and time; automatic updates
-have an **Update** label, smaller text, and a muted grey background. Title,
+have an **Update** label and a thin grey row with smaller text, compact timestamps,
+and the same delete control. Comments retain their larger reading space. Title,
 description, status, assignment, promotion/demotion, archive/restore, and drag order
 changes record their actual before/after values in the same transaction as the edit.
 Milestones also record child assignment/unassignment. Description differences expand
@@ -87,6 +97,10 @@ looking-glass tasks --root /path/to/project delete 2 3 --revision 9
 ```
 
 Use the actual IDs and revision from the previous response; examples are illustrative.
+Use `tasks list --query M1` to look up a current milestone number. CLI read/write
+arguments use the permanent #C reference or numeric card ID so renumbering cannot
+redirect an agent edit.
+
 Card arguments also accept quoted references such as `'#C01'` or `C01`.
 Use quotes with `#` to prevent shell comment syntax. New conversation commands:
 
@@ -138,7 +152,8 @@ Additional `POST /api/tasks` actions:
 ```
 
 Deletion checks both the card and entry IDs. Card snapshots also contain a
-`reference` such as `#C01`; HTTP action IDs remain integers. `author` is optional
+`reference` (the displayed #M or #C label), `card_reference` (permanent #C ID),
+and `milestone_reference` (#M label or null). HTTP action IDs remain integers. `author` is optional
 for mutations (defaults to User for HTTP; the browser uses its saved author).
 
 Statuses are `backlog`, `in_progress`, `to_review`, `done`. Editable fields are
@@ -162,7 +177,8 @@ or automatic Git commits are introduced.
 - Ctrl/Cmd+click selection persists across search/filter changes until cleared; the count
   includes hidden selected cards. Switching archive scope clears selection.
 - Comments and update entries are both deletable; deletion does not undo changes.
-- Tasks and milestones share one stable `#C` number sequence, with two-digit minimum padding.
+- Every card retains its stable `#C` identity, with two-digit minimum padding. Milestones
+  display a separate, contiguous `#M` sequence in creation order, including archived milestones.
 - A completion celebration is only for a successful local task transition into Done.
 - Tab pinning follows existing behavior; board search/filter state lasts while its tab
   session remains open, while card data and tab metadata survive reloads.

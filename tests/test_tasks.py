@@ -72,6 +72,9 @@ def test_cli_shared_tasks(tmp_path, monkeypatch, capsys):
     cli.main(['tasks','list','--query','rls','--milestone-id','1','--status','backlog'])
     import json
     assert json.loads(capsys.readouterr().out)['cards'][0]['title'] == 'Release'
+    cli.main(['tasks','list','--query','M01'])
+    milestone=json.loads(capsys.readouterr().out)['cards'][0]
+    assert milestone['reference']=='#M1' and milestone['card_reference']=='#C01'
     cli.main(['tasks','list','--query','missing'])
     assert json.loads(capsys.readouterr().out)['cards'] == []
 
@@ -197,3 +200,49 @@ def test_upgrade_retains_existing_cards_and_starts_history_without_inventing_it(
     result=tasks.mutate(dict(action='create',title='New',revision=7))
     assert result['cards'][0]['id']==12
     assert result['cards'][1]['reference']=='#C13'
+
+
+def test_dynamic_milestone_numbers_preserve_permanent_ids(tmp_path):
+    tasks=Workspace(tmp_path).tasks
+    def change(**data):
+        return tasks.mutate(dict(revision=tasks.read()['revision'],**data))
+    def cards():
+        return {c['id']:c for c in tasks.read()['cards']}
+    for title in ('Task','First','Second'):
+        change(action='create',title=title)
+    change(action='update',ids=[3],changes={'milestone':True})
+    assert cards()[3]['reference']=='#M1'
+    change(action='update',ids=[2],changes={'milestone':True})
+    assert cards()[2]['reference']=='#M1' and cards()[3]['reference']=='#M2'
+    assert cards()[2]['card_reference']=='#C02' and cards()[3]['card_reference']=='#C03'
+    change(action='move',id=3,status='done')
+    change(action='update',ids=[2],changes={'archived':True})
+    assert cards()[2]['reference']=='#M1' and cards()[3]['reference']=='#M2'
+    change(action='delete',ids=[2])
+    assert cards()[3]['reference']=='#M1'
+    change(action='update',ids=[3],changes={'milestone':False})
+    assert cards()[3]['reference']=='#C03' and cards()[3]['milestone_reference'] is None
+    change(action='update',ids=[3],changes={'milestone':True})
+    restarted=Workspace(tmp_path).tasks.read()
+    milestone=next(c for c in restarted['cards'] if c['id']==3)
+    assert milestone['reference']=='#M1' and milestone['card_reference']=='#C03'
+    assert cards()[1]['reference']=='#C01'
+
+
+def test_milestone_renumbering_does_not_rewrite_activity_or_assignments(tmp_path):
+    tasks=Workspace(tmp_path).tasks
+    def change(**data):
+        return tasks.mutate(dict(revision=tasks.read()['revision'],**data))
+    for title in ('First','Second','Child'):
+        change(action='create',title=title)
+    change(action='update',ids=[1,2],changes={'milestone':True})
+    change(action='update',ids=[3],changes={'milestone_id':2})
+    history=tasks.activity(3)['entries']
+    before=tasks.read()
+    with pytest.raises(Problem):
+        tasks.mutate(dict(action='update',ids=[1],changes={'milestone':False},revision=0))
+    assert tasks.read()==before
+    change(action='update',ids=[1],changes={'milestone':False})
+    assert next(c for c in tasks.read()['cards'] if c['id']==3)['milestone_id']==2
+    assert tasks.activity(3)['entries']==history
+    assert history[-1]['changes']['milestone_id']['to']==2

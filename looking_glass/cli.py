@@ -297,6 +297,8 @@ def main(argv=None):
                     def matches(card):
                         text = iter((card['title'] + ' ' + card['description']).lower())
                         query = (args.query or '').strip()
+                        if re.fullmatch(r'#?[Mm]\d+', query):
+                            return card.get('milestone_reference') == '#M' + str(int(re.sub(r'^#?[Mm]', '', query)))
                         if re.fullmatch(r'#?[Cc]\d+', query):
                             return card['id'] == card_id(query)
                         return all(char in text for char in query.lower())

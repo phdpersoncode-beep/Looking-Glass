@@ -128,3 +128,11 @@ bounds, including wrapped rows at the minimum pane width. The spotlight controls
 journey forces the discussion heading across its wrap threshold, then checks that
 search keeps the same vertical position during keyboard resizing in both engines;
 this covers platform font differences without relaxing the geometry assertion.
+
+Task board checks cover derived `#M` numbering separately from permanent `#C`
+identity. Fast Python/JavaScript checks exercise promotion order, gap closure,
+archive/restart persistence, exact reference search, stale edits, and unchanged
+assignment/history targets. The Chromium/Firefox journeys cover renumbering in
+open editors without clearing drafts, restoring card IDs after demotion, a larger
+sidebar Tasks SVG, and compact update rows with smaller type and working delete
+controls in light/dark themes and a narrow window.

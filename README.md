@@ -347,7 +347,8 @@ tabs. Unsaved tabs ask before discarding edits. Pinned tabs are protected by
 
 Open **Tasks** beside **Commit history** for a pinnable Kanban tab with draggable
 cards, fuzzy search, milestone filtering, and bulk selection. Cards have stable
-`#C01` references and a conversation with comments and muted change updates.
+`#C01` identities and a conversation with comments and compact change updates.
+Milestones display dynamic `#M1` numbers while retaining their card identities.
 Milestones have a purple left bar. Promote a card with
 **◇** to give it a milestone checklist. People and agents share the same persisted
 board through `looking-glass tasks`. See [Tasks](docs/TASKS.md) for interactions,

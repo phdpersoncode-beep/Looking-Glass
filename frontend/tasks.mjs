@@ -1,7 +1,9 @@
 import {mountTaskActivity} from './task-activity.mjs';
 const columns = [["backlog", "\u25CC", "Backlog"], ["in_progress", "\u25D0", "In progress"], ["to_review", "\u25CE", "To review"], ["done", "\u2713", "Done"]];
 export function cardReference(id) { return `#C${String(id).padStart(2, "0")}`; }
+export function displayReference(card) { return card.reference || cardReference(card.id); }
 function fuzzyCard(card, query) {
+  if (/^#?m\d+$/i.test(query.trim())) return !!card.milestone && Number((card.milestone_reference || card.reference || "").replace(/^#m/i,"")) === Number(query.trim().replace(/^#?m/i,""));
   if (/^#?c\d+$/i.test(query.trim())) return Number(query.trim().replace(/^#?c/i,"")) === card.id;
   let at = 0;
   const text = (card.title + " " + card.description).toLocaleLowerCase();
@@ -60,7 +62,7 @@ function mountTasks(host, state, api, options = {}) {
     select.replaceChildren(el("option", "No milestone"));
     select.firstChild.value = "";
     for (const card of board.cards.filter((c) => c.milestone && (!c.archived || c.id === Number(value)) && !exclude.includes(c.id))) {
-      const option = el("option", "\u25C7 " + cardReference(card.id) + " " + card.title + (card.archived ? " (archived)" : ""));
+      const option = el("option", "\u25C7 " + displayReference(card) + " " + card.title + (card.archived ? " (archived)" : ""));
       option.value = card.id;
       select.append(option);
     }
@@ -199,13 +201,15 @@ function mountTasks(host, state, api, options = {}) {
         };
         const title = el("div", (card.milestone ? "\u25C7 " : "") + card.title, "task-card-title");
         item.append(title);
-        item.append(el("span", cardReference(card.id), "task-reference"));
+        const reference=el("span", displayReference(card), "task-reference");
+        reference.title="Permanent card ID: " + cardReference(card.id);
+        item.append(reference);
         if (card.milestone) {
           const children = board.cards.filter((c) => c.milestone_id === card.id && !c.archived);
           item.append(el("small", `${children.filter((c) => c.status === "done").length}/${children.length} tasks`));
         } else if (card.milestone_id) {
           const parent = board.cards.find((c) => c.id === card.milestone_id);
-          if (parent) { const assignment=el("small", "\u25C7 " + cardReference(parent.id) + " " + parent.title, "task-assignment"); assignment.title="Milestone: " + parent.title; item.append(assignment); }
+          if (parent) { const assignment=el("small", "\u25C7 " + displayReference(parent) + " " + parent.title, "task-assignment"); assignment.title="Milestone: " + parent.title; item.append(assignment); }
         }
         item.onclick = (e) => {
           if (e.target.closest("button")) return;
@@ -234,7 +238,7 @@ function mountTasks(host, state, api, options = {}) {
       if (!cards.length) lane.append(el("p", "No cards", "task-empty"));
       lanes.append(lane);
     }
-    document.querySelectorAll(".task-dialog").forEach(d=>d.refreshActivity?.());
+    document.querySelectorAll(".task-dialog").forEach(d=>{d.refreshReference?.();d.refreshActivity?.();});
     lanes.scrollLeft = scroll;
     if (focusedId) {
       const card = lanes.querySelector('[data-id="' + focusedId + '"]');
@@ -291,7 +295,7 @@ function mountTasks(host, state, api, options = {}) {
   function edit(card) {
     const draft = drafts.get(card.id);
     let revision = draft?.revision ?? board.revision;
-    const d = dialog((card.milestone ? "\u25C7 Milestone" : "Task") + " · " + cardReference(card.id)), form = el("form"), title = field(form, "Title", el("input")), description = field(form, "Description", el("textarea")), status = field(form, "Status", el("select")), parent = field(form, "Milestone", el("select"));
+    const d = dialog((card.milestone ? "\u25C7 Milestone" : "Task") + " · " + displayReference(card)), form = el("form"), title = field(form, "Title", el("input")), description = field(form, "Description", el("textarea")), status = field(form, "Status", el("select")), parent = field(form, "Milestone", el("select"));
     title.value = draft?.title ?? card.title;
     title.required = true;
     title.maxLength = 500;
@@ -304,6 +308,21 @@ function mountTasks(host, state, api, options = {}) {
     status.value = draft?.status ?? card.status;
     milestones(parent, (draft ? draft.milestone_id : card.milestone_id) || "", [card.id]);
     parent.disabled = !!card.milestone;
+    const permanent=el("p", "Card " + cardReference(card.id), "task-permanent-reference");
+    d.querySelector("h2").after(permanent);
+    d.refreshReference=()=>{
+      const latest=board.cards.find(c=>c.id===card.id);
+      if(latest){
+        d.querySelector("h2").textContent=(latest.milestone ? "◇ Milestone" : "Task") + " · " + displayReference(latest);
+        permanent.hidden=!latest.milestone;
+        permanent.title="This card ID is retained when the milestone is demoted.";
+      }
+      for(const option of parent.options){
+        const milestone=board.cards.find(c=>c.id===Number(option.value));
+        if(milestone)option.textContent="◇ " + displayReference(milestone) + " " + milestone.title + (milestone.archived?" (archived)":"");
+      }
+    };
+    d.refreshReference();
     const actions = el("div", void 0, "task-edit-actions"), save = el("button", "Save");
     save.type = "submit";
     const retainDraft = () => drafts.set(card.id, {revision, title:title.value, description:description.value, status:status.value, milestone_id:Number(parent.value)||null});
@@ -362,7 +381,7 @@ function mountTasks(host, state, api, options = {}) {
             error.textContent = notice.textContent;
           }
         };
-        li.append(check, button(cardReference(child.id) + " " + child.title, () => {
+        li.append(check, button(displayReference(child) + " " + child.title, () => {
           const latest = board.cards.find((c) => c.id === child.id);
           if (!latest) { error.textContent = "This task was deleted. Reopen the milestone to refresh its checklist."; return; }
           retainDraft();

@@ -47,7 +47,10 @@ function mountTaskActivity(dialog, id, { api, state, write, getRevision, error }
       item.dataset.entry = entry.id;
       const meta = node("div", void 0, "task-activity-meta"), author = node("strong", entry.author), time = node("time");
       time.dateTime = entry.created_at.replace(" ", "T") + "Z";
-      time.textContent = new Date(time.dateTime).toLocaleString();
+      const date=new Date(time.dateTime);
+      time.title=date.toLocaleString();
+      time.textContent = entry.kind === "update" ? date.toLocaleString(undefined, {month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"}) : date.toLocaleString();
+      author.title=entry.author;
       const remove = iconButton(entry.kind === "update" ? "Delete update" : "Delete comment", "trash", async () => {
         remove.disabled = true;
         if (await write({ action: "delete_activity", id, entry_id: entry.id })) await refresh(true);
