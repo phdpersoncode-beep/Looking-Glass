@@ -1,6 +1,8 @@
-"""Server and local agent interface. The CLI uses the same HTTP API as the UI."""
+"""Server, offline database snapshots, and agent interface over the local HTTP API."""
 import argparse
+from contextlib import ExitStack
 import json
+import sqlite3
 import sys
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -53,7 +55,7 @@ def source_selection(parser, file, quote, occurrence):
 def build_parser():
     parser = argparse.ArgumentParser(
         prog='looking-glass', description='Open local projects and review anchored discussions with coding agents.',
-        epilog='Start here: looking-glass projects list; looking-glass agent --help. Agent commands require a running server.')
+        epilog='Start here: looking-glass projects list; looking-glass agent --help. Agent commands require a running server; database commands work offline.')
     sub = parser.add_subparsers(dest='command', required=True)
 
     def command(parent, name, help, example, description=None):
@@ -64,6 +66,23 @@ def build_parser():
                     'looking-glass serve ~/project --port 8766')
     serve.add_argument('directory', type=Path, help='Existing project directory to open.')
     serve.add_argument('--port', type=int, default=8765, help='Local HTTP port (default: 8765).')
+
+    database = command(sub, 'database', 'Dump, restore, or check local project state without a server.',
+                       'looking-glass database --root ~/project dump -o looking-glass.sql',
+                       'Store deterministic SQL snapshots in Git. Put --root before the operation. '
+                       'Dumps contain discussions, review drafts/history, and bookmarks; tokens and attachment bytes stay local. '
+                       'Stop the server before restoring. Restore replaces state; it does not merge concurrent histories.')
+    database.add_argument('--root', type=Path, help='Project root; defaults to the nearest project ancestor.')
+    database_ops = database.add_subparsers(dest='operation', required=True)
+    dump = command(database_ops, 'dump', 'Write a consistent, deterministic UTF-8 SQL dump.',
+                   'looking-glass database dump --output looking-glass.sql')
+    dump.add_argument('-o', '--output', type=Path, default=Path('-'), help='Output file, or - for stdout (default).')
+    restore = command(database_ops, 'restore', 'Validate and restore a SQL dump; preserve a backup when replacing state.',
+                      'looking-glass database --root ~/clone restore looking-glass.sql')
+    restore.add_argument('input', type=Path, help='UTF-8 SQL dump, or - for stdin.')
+    restore.add_argument('--force', action='store_true', help='Back up and replace an existing database. Stop the server first.')
+    command(database_ops, 'check', 'Check SQLite integrity, schema, foreign keys, and attachment availability; return JSON.',
+            'looking-glass database check')
 
     projects = command(sub, 'projects', 'Discover known local projects and inspect their files.',
                        'looking-glass projects list')
@@ -173,19 +192,40 @@ def main(argv=None):
     try:
         if args.command == 'serve':
             from .app import create_app
+            from .database import project_lock, root_path
             from werkzeug.serving import run_simple
             if not 1 <= args.port <= 65535:
                 parser.error('Port must be 1–65535.')
-            app = create_app(args.directory)
-            root = app.extensions['workspace'].root
-            url = f'http://127.0.0.1:{args.port}'
-            app.config['LOCAL_SERVER_URL'] = url
-            register_project(root, url)
-            print(f'Looking Glass · {root}\nOpen {url}', flush=True)
-            run_simple('127.0.0.1', args.port, app, threaded=True, use_debugger=False, use_reloader=False)
+            with ExitStack() as locks:
+                root = root_path(args.directory)
+                locks.enter_context(project_lock(root, serving=True))
+                app = create_app(root)
+                app.extensions['database_locks'] = locks
+                app.extensions['database_locked_roots'] = {root}
+                url = f'http://127.0.0.1:{args.port}'
+                app.config['LOCAL_SERVER_URL'] = url
+                register_project(root, url)
+                print(f'Looking Glass · {root}\nOpen {url}', flush=True)
+                run_simple('127.0.0.1', args.port, app, threaded=True, use_debugger=False, use_reloader=False)
             return
         if args.command == 'projects' and args.operation == 'list':
             print(json.dumps([project_status(p) for p in known_projects()], indent=2, ensure_ascii=False))
+            return
+        if args.command == 'database':
+            from . import database
+            root = project_root(args.root)
+            if args.operation == 'dump':
+                if str(args.output) == '-':
+                    database.dump(root, sys.stdout)
+                else:
+                    database.dump_file(root, args.output)
+                return
+            if args.operation == 'restore':
+                sql = sys.stdin.read() if str(args.input) == '-' else args.input.expanduser().read_text(encoding='utf-8')
+                result = database.restore(root, sql, force=args.force)
+            else:
+                result = database.check(root)
+            print(json.dumps(result, indent=2, ensure_ascii=False))
             return
         root = project_root(args.directory if args.command == 'projects' else args.root)
         url = project_url(root, args.url)
@@ -255,7 +295,7 @@ def main(argv=None):
     except HTTPError as e:
         print(e.read().decode(), file=sys.stderr)
         raise SystemExit(1)
-    except (URLError, OSError, ValueError) as e:
+    except (URLError, OSError, ValueError, sqlite3.Error) as e:
         print(f'Cannot access local project: {e}', file=sys.stderr)
         raise SystemExit(1)
 

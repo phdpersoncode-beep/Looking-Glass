@@ -12,7 +12,7 @@ Persistent, passage-anchored discussions are the priority. Feedback, attachments
 - Agents run separately through the local CLI (command-line interface) and API (application programming interface). Review edits use that interface rather than writing originals. Comments never automatically replace text; built-in model calls/orchestration remain outside current scope.
 - Preserve drafts, undo history, selections, and per-tab state through navigation/mode changes. Reload clean external changes; preserve dirty work, offer comparison, and reject stale saves/approvals.
 - Anchor conservatively. Deleted or ambiguous passages require reattachment; immutable reviewed context stays readable. Never silently attach feedback to unrelated text.
-- SQLite stores discussions, review drafts, and metadata in `<workspace>/.looking-glass/`. Preserve existing data across upgrades; never commit workspace databases, attachments, or tokens.
+- SQLite stores discussions, review drafts, and metadata in `<workspace>/.looking-glass/`. Preserve existing data across upgrades; never commit live databases, attachment files, or tokens. Explicit SQL snapshots outside that directory can be shared through Git; see `docs/DATABASE_SYNC.md`.
 - Saving and approval never commit. Git checkpoints are explicit, include only selected files, and preserve unrelated staged, unstaged, and untracked work.
 - Serve on loopback. Sandbox interactive HTML reports away from application state/tokens; sanitize discussion rendering. Never execute project code on the server. Bundle application dependencies locally, without a CDN (content delivery network).
 
@@ -83,7 +83,7 @@ Keep this map and commands current when structure/workflows change.
 
 - `looking_glass/app.py`: routes/security; `workspace.py`: files/discussions; `anchors.py`: mapping; `reviews.py`: drafts/provenance/approval; `origins.py`: immutable context; `revisions.py`: Git checkpoints/history.
 - `looking_glass/pdfs.py`: read-only PDF metadata, database bookmarks, and version-bound passage anchors.
-- `looking_glass/cli.py`, `projects.py`, `instructions.py`: agent interface/discovery/guidance; `attachments.py`: uploads.
+- `looking_glass/cli.py`, `projects.py`, `instructions.py`: agent interface/discovery/guidance; `database.py`: offline SQL dump/restore/check and CLI server maintenance leases; `attachments.py`: uploads.
 - `looking_glass/templates/`: HTML/HTMX; `frontend/`: client sources; `looking_glass/static/`: committed `build.mjs` output.
 - `tests/`: backend/CLI/JavaScript/browser checks; `.github/workflows/`: automated gates; `scripts/verify_browser_shards.py`: completeness; `scripts/benchmark_*`: disposable benchmarks.
 - `demo_dir/`: fixtures; `docs/`: architecture, interfaces, testing, performance, verification, limitations; `pyproject.toml`, `uv.lock`, `package.json`, `package-lock.json`: packaging/dependencies.
