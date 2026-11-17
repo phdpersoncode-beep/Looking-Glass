@@ -204,7 +204,17 @@ def create_app(root):
         path = body().get('path')
         if not isinstance(path, str) or not path:
             raise Problem('Choose a directory.')
-        ws = Workspace(directories(path)['path'])
+        new_root = Path(directories(path)['path'])
+        # A CLI server keeps every visited project's maintenance lease until
+        # shutdown, so a directory switch cannot race an offline restore.
+        if 'database_locks' in app.extensions and new_root not in app.extensions['database_locked_roots']:
+            from .database import project_lock
+            try:
+                app.extensions['database_locks'].enter_context(project_lock(new_root, serving=True))
+            except ValueError as error:
+                raise Problem(str(error), 409) from error
+            app.extensions['database_locked_roots'].add(new_root)
+        ws = Workspace(new_root)
         git = Revisions(ws)
         previews.clear()
         downloads.clear()

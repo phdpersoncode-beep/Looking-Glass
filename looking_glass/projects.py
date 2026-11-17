@@ -54,7 +54,8 @@ def project_root(root=None):
     current = Path.cwd().resolve()
     registered = {Path(project['root']) for project in known_projects()}
     for directory in (current, *current.parents):
-        if (directory/'.looking-glass'/'token').is_file() or directory in registered:
+        if ((directory/'.looking-glass'/'token').is_file()
+                or (directory/'.looking-glass'/'state.sqlite3').is_file() or directory in registered):
             return directory
     raise ValueError('No Looking Glass project found here. Use --root PATH or run looking-glass projects list.')
 

@@ -423,6 +423,40 @@ known roots, addresses, and reachability, including stopped projects.
 overrides the Looking Glass configuration directory. The registry stores no tokens.
 Append `--help` to any command for options and an example.
 
+## Sync project state through Git
+
+The CLI can export discussions, review drafts and edit history, original review
+context, managed images, and PDF bookmarks as deterministic UTF-8 SQL. These
+commands work without a running server:
+
+```bash
+# On the first machine, from the project directory:
+looking-glass database --root . dump -o looking-glass.sql
+git add looking-glass.sql
+git commit -m 'Sync Looking Glass state'
+git push
+
+# On the second machine, after cloning or pulling the project files:
+looking-glass database --root . restore looking-glass.sql
+looking-glass database --root . check
+looking-glass serve .
+```
+
+Stop the server before restoring. For subsequent syncs, `restore --force
+looking-glass.sql` backs up the existing database locally before replacing it;
+the command returns its backup path as JSON. `dump` also supports stdout and
+`restore -` reads stdin. `check` returns JSON with integrity, foreign-key checks,
+table counts, and attachment warnings; failures exit nonzero.
+
+Keep `.looking-glass/` ignored. Only explicitly selected SQL snapshots belong in
+Git. Dumps include private discussion text and document history, so use a
+repository with appropriate access. API tokens, local project registration,
+attachment upload bytes, and browser-local tabs/undo/layout are excluded.
+Restore preserves existing local tokens and uploads. Transfer attachment files
+separately when needed. Sync one machine's state at a time: restore replaces the
+database and does not merge independent histories. See
+[database sync](docs/DATABASE_SYNC.md) for the format, recovery, and limitations.
+
 ## External edits and anchors
 
 Open tabs are checked about every two seconds while the browser tab is visible.
