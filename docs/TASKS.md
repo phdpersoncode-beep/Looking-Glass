@@ -6,8 +6,11 @@ workspace, including when agents use the CLI from another directory.
 
 The four columns are **◌ Backlog**, **◐ In progress**, **◎ To review**, and **✓ Done**.
 Drag a card onto another card to insert before it, or onto a column to append.
-Click a card (or press Enter while focused) to edit its title, description,
-status, and milestone. Changing status in the editor is the keyboard alternative
+Click a card (or press Enter while focused) to open its centered detail popup.
+The card's name is its heading: edit it directly in place, then Save with the
+other fields. There is no separate Title box. Milestones keep their M-number
+prefix beside the editable name; #C identity remains underneath. Description,
+status, and milestone are editable below. Changing status in the editor is the keyboard alternative
 to dragging. All titles and descriptions are treated as plain text.
 
 Milestone cards have a purple left bar; task assignment labels stay small and muted.
@@ -35,7 +38,7 @@ Use the **◇** button, with its hover tooltip, to promote a task to a milestone
 Milestones remain movable cards with their own status and description. Their
 completion counts include all descendant tasks. Every card has a nested checklist;
 each subitem is itself a full card with a permanent ID, status, and conversation.
-Click its **#Cxx** reference or pen to open its detail in the main pane. Parent
+Click its **#Cxx** reference or pen to open its detail popup. Parent
 field drafts remain available when following these links or returning to the board.
 Check a child to finish it; unchecking returns it to backlog. Completion never
 automatically changes a parent's status. Milestones cannot be nested; task
@@ -57,9 +60,26 @@ move through names. Names also save on blur. Escape discards that inline draft.
 Tab nests a task under its previous sibling; Shift+Tab lifts it after its parent.
 Alt+Up/Down reorders siblings. Shift+Enter creates a sibling and Ctrl/Cmd+Enter
 creates a subitem; **+ Add task/subitem** is the pointer equivalent. Milestones
-remain at the top level. The pen opens the full editor in the main task pane,
-leaving the sidebar available. Inline drafts and caret survive unrelated polling;
+remain at the top level. The pen opens the full editor as a centered popup above
+the board and sidebar. Close it to resume interacting with the outline. Inline drafts and caret survive unrelated polling;
 stale names require explicit review before overwriting the latest saved title.
+
+The popup leaves the board visible through a dimmed backdrop. Clicking that
+backdrop, pressing Escape, or choosing **Close card** exits focus mode and keeps
+unsaved field/comment drafts for reopening; **Cancel** discards field changes.
+Clicking inside the card or dragging a text selection outside it does not dismiss
+the popup. Keyboard focus stays inside while open and returns to the originating
+card/control on close, including after background polling replaces board cards.
+Long contents scroll inside the popup without moving the board.
+
+Sizing follows the bounded-window pattern shown in [Trello's card-back documentation](https://support.atlassian.com/trello/docs/new-card-back/).
+That documentation does not publish a fixed viewport ratio, and [Trello's resize request](https://jira.atlassian.com/browse/TRELLO-1369)
+does not define dimensions. Looking Glass therefore uses an explicit local design
+choice: a 768px maximum width, at least 24px side and 32px top/bottom margins on
+desktop. At widths up to 600px, margins shrink to 12px on all sides. The window
+centers horizontally and vertically; height fits content up to that available space.
+For example, at 1600px wide it occupies 48% of the screen, and at 1100px about 70%.
+These are Looking Glass dimensions, not a claim about Trello's current CSS.
 
 Drag rows vertically to reorder siblings. Drag a row right to nest under a target,
 or left to lift a level; dragging a row horizontally on itself uses the previous

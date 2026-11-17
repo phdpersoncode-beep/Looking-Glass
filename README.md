@@ -354,7 +354,8 @@ Milestones have a purple left bar. Promote a card with
 board through `looking-glass tasks`. The right sidebar becomes an editable task
 hierarchy: inline names, Tab/Shift+Tab nesting, drag ordering, shared selection,
 and full card subitems. Every card has a draggable checklist; its `#Cxx` links open
-details in the main pane. See [Tasks](docs/TASKS.md) for interactions,
+centered detail popups with editable title headings and a click-to-dismiss
+backdrop. See [Tasks](docs/TASKS.md) for interactions,
 CLI examples, API contracts, and assumptions.
 
 ## Work alongside a coding agent

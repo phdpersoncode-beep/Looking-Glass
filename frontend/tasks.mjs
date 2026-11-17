@@ -1,5 +1,6 @@
 import {mountTaskActivity} from './task-activity.mjs';
 import {cardTitle, mountTaskOutline} from './task-outline.mjs';
+import {bindTaskDismiss} from './task-dialog.mjs';
 const columns = [["backlog", "\u25CC", "Backlog"], ["in_progress", "\u25D0", "In progress"], ["to_review", "\u25CE", "To review"], ["done", "\u2713", "Done"]];
 export function cardReference(id) { return `#C${String(id).padStart(2, "0")}`; }
 export function displayReference(card) { return card.reference || cardReference(card.id); }
@@ -88,7 +89,7 @@ function mountTasks(host, state, api, options = {}) {
       if(e.key==='Escape'){e.preventDefault();closeContext();}
       else if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();buttons[(at+(e.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length].focus();}
     };
-    document.body.append(context);context.firstChild?.focus();
+    (document.querySelector('.task-detail[open]')||document.body).append(context);context.firstChild?.focus();
   }
   const contextAbort=new AbortController();
   document.addEventListener('pointerdown',e=>{if(context&&!context.contains(e.target))closeContext();},{signal:contextAbort.signal});
@@ -115,7 +116,9 @@ function mountTasks(host, state, api, options = {}) {
         bit.style.setProperty("--r", `${Math.random() * 360}deg`);
         burst.append(bit);
       }
-      root.append(burst);
+      const popup=document.querySelector('.task-detail[open]');
+      if(popup){const rect=popup.getBoundingClientRect();burst.style.position='fixed';burst.style.left=(rect.left+rect.width*.75)+'px';burst.style.top=(rect.top+Math.min(rect.height/2,140))+'px';}
+      (popup||root).append(burst);
       setTimeout(() => burst.remove(), 950);
     }
     if (!muted.checked) {
@@ -293,22 +296,25 @@ function mountTasks(host, state, api, options = {}) {
     }
   }
   function dialog(title, detail=false) {
-    const previous=root.querySelector('.task-detail[open]');
+    const previousFocus=document.activeElement, openerId=previousFocus?.closest('.task-card')?.dataset.id;
+    const previous=document.querySelector('.task-detail[open]');
     if(detail&&previous){previous.retainDraft?.();previous.close();previous.remove();}
     const d = el("dialog", void 0, "task-dialog"), heading = el("h2", title);
     if(detail)d.classList.add('task-detail');
     d.append(heading);
-    (detail?root:document.body).append(d);
+    document.body.append(d);
     editor = d;
     d.addEventListener("close", () => {
       d.remove();
       notice.textContent = "";
-      if (editor === d) editor = root.querySelector('.task-detail[open]');
-      if(detail&&!root.querySelector('.task-detail[open]')){root.classList.remove('task-editing');lanes.inert=false;tools.inert=false;bulk.inert=false;}
+      if (editor === d) editor = document.querySelector('.task-detail[open]');
+      if(detail&&!document.querySelector('dialog[open]')){
+        const target=previousFocus?.isConnected?previousFocus:openerId?lanes.querySelector('[data-id="'+openerId+'"]'):null;
+        target?.focus({preventScroll:true});
+      }
     });
     if(detail){
-      root.classList.add('task-editing');lanes.inert=true;tools.inert=true;bulk.inert=true;
-      d.addEventListener('keydown',e=>{if(e.key==='Escape'&&!e.defaultPrevented){e.preventDefault();drafts.delete(d.cardId);d.close();}});
+      bindTaskDismiss(d,()=>{d.retainDraft?.();d.close();});
     }
     return d;
   }
@@ -346,15 +352,24 @@ function mountTasks(host, state, api, options = {}) {
     title.focus();
   }
   function edit(card) {
-    if(editor?.open&&editor.cardId===card.id){editor.querySelector('input')?.focus();return;}
+    if(editor?.open&&editor.cardId===card.id){editor.querySelector('[aria-label=Title]')?.focus();return;}
     const draft = drafts.get(card.id);
     let revision = draft?.revision ?? board.revision;
-    const d = dialog((card.milestone ? "\u25C7 Milestone" : "Task") + " · " + displayReference(card),true), form = el("form"), title = field(form, "Title", el("input")), description = field(form, "Description", el("textarea")), status = field(form, "Status", el("select")), parent = field(form, "Milestone", el("select"));
+    const d = dialog(cardTitle(card),true), form = el("form"), title = el("textarea",undefined,'task-detail-title'), description = field(form, "Description", el("textarea")), status = field(form, "Status", el("select")), parent = field(form, "Milestone", el("select"));
     d.cardId=card.id;
-    const back=button('← Board',()=>{retainDraft();d.close();},'Back to board');back.className='task-detail-back';d.prepend(back);
+    const close=button('×',()=>{retainDraft();d.close();},'Close card');close.className='task-detail-close';d.prepend(close);
+    const heading=d.querySelector('h2'), prefix=el('span',undefined,'task-detail-prefix');
+    heading.className='task-detail-heading';heading.id='task-heading-'+crypto.randomUUID();
+    d.setAttribute('aria-labelledby',heading.id);
+    heading.replaceChildren(prefix,title);
+    form.id='task-edit-'+crypto.randomUUID();title.setAttribute('form',form.id);
+    title.setAttribute('aria-label','Title');title.title='Edit card title';title.rows=1;
+    title.name='title';
     title.value = draft?.title ?? card.title;
     title.required = true;
     title.maxLength = 500;
+    const sizeTitle=()=>{title.style.height='0px';title.style.height=title.scrollHeight+'px';};
+    title.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();title.blur();}};
     description.value = draft?.description ?? card.description;
     for (const [value, , label] of columns) {
       const o = el("option", label);
@@ -375,8 +390,9 @@ function mountTasks(host, state, api, options = {}) {
     d.refreshReference=()=>{
       const latest=board.cards.find(c=>c.id===card.id);
       if(latest){
-        d.querySelector("h2").textContent=latest.milestone ? cardTitle(latest) : "Task · " + displayReference(latest);
-        permanent.hidden=!latest.milestone;
+        prefix.textContent=latest.milestone?'M'+latest.milestone_number+':':'';
+        prefix.hidden=!latest.milestone;
+        heading.setAttribute('aria-label',latest.milestone?'M'+latest.milestone_number+': '+title.value:title.value);
         permanent.title="This card ID is retained when the milestone is demoted.";
       }
       for(const option of parent.options){
@@ -388,6 +404,7 @@ function mountTasks(host, state, api, options = {}) {
     const actions = el("div", void 0, "task-edit-actions"), save = el("button", "Save");
     save.type = "submit";
     const retainDraft = () => drafts.set(card.id, {revision, title:title.value, description:description.value, status:status.value, milestone_id:Number(parent.value)||null,...(number?{milestone_number:number.value}: {})});
+    title.oninput=()=>{retainDraft();d.refreshReference();sizeTitle();};
     d.retainDraft=retainDraft;
     d.acknowledge=(before,after,data)=>{
       // Local edits elsewhere in the outline can advance this draft's base;
@@ -398,7 +415,6 @@ function mountTasks(host, state, api, options = {}) {
       }
     };
     form.oninput = form.onchange = retainDraft;
-    d.addEventListener("cancel", () => drafts.delete(card.id));
     actions.append(save, button("Cancel", () => { drafts.delete(card.id); d.close(); }), button(card.milestone ? "Convert to task" : "\u25C7 Promote to milestone", async () => {
       if (await change({ action: "update", ids: [card.id], changes: { milestone: !card.milestone } }, revision)) d.close();
       else error.textContent = notice.textContent;
@@ -456,8 +472,10 @@ function mountTasks(host, state, api, options = {}) {
     });
     d.refreshActivity=activity.refresh;
     d.addEventListener("close", activity.dispose);
-    d.show();
-    title.focus();
+    d.showModal();
+    const titleResize=new ResizeObserver(sizeTitle);titleResize.observe(title);
+    d.addEventListener('close',()=>titleResize.disconnect());
+    title.focus({preventScroll:true});sizeTitle();
   }
   function confirmDelete(ids, previous) {
     const revision = board.revision, d = dialog("Delete " + ids.length + " card" + (ids.length === 1 ? "?" : "s?"));

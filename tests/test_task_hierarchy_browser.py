@@ -52,12 +52,12 @@ def test_outline_keyboard_edits_hierarchy_details_and_sidebar_restore(workspace_
     assert name.evaluate('(e)=>e===window.keptTaskName && e.selectionStart===7 && document.activeElement===e')
     name.press('Escape')
     expect(name).to_have_value('Review the changes')
-    # Pen opens the card inside the main pane, leaving the outline usable.
+    # Pen opens a centered card popup above the visible board and outline.
     sidebar.locator('.task-outline-row[data-id="3"]').hover()
     sidebar.get_by_role('button',name='Edit Build board',exact=True).click()
     detail=page.locator('.task-detail')
     expect(detail).to_be_visible();expect(sidebar).to_be_visible()
-    assert detail.evaluate('e=>document.querySelector(".document-panel").contains(e)')
+    assert detail.evaluate('e=>e.matches(":modal")')
     page.get_by_label('Description',exact=True).fill('Keep this parent draft')
     checklist=page.locator('.task-checklist')
     expect(checklist.get_by_label('Task name 6',exact=True)).to_have_value('Keyboard flow')
@@ -67,13 +67,15 @@ def test_outline_keyboard_edits_hierarchy_details_and_sidebar_restore(workspace_
     expect(page.locator('.task-dialog')).to_have_count(1)
     expect(checklist.get_by_label('Task name 8',exact=True)).to_have_value('Added from card checklist')
     checklist.get_by_role('button',name='Open #C06',exact=True).click()
-    expect(page.locator('.task-dialog h2')).to_have_text('Task · #C06')
+    expect(page.locator('.task-dialog h2')).to_have_attribute('aria-label','Keyboard flow')
+    page.get_by_role('button',name='Close card',exact=True).click()
     sidebar.get_by_role('button',name='Open #C03',exact=True).click()
     expect(page.get_by_label('Description',exact=True)).to_have_value('Keep this parent draft')
     page.get_by_role('button',name='Save',exact=True).click()
+    expect(page.locator('.task-detail')).to_have_count(0)
     # Keyboard creation adds a full card subitem, also visible on the board.
     name=sidebar.get_by_label('Task name 3',exact=True);name.focus();name.press('Control+Enter')
-    page.get_by_label('Title',exact=True).fill('New checklist item')
+    page.locator('.task-dialog:not(.task-detail)').get_by_label('Title',exact=True).fill('New checklist item')
     page.get_by_role('button',name='Create',exact=True).click()
     expect(sidebar.locator('.task-outline-row[data-id="9"]')).to_have_attribute('data-depth','2')
     expect(page.locator('.task-card[data-id="9"]')).to_contain_text('New checklist item')
@@ -125,7 +127,7 @@ def test_outline_dragging_reassigns_reorders_nests_and_shares_multiselection(wor
     expect(checklist.locator('.task-outline-row').first).to_have_attribute('data-id','3')
     assert checklist.locator('.task-outline-row').evaluate_all('(rows)=>rows.map(r=>+r.dataset.id)')==[3,6,5]
     checklist.get_by_role('button',name='Open #C06',exact=True).click()
-    expect(page.locator('.task-dialog h2')).to_have_text('Task · #C06')
+    expect(page.locator('.task-dialog h2')).to_have_attribute('aria-label','Keyboard flow')
     page.get_by_role('button',name='Cancel',exact=True).click()
     # Ctrl+click selections are shared with the Kanban action bar and context menu.
     row(3).click(modifiers=['Control'],position={'x':8,'y':16})

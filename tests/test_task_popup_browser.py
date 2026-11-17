@@ -1,0 +1,127 @@
+import os
+
+import pytest
+from test_requested_features import workspace_page
+
+pytestmark = [pytest.mark.browser, pytest.mark.skipif(not os.environ.get('LOOKING_GLASS_BROWSER'), reason='Set LOOKING_GLASS_BROWSER')]
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_card_popup_geometry_backdrop_drafts_and_editable_heading(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    def change(**data):return ws.tasks.mutate(dict(revision=ws.tasks.read()['revision'],**data))
+    change(action='create',title='Plan the release')
+    change(action='create',title='Ship a task')
+    change(action='update',ids=[1],changes={'milestone':True})
+    change(action='create',title='Nested task',parent_id=1)
+    page.goto(url);page.locator('#tasks-open').click()
+    card=page.locator('.task-card[data-id="1"]');card.click()
+    popup=page.locator('.task-detail')
+    expect(popup).to_be_visible()
+    expect(page.get_by_role('dialog',name='M1: Plan the release',exact=True)).to_be_visible()
+    expect(card).to_be_visible();expect(page.locator('#task-sidebar')).to_be_visible()
+    assert popup.evaluate('e=>e.matches(":modal")')
+    for theme in ('light','dark'):
+        page.evaluate('(theme)=>document.documentElement.dataset.theme=theme',theme)
+        for width,height in ((1600,1000),(1100,800),(800,800),(390,700)):
+            page.set_viewport_size({'width':width,'height':height})
+            box=popup.bounding_box()
+            assert abs(box['width']-min(768,width-(24 if width<=600 else 48)))<2
+            assert abs(box['x']+box['width']/2-width/2)<2
+            assert abs(box['y']+box['height']/2-height/2)<2
+            assert box['height']<=height-(24 if width<=600 else 64)+2
+            assert box['x']>=10 and box['y']>=10
+            assert popup.evaluate('e=>e.scrollWidth<=e.clientWidth+1')
+    page.set_viewport_size({'width':1440,'height':960})
+    title=popup.get_by_role('textbox',name='Title',exact=True)
+    assert title.evaluate('e=>!!e.closest("h2") && getComputedStyle(e).borderTopWidth==="0px"')
+    assert popup.get_by_role('textbox',name='Title',exact=True).count()==1
+    assert popup.locator('label',has_text='Title').count()==0
+    title.fill('A long Unicode planning heading — café, milestones, and shared tasks. ' * 4)
+    assert title.evaluate('e=>e.clientHeight>50 && e.scrollHeight<=e.clientHeight+1')
+    title.fill('A directly editable heading')
+    expect(popup.get_by_role('heading',name='M1: A directly editable heading',exact=True)).to_be_visible()
+    page.get_by_label('Description',exact=True).fill('An unsaved plan')
+    page.emulate_media(reduced_motion='no-preference')
+    popup.get_by_role('checkbox',name='Complete Nested task',exact=True).check()
+    expect(popup.locator('.task-confetti i').first).to_be_visible()
+    # Checklist context actions stay in the modal layer and remain usable.
+    popup.locator('.task-outline-row[data-id="3"]').click(button='right',position={'x':8,'y':16})
+    menu=popup.get_by_role('menu',name='Selected task actions')
+    expect(menu.get_by_role('menuitem',name='Archive',exact=True)).to_be_visible()
+    menu.get_by_role('menuitem',name='Clear selection',exact=True).click()
+    # Interior whitespace and a text-selection gesture ending outside stay open.
+    box=popup.bounding_box()
+    popup.click(position={'x':10,'y':100})
+    expect(popup).to_be_visible()
+    page.mouse.move(box['x']+10,box['y']+100);page.mouse.down();page.mouse.move(8,300,steps=5);page.mouse.up()
+    expect(popup).to_be_visible()
+    # A backdrop click dismisses without activating the board behind it.
+    page.mouse.click(8,300)
+    expect(popup).to_have_count(0)
+    assert ws.tasks.read()['cards'][0]['title']=='Plan the release'
+    card.click()
+    expect(title).to_have_value('A directly editable heading')
+    expect(page.get_by_label('Description',exact=True)).to_have_value('An unsaved plan')
+    popup.get_by_role('button',name='Save',exact=True).click()
+    expect(popup).to_have_count(0)
+    expect(card).to_contain_text('M1: A directly editable heading')
+    card.click()
+    title.fill('Keep on Escape')
+    page.keyboard.press('Escape')
+    expect(popup).to_have_count(0)
+    card.click();expect(title).to_have_value('Keep on Escape')
+    popup.get_by_role('button',name='Cancel',exact=True).click()
+    card.click();expect(title).to_have_value('A directly editable heading')
+    popup.get_by_role('button',name='Close card',exact=True).click()
+    # Normal cards use their name as the editable heading and show #C separately.
+    page.locator('.task-card[data-id="2"]').click()
+    expect(popup.get_by_role('heading',name='Ship a task',exact=True)).to_be_visible()
+    expect(popup.locator('.task-permanent-reference')).to_have_text('Card #C02')
+    title.fill('')
+    popup.get_by_role('button',name='Save',exact=True).click()
+    expect(popup).to_be_visible()
+    assert not title.evaluate('e=>e.checkValidity()')
+    title.fill('Ship the full task')
+    popup.get_by_role('button',name='Save',exact=True).click()
+    page.reload()
+    expect(page.locator('.task-card[data-id="2"]')).to_contain_text('Ship the full task')
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_popup_focus_scroll_polling_and_nested_navigation(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    def change(**data):return ws.tasks.mutate(dict(revision=ws.tasks.read()['revision'],author='Agent',**data))
+    change(action='create',title='Parent')
+    change(action='create',title='Child',parent_id=1)
+    for index in range(20):change(action='create',title=f'Board task {index}')
+    page.goto(url);page.locator('#tasks-open').click()
+    page.locator('.task-card[data-id="1"]').click()
+    popup=page.locator('.task-detail');title=popup.get_by_label('Title',exact=True)
+    title.fill('Draft heading <script>plain text</script>')
+    page.get_by_label('Description',exact=True).fill('Parent draft')
+    change(action='comment',id=1,body='A polling update')
+    expect(popup.locator('.task-comment',has_text='A polling update')).to_be_visible()
+    expect(title).to_have_value('Draft heading <script>plain text</script>')
+    title.focus();page.keyboard.press('Shift+Tab')
+    expect(popup.get_by_role('button',name='Close card',exact=True)).to_be_focused()
+    page.keyboard.press('Tab');expect(title).to_be_focused()
+    # Clickable checklist IDs replace the focused card, preserving parent drafts.
+    popup.get_by_role('button',name='Open #C02',exact=True).click()
+    expect(popup.get_by_role('heading',name='Child',exact=True)).to_be_visible()
+    popup.get_by_role('button',name='Close card',exact=True).click()
+    page.locator('.task-card[data-id="1"]').click()
+    expect(title).to_have_value('Draft heading <script>plain text</script>')
+    expect(page.get_by_label('Description',exact=True)).to_have_value('Parent draft')
+    # Long activity scrolls inside the popup while the board remains still.
+    for index in range(20):change(action='comment',id=1,body=f'Comment {index}')
+    expect(popup.locator('.task-comment')).to_have_count(21)
+    before=page.locator('#surface').evaluate('e=>e.scrollTop')
+    popup.locator('.task-comment-form').scroll_into_view_if_needed()
+    assert popup.evaluate('e=>e.scrollTop>0')
+    assert page.locator('#surface').evaluate('e=>e.scrollTop')==before
+    expect(popup.get_by_role('button',name='Close card',exact=True)).to_be_visible()
+    popup.get_by_role('button',name='Close card',exact=True).click()
+    expect(page.locator('.task-card[data-id="1"]')).to_be_focused()

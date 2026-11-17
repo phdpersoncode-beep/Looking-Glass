@@ -145,5 +145,16 @@ parent deletion/demotion, CLI subtree reads/moves, and database snapshot round t
 Both browser engines exercise inline names, preserved draft/caret during agent
 polls, explicit conflict review, Tab/Shift+Tab indentation, Alt+arrow ordering,
 keyboard/checklist creation, vertical/horizontal drag, milestone drop assignment,
-shared Ctrl+click/context actions, clickable references/main-pane editors, and
+shared Ctrl+click/context actions, clickable references/card popups, and
 discussion/task sidebar resize/collapse/restoration in both themes and narrow panes.
+
+`task-dialog.test.mjs` protects complete backdrop-click gestures, all four edges,
+text-selection gestures, pointer cancellation, and Escape dismissal. The
+Chromium/Firefox `test_task_popup_browser.py` journeys exercise measured popup
+geometry in light/dark themes from 390px to 1600px wide, editable headings without
+duplicate title fields, draft-preserving dismissal/reopening, Cancel/Save behavior,
+reference navigation, native modal focus boundaries and restoration after polls,
+multiline Unicode headings, required-name validation, checklist context menus and
+completion feedback in the modal layer, and internal scrolling above a stable
+visible board. Hierarchy creation waits for
+the previous detail to close and scopes its Title locator to the create dialog.
