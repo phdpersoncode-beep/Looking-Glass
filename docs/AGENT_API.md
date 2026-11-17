@@ -372,3 +372,5 @@ these API calls; the source-offset CLI commands apply to text files.
 ## Shared planning
 
 Use `looking-glass tasks` or the token-protected `/api/tasks` endpoints to plan alongside people. Read the board revision before changing cards; stale writes return 409. See [Tasks](TASKS.md) for the full CLI and API contract.
+
+Card references such as `C01` are accepted by `tasks` commands (quote `'#C01'` in a shell). Use `tasks activity C01`, `tasks comment C01 --author Agent --body-file reply.md`, and `tasks delete-activity C01 ENTRY_ID` for the card conversation. Activity is read separately from board snapshots; field changes generate updates automatically. See [Tasks](TASKS.md#comments-and-activity).

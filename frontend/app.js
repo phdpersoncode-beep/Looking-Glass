@@ -739,7 +739,7 @@ async function loadFile(path,request){
 }
 
 async function mountFileSurface(e){
-  if(e.kind==='tasks')cleanup=mountTasks($('#surface'),e.tasks??={},api);
+  if(e.kind==='tasks')cleanup=mountTasks($('#surface'),e.tasks??={},api,{author:()=>authorName});
   else if(e.kind==='history')cleanup=mountHistory($('#surface'),e.history??={},api,{onTarget:guard(async()=>{closeComment();clearThreadFocus();remember();await refreshThreads();}),onComment:guard(startGitComment),onState:remember});
   else if(e.kind==='original')mountOriginal(e);
   else if(e.kind==='oversized')mountOversized(e);

@@ -27,6 +27,9 @@ Plan with the shared Tasks board:
 {task_command} list
 {task_command} read CARD_ID
 {task_command} create 'Task title'
+{task_command} activity C01
+{task_command} comment C01 --author "Agent" --body-file reply.md
+{task_command} delete-activity C01 ENTRY_ID
 {task_command} update CARD_ID --revision BOARD_REVISION --status in_progress
 {task_command} update CARD_ID --revision BOARD_REVISION --milestone
 {task_command} update CARD_ID --revision BOARD_REVISION --milestone-id MILESTONE_ID
@@ -36,6 +39,9 @@ Use list/read's revision for every update, move, or delete. On conflict, reread 
 reconsider; never blindly retry over human changes. Use --archived/--no-archived to
 archive/restore. Deleting a milestone keeps its tasks and unassigns them. Milestones
 are one level deep; completing children does not automatically complete the milestone.
+Cards and milestones share stable references such as #C01 (quote shell arguments containing #).
+Field changes generate named updates in each card conversation. Comments and updates
+can be deleted without reverting card changes; activity can be paged with --before.
 Board writes plan work; they never execute tasks or change project files.
 
 In review mode, never edit the source file on disk. Read the review draft, then send

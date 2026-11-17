@@ -153,6 +153,12 @@ def create_app(root):
         board = ws.tasks.read(request.args.get('revision', type=int))
         return ('', 304) if board is None else jsonify(board)
 
+    @app.get('/api/tasks/<int:identifier>/activity')
+    def task_activity(identifier):
+        activity = ws.tasks.activity(identifier, limit=request.args.get('limit', 100, type=int),
+                                     before=request.args.get('before', type=int), known_revision=request.args.get('revision', type=int))
+        return ('', 304) if activity is None else jsonify(activity)
+
     @app.post('/api/tasks')
     def change_task_board():
         return jsonify(ws.tasks.mutate(body()))

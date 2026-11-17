@@ -1,5 +1,8 @@
+import {mountTaskActivity} from './task-activity.mjs';
 const columns = [["backlog", "\u25CC", "Backlog"], ["in_progress", "\u25D0", "In progress"], ["to_review", "\u25CE", "To review"], ["done", "\u2713", "Done"]];
+export function cardReference(id) { return `#C${String(id).padStart(2, "0")}`; }
 function fuzzyCard(card, query) {
+  if (/^#?c\d+$/i.test(query.trim())) return Number(query.trim().replace(/^#?c/i,"")) === card.id;
   let at = 0;
   const text = (card.title + " " + card.description).toLocaleLowerCase();
   for (const char of query.toLocaleLowerCase().trim()) {
@@ -23,7 +26,7 @@ function button(text, action, title = text) {
   b.onclick = action;
   return b;
 }
-function mountTasks(host, state, api) {
+function mountTasks(host, state, api, options = {}) {
   let board = { cards: [], revision: 0 }, disposed = false, busy = false, refreshing = false, dragged = null, editor = null;
   const drafts = state.drafts ??= new Map();
   const picked = new Set(), root = el("section", void 0, "task-board"), tools = el("div", void 0, "task-tools"), search = el("input"), filter = el("select"), archived = el("input"), bulk = el("div", void 0, "task-bulk"), lanes = el("div", void 0, "task-lanes"), notice = el("p", void 0, "task-notice");
@@ -57,7 +60,7 @@ function mountTasks(host, state, api) {
     select.replaceChildren(el("option", "No milestone"));
     select.firstChild.value = "";
     for (const card of board.cards.filter((c) => c.milestone && (!c.archived || c.id === Number(value)) && !exclude.includes(c.id))) {
-      const option = el("option", "\u25C7 " + card.title + (card.archived ? " (archived)" : ""));
+      const option = el("option", "\u25C7 " + cardReference(card.id) + " " + card.title + (card.archived ? " (archived)" : ""));
       option.value = card.id;
       select.append(option);
     }
@@ -101,7 +104,7 @@ function mountTasks(host, state, api) {
     notice.textContent = "";
     try {
       const old = board;
-      const next = await api("tasks", "POST", { ...data, revision });
+      const next = await api("tasks", "POST", { ...data, revision, author:options.author?.() || "User" });
       if (disposed) return false;
       board = next;
       render();
@@ -181,6 +184,7 @@ function mountTasks(host, state, api) {
       for (const card of cards) {
         const item = el("article", void 0, "task-card");
         item.dataset.id = card.id;
+        item.classList.toggle("task-milestone", !!card.milestone);
         item.tabIndex = 0;
         item.setAttribute("aria-label", card.title);
         item.setAttribute("aria-selected", String(picked.has(card.id)));
@@ -195,12 +199,13 @@ function mountTasks(host, state, api) {
         };
         const title = el("div", (card.milestone ? "\u25C7 " : "") + card.title, "task-card-title");
         item.append(title);
+        item.append(el("span", cardReference(card.id), "task-reference"));
         if (card.milestone) {
           const children = board.cards.filter((c) => c.milestone_id === card.id && !c.archived);
           item.append(el("small", `${children.filter((c) => c.status === "done").length}/${children.length} tasks`));
         } else if (card.milestone_id) {
           const parent = board.cards.find((c) => c.id === card.milestone_id);
-          if (parent) item.append(el("small", "\u25C7 " + parent.title));
+          if (parent) { const assignment=el("small", "\u25C7 " + cardReference(parent.id) + " " + parent.title, "task-assignment"); assignment.title="Milestone: " + parent.title; item.append(assignment); }
         }
         item.onclick = (e) => {
           if (e.target.closest("button")) return;
@@ -229,6 +234,7 @@ function mountTasks(host, state, api) {
       if (!cards.length) lane.append(el("p", "No cards", "task-empty"));
       lanes.append(lane);
     }
+    document.querySelectorAll(".task-dialog").forEach(d=>d.refreshActivity?.());
     lanes.scrollLeft = scroll;
     if (focusedId) {
       const card = lanes.querySelector('[data-id="' + focusedId + '"]');
@@ -285,7 +291,7 @@ function mountTasks(host, state, api) {
   function edit(card) {
     const draft = drafts.get(card.id);
     let revision = draft?.revision ?? board.revision;
-    const d = dialog(card.milestone ? "\u25C7 Milestone" : "Task"), form = el("form"), title = field(form, "Title", el("input")), description = field(form, "Description", el("textarea")), status = field(form, "Status", el("select")), parent = field(form, "Milestone", el("select"));
+    const d = dialog((card.milestone ? "\u25C7 Milestone" : "Task") + " · " + cardReference(card.id)), form = el("form"), title = field(form, "Title", el("input")), description = field(form, "Description", el("textarea")), status = field(form, "Status", el("select")), parent = field(form, "Milestone", el("select"));
     title.value = draft?.title ?? card.title;
     title.required = true;
     title.maxLength = 500;
@@ -356,16 +362,31 @@ function mountTasks(host, state, api) {
             error.textContent = notice.textContent;
           }
         };
-        li.append(check, button(child.title, () => {
+        li.append(check, button(cardReference(child.id) + " " + child.title, () => {
           const latest = board.cards.find((c) => c.id === child.id);
           if (!latest) { error.textContent = "This task was deleted. Reopen the milestone to refresh its checklist."; return; }
           retainDraft();
           d.close();
           edit(latest);
-        }));
+        }, child.title));
         list.append(li);
       }
     }
+    const activity = mountTaskActivity(d, card.id, {
+      api, state, getRevision:()=>board.revision,
+      write:async data=>{
+        const before=board.revision, saved=await change(data);
+        // A comment does not change card fields. Only acknowledge our own
+        // activity write when no other writer changed the card in between.
+        if(saved && revision===before && board.revision===before+1) {
+          revision=board.revision;
+          if(drafts.has(card.id)) retainDraft();
+        }
+        return saved;
+      }, error:()=>notice.textContent
+    });
+    d.refreshActivity=activity.refresh;
+    d.addEventListener("close", activity.dispose);
     d.showModal();
     title.focus();
   }
