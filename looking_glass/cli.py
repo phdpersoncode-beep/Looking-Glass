@@ -213,6 +213,10 @@ def main(argv=None):
             return
         if args.command == 'database':
             from . import database
+            # SQL and JSON are portable UTF-8 payloads even when redirected
+            # standard streams default to a legacy locale encoding.
+            if hasattr(sys.stdout, 'reconfigure'):
+                sys.stdout.reconfigure(encoding='utf-8', errors='strict', newline='\n')
             root = project_root(args.root)
             if args.operation == 'dump':
                 if str(args.output) == '-':
@@ -221,6 +225,8 @@ def main(argv=None):
                     database.dump_file(root, args.output)
                 return
             if args.operation == 'restore':
+                if str(args.input) == '-' and hasattr(sys.stdin, 'reconfigure'):
+                    sys.stdin.reconfigure(encoding='utf-8', errors='strict')
                 sql = sys.stdin.read() if str(args.input) == '-' else args.input.expanduser().read_text(encoding='utf-8')
                 result = database.restore(root, sql, force=args.force)
             else:

@@ -18,7 +18,10 @@ looking-glass database --root ~/clone check
 ```
 
 `dump` writes SQL only, with no progress text on stdout. `--output` / `-o` defaults
-to `-` (stdout). File output uses a temporary file in the output directory and
+to `-` (stdout). SQL stdin/stdout and database command JSON output explicitly use
+UTF-8, including redirected pipes on non-UTF-8 systems; SQL output uses LF line
+endings. Invalid UTF-8 input is rejected before the target database is changed.
+File output uses a temporary file in the output directory and
 atomic replacement, so an invalid database or failed export leaves the earlier
 snapshot intact. The parent directory must exist. The CLI refuses to save a dump
 inside `.looking-glass/`, keeping it separate from private runtime files.
