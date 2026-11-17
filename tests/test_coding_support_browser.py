@@ -116,12 +116,9 @@ def test_python_f12_current_buffer_review_unicode_and_tab_indentation(workspace_
     expect(page.locator('#notice')).to_contain_text('Definition · main.py:1')
     page.locator('#work-mode').click(); expect(page.locator('#work-mode')).to_have_attribute('aria-checked','true')
     expect(page.locator('#work-mode')).to_be_enabled()
-    page.evaluate('''() => {window.pr24Inputs=[];document.addEventListener('beforeinput',event=>window.pr24Inputs.push({type:event.inputType,data:event.data}));}''')
     replace_source(page, '# changed draft\ndef draft_only():\n    return 1\ndraft_only()\n'.replace('\n','\r\n'))
     expect(page.locator('.cm-content')).to_contain_text('draft_only()')
-    print('PR24 lines:',page.locator('.cm-line').all_text_contents())
-    print('PR24 input:',page.evaluate('window.pr24Inputs'))
-    print('PR24 DOM:',page.locator('.cm-content').inner_html())
+    expect(page.locator('.cm-line')).to_have_count(5)
     page.locator('.cm-line').filter(has_text=re.compile('^draft_only')).click()
     page.keyboard.press('Home'); page.keyboard.press('ArrowRight')
     page.keyboard.press('F12'); expect(page.locator('.cm-activeLine')).to_contain_text('def draft_only')
@@ -210,3 +207,44 @@ def test_existing_local_completions_need_no_analysis_requests(workspace_page):
     page.keyboard.press('Enter')
     expect(page.locator('.cm-activeLine')).to_have_text('current_document_symbol')
     assert requests == []
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+@pytest.mark.parametrize('review',[False,True])
+def test_crlf_multiline_clipboard_and_undo_preserve_review(workspace_page,review):
+    from playwright.sync_api import expect
+    from test_review_mode_browser import wait_saved
+    root,page,url,ws=workspace_page
+    original='old = "🦊"\r\n'
+    (root/'paste.py').write_bytes(original.encode())
+    page.goto(url);open_file(page,'paste.py')
+    if review:
+        page.locator('#work-mode').click();expect(page.locator('#work-mode')).to_have_attribute('aria-checked','true')
+        expect(page.locator('#work-mode')).to_be_enabled()
+    page.locator('.cm-content').click();page.keyboard.press('Control+Home');page.keyboard.press('Control+Shift+End')
+    # Firefox's ClipboardEvent ignores its clipboardData initializer; define
+    # the transfer on the event while exercising CodeMirror's actual paste path.
+    pasted='def café():\n    return "🦊"\ncafé()\n'
+    page.locator('.cm-content').evaluate('''(el,text)=>{
+        const transfer=new DataTransfer();transfer.setData('text/plain',text);
+        const event=new ClipboardEvent('paste',{bubbles:true,cancelable:true});
+        Object.defineProperty(event,'clipboardData',{value:transfer});el.dispatchEvent(event);
+    }''',pasted)
+    expect(page.locator('.cm-line')).to_have_count(4)
+    page.locator('.cm-line').filter(has_text=re.compile('^café')).click()
+    page.keyboard.press('Home');page.keyboard.press('ArrowRight');page.keyboard.press('F12')
+    expect(page.locator('#notice')).to_contain_text('Definition · paste.py:1')
+    page.keyboard.press('Control+s')
+    if review:
+        wait_saved(page)
+        assert ws.reviews.read(ws.reviews.list()[0]['id'])['content']==pasted.replace('\n','\r\n')
+        assert (root/'paste.py').read_bytes()==original.encode()
+    else:
+        expect(page.locator('#dirty')).to_have_text('')
+        assert (root/'paste.py').read_bytes()==pasted.replace('\n','\r\n').encode()
+    page.keyboard.press('Control+z')
+    accepted=page.locator('.cm-content').evaluate('''el=>{
+        const copy=el.cloneNode(true);copy.querySelectorAll('.review-deletion').forEach(n=>n.remove());
+        return [...copy.querySelectorAll('.cm-line')].map(line=>line.textContent).join('\\n');
+    }''')
+    assert accepted==original.replace('\r\n','\n')

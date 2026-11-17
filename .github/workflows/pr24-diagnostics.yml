@@ -1,4 +1,4 @@
-name: PR24 Firefox diagnostics
+name: PR24 focused browser checks
 on:
   push:
     branches: [feature/explorer-creation-zen-image-drafts]
@@ -15,7 +15,7 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install uv
       - run: uv sync --locked
-      - run: uv run playwright install --with-deps firefox
-      - run: uv run pytest tests/test_coding_support_browser.py -k 'f12_current_buffer and firefox' -q -s
+      - run: uv run playwright install --with-deps chromium firefox
+      - run: uv run pytest tests/test_coding_support_browser.py tests/test_sidebar_controls_browser.py tests/test_explorer_creation_browser.py tests/test_images_browser.py -k 'f12_current_buffer or crlf_multiline or sidebar_controls_and_author or alt_z or draft_marker' -q
         env:
           LOOKING_GLASS_BROWSER: installed

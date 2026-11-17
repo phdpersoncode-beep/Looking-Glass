@@ -153,6 +153,7 @@ export function createImageTools({token,api,context,comment,focus,error,changed,
       if(armedByPointer)mode(true);
       if(!b.classList.contains('drag-mode'))return;
       event.preventDefault();event.stopPropagation();
+      b.focus({preventScroll:true});
       drag={x:event.clientX,y:event.clientY,rect:host.getBoundingClientRect(),point:{...point()}};b._dragging=true;ignoreClick=false;b.setPointerCapture(event.pointerId);
     };
     b.onpointermove=event=>{

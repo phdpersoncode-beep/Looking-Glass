@@ -1,3 +1,5 @@
+import {isZenShortcut} from './keyboard-shortcuts.mjs';
+import {normalizeInputTransaction,normalizeClipboardInput} from './editor-input.mjs';
 import {matchOverview} from './match-overview.mjs';
 import {mountOutlineResize} from './outline-resize.mjs';
 import {quickFileMatches} from './file-search.mjs';
@@ -611,6 +613,11 @@ function makeState(e){
         await imageTools.rename(managed,range.href);
       })();return true;
     }}),
+    EditorView.clipboardInputFilter.of(normalizeClipboardInput),
+    EditorView.inputHandler.of((editor,_from,_to,_text,insert)=>{
+      const normalized=normalizeInputTransaction(insert());
+      if(!normalized)return false;editor.dispatch(normalized);return true;
+    }),
     EditorView.scrollHandler.of(editor=>passagePosition?.editor===editor),
     keymap.of([{key:'Mod-s',run:()=>{guard(saveActive)();return true;}},{key:'Mod-Enter',run:()=>{guard(startComment)();return true;}},indentWithTab]),
     EditorView.updateListener.of(u=>{if(u.docChanged){for(const pending of pendingImagePastes)if(pending.e===e){pending.from=u.changes.mapPos(pending.from,1);pending.to=u.changes.mapPos(pending.to,1);}if(tracked){if(!u.transactions.some(t=>t.effects.some(effect=>effect.is(remoteReview)))){for(const tr of u.transactions)if(tr.docChanged)queueReviewOperations(e,operationsFor(tr),u.state.field(e.reviewField).segments);scheduleReviewSave(e);}}e.content=u.state.sliceDoc();e.dirty=e.content!==e.diskContent;e.state=u.state;contentsController?.update();updateToolbar();renderTabs();}if(u.selectionSet)updateToolbar();if(u.selectionSet||u.docChanged||u.viewportChanged||u.geometryChanged)scheduleSelectionTools();})
@@ -1522,7 +1529,7 @@ document.addEventListener('keydown',event=>{
   if(event.key==='Escape'){passageActivation++;pressedPassage=null;}
   // Let the focused navigation panel consume Escape before context/spotlight.
   if(event.key==='Escape'&&event.target.closest?.('#file-history[open],#code-outline[open]'))return;
-  if(event.altKey&&!event.shiftKey&&!event.isComposing&&(event.key.toLowerCase()==='z'||event.code==='KeyZ')){event.preventDefault();event.stopPropagation();toggleZen();return;}
+  if(isZenShortcut(event)){event.preventDefault();event.stopPropagation();toggleZen();return;}
   if(view&&event.target.closest?.('.document-panel')&&!document.querySelector('dialog:modal')&&documentSearchShortcut(view,event)){event.preventDefault();event.stopPropagation();return;}
   // Focusable table regions keep native cell selection/copying, while editor
   // commands still target the document rather than the browser page.

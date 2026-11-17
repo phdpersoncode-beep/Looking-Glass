@@ -561,9 +561,13 @@ def test_image_draft_marker_is_immediate_movable_and_only_persists_on_send(works
     assert abs(thread['image_annotation']['x']-.8)<.03 and abs(thread['image_annotation']['y']-.7)<.03
     editor.get_by_role('button',name='Comment',exact=True).click();expect(marker).to_be_visible()
     field.fill('Cancel this repositioned draft')
-    marker.click(modifiers=['Control']);expect(marker).to_have_attribute('aria-pressed','true')
+    expect(field).to_be_focused()
+    # Use a real direct Ctrl-drag, then global Escape, without locator.press()
+    # moving focus to the marker on the test's behalf.
+    page.keyboard.down('Control')
     b=marker.bounding_box();page.mouse.move(b['x']+b['width']/2,b['y']+b['height']/2);page.mouse.down()
-    page.mouse.move(stage['x']+5,stage['y']+5,steps=5);marker.press('Escape');page.mouse.up()
+    expect(marker).to_be_focused()
+    page.mouse.move(stage['x']+5,stage['y']+5,steps=5);page.keyboard.press('Escape');page.mouse.up();page.keyboard.up('Control')
     expect(marker).to_have_attribute('aria-pressed','false')
     assert marker.evaluate('el=>el.style.left')=='50%'
     expect(field).to_have_value('Cancel this repositioned draft')

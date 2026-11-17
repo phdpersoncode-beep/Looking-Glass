@@ -67,12 +67,21 @@ def test_alt_z_in_editor_and_html_preserves_undo_and_legacy_shortcut(workspace_p
     (root/'a.txt').write_text('Original');(root/'report.html').write_text('<p>Report</p>')
     page.goto(url);open_file(page,'a.txt')
     page.locator('.cm-content').click();page.keyboard.press('Control+End');page.keyboard.insert_text(' draft')
-    toggle=page.locator('#zen-toggle');page.keyboard.press('Alt+z');expect(toggle).to_have_attribute('aria-pressed','true')
+    toggle=page.locator('#zen-toggle')
+    for altgraph in [False,True]:
+        assert page.locator('.cm-content').evaluate('''(el,altgraph)=>{
+            const event=new KeyboardEvent('keydown',{key:'ż',code:'KeyZ',ctrlKey:true,altKey:true,bubbles:true,cancelable:true});
+            if(altgraph)Object.defineProperty(event,'getModifierState',{value:name=>name==='AltGraph'});
+            return el.dispatchEvent(event);
+        }''',altgraph)
+    expect(toggle).to_have_attribute('aria-pressed','false')
+    page.keyboard.press('Alt+z');expect(toggle).to_have_attribute('aria-pressed','true')
     page.keyboard.press('Alt+z');expect(toggle).to_have_attribute('aria-pressed','false')
     page.keyboard.press('Control+z');expect(page.locator('.cm-content')).to_have_text('Original')
     page.keyboard.press('Control+Alt+z');expect(toggle).to_have_attribute('aria-pressed','true')
     page.keyboard.press('Alt+z');expect(toggle).to_have_attribute('aria-pressed','false')
     open_file(page,'report.html');page.frame_locator('#html-preview').locator('p').click()
+    assert page.frame_locator('#html-preview').locator('p').evaluate('''el=>el.dispatchEvent(new KeyboardEvent('keydown',{key:'ż',code:'KeyZ',ctrlKey:true,altKey:true,bubbles:true,cancelable:true}))''')
     page.keyboard.press('Alt+z');expect(toggle).to_have_attribute('aria-pressed','true')
     page.keyboard.press('Alt+z');expect(toggle).to_have_attribute('aria-pressed','false')
 
