@@ -114,3 +114,13 @@ Production assets must rebuild without differences after the intended asset
 changes are committed. CI also builds wheel/source distributions. See
 `VERIFICATION.md` for measured results and environment details; timing is
 diagnostic rather than a brittle per-test assertion.
+
+`editor-input.test.mjs` covers multiline native/composition text, mixed clipboard
+newlines, Unicode, CRLF serialization, multiple selections, and Review operation
+coordinates. The coding-support browser journeys verify LF clipboard input in
+CRLF Edit/Review files, definition navigation, saved bytes, and single-step undo.
+`keyboard-shortcuts.test.mjs` and the editor/HTML journey protect AltGr character
+input while retaining Alt+Z aliases. Image draft-pin cancellation uses global
+Escape during a direct Ctrl-drag, without a locator setting focus on its behalf.
+Sidebar geometry checks test every button pair and both axes of the heading
+bounds, including wrapped rows at the minimum pane width.

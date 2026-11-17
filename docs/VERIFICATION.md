@@ -1078,3 +1078,34 @@ hosted Chromium/Firefox run.
   Chromium/Firefox browser cases form complete, disjoint shards (201/201/201/200).
   Firefox could not download locally, so full cross-browser validation is requested
   through hosted CI after the final push.
+
+### Cross-browser regression follow-up
+
+The first hosted run of `2f939b7` completed with 800 passes and three failures:
+sidebar geometry in both engines and Python navigation after multiline Review
+input in Firefox. A targeted hosted diagnostic reproduced the Firefox failure:
+Gecko delivered LF composition text to a CRLF-configured editor, leaving literal
+newline control characters inside a single logical line.
+
+- Normalize newly inserted DOM text into actual editor lines in the same
+  transaction, retaining selection, composition annotations, review operations,
+  undo, and the saved file's newline convention. Normalize clipboard input too.
+- Sidebar controls correctly wrap at the 120px minimum width. Geometry tests now
+  check every button pair for overlap and verify horizontal and vertical bounds,
+  instead of assuming all controls share a single row. Light/dark layouts were
+  also visually inspected at the minimum width.
+- Exclude AltGraph and Ctrl+Alt character input from zen's physical-key fallback,
+  while keeping Alt+Z, its existing aliases, and macOS Option+Z working in editor
+  and HTML reports.
+- Focus an image marker when starting a direct Ctrl-drag. Escape then cancels the
+  drag instead of dismissing the focused draft composer. The browser regression
+  uses global keyboard Escape, without a locator moving focus for the test.
+
+Validation: 204 fast Python checks and 113 JavaScript checks passed. Focused
+local Chromium runs covered 60 relevant cases across coding, images, sidebars,
+creation, and Review. The hosted targeted run on `28449a5` passed all 12
+Chromium/Firefox cases, including every original failure and both review findings:
+https://github.com/phdpersoncode-beep/Looking-Glass/actions/runs/44054639604
+Frontend rebuild and wheel/source packaging succeeded. All 807 browser cases
+form complete, disjoint shards (202/202/202/201); a final full hosted run is
+requested after the final push. The temporary diagnostic workflow was removed.
