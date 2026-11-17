@@ -22,6 +22,7 @@ import {apply as applyReview,accepted as acceptedReview,ranges as reviewRanges,l
 import {reviewTracking,reviewEffect,remoteReview,operationsFor} from './review-editor.mjs';
 import {prepareHTMLPreview,sourceOffsets} from './html-source.mjs';
 import {createComposers} from './composer.mjs';
+import {mountTasks} from './tasks.mjs';
 import {mountHistory} from './history.mjs';
 import {formatJSON} from './json-format.mjs';
 import {mountMappedMarkdown,renderMarkdown} from './markdown-render.mjs';
@@ -74,10 +75,12 @@ const tabs = new Map();
 
 let changingWorkMode=false;
 let approvalTarget=null;
+const TASKS='looking-glass://tasks';
 const HISTORY='looking-glass://history',ORIGINAL='looking-glass://thread/';
 let contextVisit=null;
 let restoreReady=Promise.resolve();
 async function readTab(path){
+  if(path===TASKS)return {content:'',version:null,kind:'tasks'};
   if(path===HISTORY)return {content:'',version:null,kind:'history'};
   if(path.startsWith(ORIGINAL)){
     const match=path.slice(ORIGINAL.length).match(/^(\d+)\/original(?:\/(\d+))?$/);if(!match)throw new Error('Invalid context tab.');
@@ -96,7 +99,7 @@ async function returnFromOriginal(){
   if(contextVisit.path)await openFile(contextVisit.path);
   else await closeTab(appStore.state.displayedDocument,true);
 }
-function discussionPath(e=entry(),path=appStore.state.displayedDocument){return e?.kind==='original'?e.sourcePath:e?.kind==='history'?e.history?.target?.path||null:e?.kind==='oversized'?null:path;}
+function discussionPath(e=entry(),path=appStore.state.displayedDocument){return e?.kind==='original'?e.sourcePath:e?.kind==='tasks'?null:e?.kind==='history'?e.history?.target?.path||null:e?.kind==='oversized'?null:path;}
 function discussionReview(e=entry()){return e?.kind==='original'?e.contextReview:e?.workMode==='review'?e.review?.id:null;}
 let expandedFolders=new Set();try{expandedFolders=new Set(JSON.parse(localStorage.getItem('looking-glass-folders:'+root)||'[]'));}catch{}
 let zenCollapsed=false;
@@ -463,7 +466,7 @@ function renderTabs(){
   $('#tabs').replaceChildren();
   [...tabs.values()].sort((a,b)=>Number(b.pinned)-Number(a.pinned)).forEach(e=>{
     const tab=document.createElement('div');tab.className='tab'+(e.path===appStore.state.displayedDocument?' selected':'');tab.dataset.path=e.path;
-    const open=document.createElement('button');open.className='tab-name';open.title=e.path;open.textContent=(e.pinned?'⌖ ':'')+(e.kind==='history'?'Commit history':e.kind==='original'?'Original · '+e.sourcePath.split('/').pop():e.path.split('/').pop())+(e.dirty&&e.workMode!=='review'?' •':'');open.onclick=guard(()=>openFile(e.path));
+    const open=document.createElement('button');open.className='tab-name';open.title=e.path;open.textContent=(e.pinned?'⌖ ':'')+(e.kind==='tasks'?'Tasks':e.kind==='history'?'Commit history':e.kind==='original'?'Original · '+e.sourcePath.split('/').pop():e.path.split('/').pop())+(e.dirty&&e.workMode!=='review'?' •':'');open.onclick=guard(()=>openFile(e.path));
     const pin=document.createElement('button');pin.className='tab-control';pin.title=e.pinned?'Unpin tab':'Pin tab';pin.setAttribute('aria-label',pin.title);pin.textContent=e.pinned?'◆':'◇';pin.onclick=()=>{e.pinned=!e.pinned;renderTabs();remember();};
     const close=document.createElement('button');close.className='tab-control';close.title='Close tab';close.setAttribute('aria-label','Close '+e.path);close.textContent='×';close.onclick=guard(()=>closeTab(e.path));
     tab.append(open,...(e.kind==='original'?[]:[pin]),close);
@@ -629,7 +632,7 @@ const fileHistory=createFileHistory(savedFileHistory);
 function cancelFileVisit(){fileHistory.cancel();historyControls?.render();}
 const navigation=createNavigationController({load:loadFile,onRequest:({path,context})=>{fileHistory.request(context?.fileHistoryIndex);historyControls?.render();appStore.dispatch({type:'DOCUMENT_REQUESTED',path});},onFailure:()=>{cancelFileVisit();appStore.dispatch({type:'DOCUMENT_FAILED'});},onInvalidate:()=>{cancelFileVisit();appStore.dispatch({type:'DOCUMENT_CANCELLED'});}});
 function rememberFileVisit(e,at){
-  if(e&&!['original','history'].includes(e.kind)){fileHistory.visit(e.path,at);historyControls?.remember();}
+  if(e&&!['original','history','tasks'].includes(e.kind)){fileHistory.visit(e.path,at);historyControls?.remember();}
   else cancelFileVisit();
 }
 historyControls=mountFileHistory($('#file-navigation'),fileHistory,{
@@ -736,7 +739,8 @@ async function loadFile(path,request){
 }
 
 async function mountFileSurface(e){
-  if(e.kind==='history')cleanup=mountHistory($('#surface'),e.history??={},api,{onTarget:guard(async()=>{closeComment();clearThreadFocus();remember();await refreshThreads();}),onComment:guard(startGitComment),onState:remember});
+  if(e.kind==='tasks')cleanup=mountTasks($('#surface'),e.tasks??={},api);
+  else if(e.kind==='history')cleanup=mountHistory($('#surface'),e.history??={},api,{onTarget:guard(async()=>{closeComment();clearThreadFocus();remember();await refreshThreads();}),onComment:guard(startGitComment),onState:remember});
   else if(e.kind==='original')mountOriginal(e);
   else if(e.kind==='oversized')mountOversized(e);
   else if(ext(e.path)==='pdf')await mountPDFDocument(e);
@@ -856,19 +860,19 @@ function updateToolbar(){
   $('#markdown-contents').hidden=!!e?.kind||!['md','markdown'].includes(type)||e?.mode!=='live';
   for(const [id,direction] of [['font-smaller','Decrease'],['font-larger','Increase']]){const control=$('#'+id);control.setAttribute('aria-label',direction+(type==='pdf'?' PDF zoom':' document font size'));control.title=type==='pdf'?direction+' PDF zoom':direction+' document font size';control.textContent=type==='pdf'?(direction==='Increase'?'+':'−'):(direction==='Increase'?'A+':'A−');}
   $('#pdf-contents').hidden=!!e?.kind||type!=='pdf';
-  $('.font-controls').hidden=e?.kind==='history';$('#annotate').hidden=!!e?.kind;$('#save').hidden=!!e?.kind||type==='pdf';
+  $('.font-controls').hidden=['history','tasks'].includes(e?.kind);$('#annotate').hidden=!!e?.kind;$('#save').hidden=!!e?.kind||type==='pdf';
   $('#json-fold-controls').hidden=type!=='json';
   $('#download-file').hidden=!['html','htm','jsonl'].includes(type);
-  $('#copy-filepath').hidden=!e||e.kind==='history';
-  $('#go-to-top').hidden=!e||['history','oversized'].includes(e.kind)||type==='stl'||isImage(e.path);
-  $('#document-name').textContent=e?.kind==='history'?'Commit history':e?.kind==='original'?'Original · '+e.sourcePath:e?.path||'Open a file';$('#dirty').textContent=e?.dirty&&e.workMode!=='review'?' · Unsaved':'';
+  $('#copy-filepath').hidden=!e||['history','tasks'].includes(e.kind);
+  $('#go-to-top').hidden=!e||['history','tasks','oversized'].includes(e.kind)||type==='stl'||isImage(e.path);
+  $('#document-name').textContent=e?.kind==='tasks'?'Tasks':e?.kind==='history'?'Commit history':e?.kind==='original'?'Original · '+e.sourcePath:e?.path||'Open a file';$('#dirty').textContent=e?.dirty&&e.workMode!=='review'?' · Unsaved':'';
   $('#save').disabled=!e||viewer||!e.dirty||saving;$('#annotate').disabled=!e||(viewer&&type!=='pdf')||!(type==='pdf'?cleanup.selection?.():renderedPreview?renderedSelection:removedSelection()||markdownSelection()||view&&!view.state.selection.main.empty);
   const mode=$('#mode');const modes=type==='md'||type==='markdown'?[['live','Live Markdown'],['source','Raw source'],['preview','Reading preview']]:type==='html'||type==='htm'?[['rendered','Rendered HTML'],['source','HTML source']]:[['source',viewer?'Viewer':'Source']];
   if(mode.dataset.path!==appStore.state.displayedDocument){mode.replaceChildren(...modes.map(([value,label])=>{const opt=document.createElement('option');opt.value=value;opt.textContent=label;return opt;}));mode.dataset.path=appStore.state.displayedDocument||'';}
   const html=type==='html'||type==='htm', toggle=$('#html-toggle');
   mode.hidden=!e||!!e.kind||modes.length===1||html;if(e)mode.value=e.mode;
   toggle.hidden=!e||!html;toggle.querySelectorAll('span').forEach(s=>s.classList.toggle('active',s.dataset.mode===e?.mode));
-  $('#file-info').textContent=e?(e.kind==='original'?'Read only · '+(e.origin.commit_hash||'No Git commit') :e.kind==='history'?'Local branches and fetched remote branches':viewer?type.toUpperCase()+' viewer':Array.from(e.content).length.toLocaleString()+' characters · UTF-8'):'Choose a file from the sidebar';
+  $('#file-info').textContent=e?(e.kind==='original'?'Read only · '+(e.origin.commit_hash||'No Git commit') :e.kind==='tasks'?'Shared workspace planning':e.kind==='history'?'Local branches and fetched remote branches':viewer?type.toUpperCase()+' viewer':Array.from(e.content).length.toLocaleString()+' characters · UTF-8'):'Choose a file from the sidebar';
   $('#conflict').hidden=!e?.conflict;
   if(e?.workMode==='review')$('#conflict').hidden=true;
   if(e?.conflict)$('#conflict span').textContent=e.conflict.deleted?'This file was deleted or became unavailable on disk. Copy your draft before closing it.':'Changed on disk. Your unsaved edits are preserved. Compare and merge before saving.';
@@ -1773,7 +1777,7 @@ function setExplorerHidden(hidden,focus=false){
   const button=$('#explorer-toggle'),label=(hidden?'Show':'Hide')+' file explorer';
   button.setAttribute('aria-expanded',String(!hidden));button.setAttribute('aria-label',label);button.title=label;
   for(const child of $('#file-sidebar').children){
-    if(child.classList.contains('file-sidebar-tools'))$('#history-open').hidden=hidden;
+    if(child.classList.contains('file-sidebar-tools')){$('#history-open').hidden=hidden;$('#tasks-open').hidden=hidden;}
     else child.hidden=hidden;
   }
   localStorage.setItem('looking-glass-explorer-hidden',String(hidden));
@@ -1882,6 +1886,7 @@ $('#reload-disk').onclick=guard(async()=>{
 $('#copy-draft').onclick=guard(async()=>{await navigator.clipboard.writeText(entry().content);notify('Draft copied');});
 $('#merge-disk').onclick=guard(async()=>{const e=entry();const disk=await api('file?'+new URLSearchParams({path:e.path}));pending={mergePath:e.path,disk};$('#disk-text').textContent=disk.content;$('#merge-text').value=e.content;$('#merge-dialog').showModal();});
 $('#accept-merge').onclick=guard(async()=>{const e=entry();if(pending?.mergePath!==e.path)throw new Error('Open the original file to finish merging.');e.version=pending.disk.version;e.diskContent=pending.disk.content;e.content=$('#merge-text').value;e.dirty=e.content!==e.diskContent;e.conflict=null;e.state=null;view?.destroy();view=null;mountDocument(e);$('#merge-dialog').close();pending=null;renderTabs();updateToolbar();notify('Merged draft ready. Save to write it to disk.');});
+$('#tasks-open').onclick=guard(()=>openFile(TASKS));
 $('#history-open').onclick=guard(()=>openFile(HISTORY));
 $('#git-open').onclick=guard(showGit);$('#inspect-diff').onclick=guard(async()=>{const result=await api('git/diff','POST',{paths:selectedGit()});$('#git-diff').textContent=result.diff;});
 $('#checkpoint').onclick=guard(async()=>{const paths=selectedGit();if(paths.some(p=>tabs.get(p)?.dirty))throw new Error('Save your edits in the selected files before checkpointing.');const result=await api('git/checkpoint','POST',{paths,message:$('#checkpoint-name').value});await refreshBaseline();$('#git-dialog').close();notify('Checkpoint '+result.commit.slice(0,8)+' created');});

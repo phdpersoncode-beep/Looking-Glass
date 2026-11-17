@@ -82,6 +82,7 @@ With the server running, read thread/context before acting. Use `--body-file`/`-
 Keep this map and commands current when structure/workflows change.
 
 - `looking_glass/app.py`: routes/security; `workspace.py`: files/discussions; `anchors.py`: mapping; `reviews.py`: drafts/provenance/approval; `origins.py`: immutable context; `revisions.py`: Git checkpoints/history.
+- `looking_glass/tasks.py`: shared Kanban cards, milestones, ordering, and board revision checks; `docs/TASKS.md`: UI/CLI/API contracts.
 - `looking_glass/pdfs.py`: read-only PDF metadata, database bookmarks, and version-bound passage anchors.
 - `looking_glass/cli.py`, `projects.py`, `instructions.py`: agent interface/discovery/guidance; `database.py`: offline SQL dump/restore/check and CLI server maintenance leases; `attachments.py`: uploads.
 - `looking_glass/templates/`: HTML/HTMX; `frontend/`: client sources; `looking_glass/static/`: committed `build.mjs` output.

@@ -368,3 +368,7 @@ quote, rectangles, and version. `PATCH /api/threads/<id>` with `pdf_anchor` and
 current `version` explicitly reattaches a PDF passage while retaining its
 immutable original quote. PDF CLI creation/reattachment currently requires
 these API calls; the source-offset CLI commands apply to text files.
+
+## Shared planning
+
+Use `looking-glass tasks` or the token-protected `/api/tasks` endpoints to plan alongside people. Read the board revision before changing cards; stale writes return 409. See [Tasks](TASKS.md) for the full CLI and API contract.

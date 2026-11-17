@@ -4,6 +4,7 @@ import shlex
 
 def agent_instructions(root, url):
     command = f'looking-glass agent --root {shlex.quote(str(root))} --url {shlex.quote(url)}'
+    task_command = f'looking-glass tasks --root {shlex.quote(str(root))} --url {shlex.quote(url)}'
     return f'''Review this workspace through Looking Glass: {root}
 The local server must be running. Use these commands from any directory:
 
@@ -21,6 +22,21 @@ looking-glass projects list
 {command} review read REVIEW_ID
 {command} review history REVIEW_ID --after 0
 {command} review edit REVIEW_ID --version 'review:ID:REVISION' --author "Agent" --operations-file edits.json
+
+Plan with the shared Tasks board:
+{task_command} list
+{task_command} read CARD_ID
+{task_command} create 'Task title'
+{task_command} update CARD_ID --revision BOARD_REVISION --status in_progress
+{task_command} update CARD_ID --revision BOARD_REVISION --milestone
+{task_command} update CARD_ID --revision BOARD_REVISION --milestone-id MILESTONE_ID
+{task_command} update CARD_ID --revision BOARD_REVISION --description-file plan.md
+{task_command} move CARD_ID --revision BOARD_REVISION --status done
+Use list/read's revision for every update, move, or delete. On conflict, reread and
+reconsider; never blindly retry over human changes. Use --archived/--no-archived to
+archive/restore. Deleting a milestone keeps its tasks and unassigns them. Milestones
+are one level deep; completing children does not automatically complete the milestone.
+Board writes plan work; they never execute tasks or change project files.
 
 In review mode, never edit the source file on disk. Read the review draft, then send
 a JSON array of sequential edits: [{{"start":0,"end":0,"insert":"new text"}}].

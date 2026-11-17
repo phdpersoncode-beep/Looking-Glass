@@ -343,6 +343,14 @@ Tabs have pin and close buttons. Right-click a tab to close the other unpinned
 tabs. Unsaved tabs ask before discarding edits. Pinned tabs are protected by
 “Close other tabs”, but can still be closed individually.
 
+## Plan tasks and milestones
+
+Open **Tasks** beside **Commit history** for a pinnable Kanban tab with draggable
+cards, fuzzy search, milestone filtering, and bulk selection. Promote a card with
+**◇** to give it a milestone checklist. People and agents share the same persisted
+board through `looking-glass tasks`. See [Tasks](docs/TASKS.md) for interactions,
+CLI examples, API contracts, and assumptions.
+
 ## Work alongside a coding agent
 
 Keep the server running. Install the CLI with the user-level command above.

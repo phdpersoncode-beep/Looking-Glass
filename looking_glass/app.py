@@ -148,6 +148,15 @@ def create_app(root):
     def agent_instructions():
         return jsonify(instructions=instructions_text(ws.root, request.host_url.rstrip('/')))
 
+    @app.get('/api/tasks')
+    def task_board():
+        board = ws.tasks.read(request.args.get('revision', type=int))
+        return ('', 304) if board is None else jsonify(board)
+
+    @app.post('/api/tasks')
+    def change_task_board():
+        return jsonify(ws.tasks.mutate(body()))
+
     @app.get('/api/project')
     def project():
         return jsonify(root=str(ws.root))

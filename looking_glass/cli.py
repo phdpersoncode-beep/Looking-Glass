@@ -96,6 +96,36 @@ def build_parser():
     show.add_argument('directory', nargs='?', type=Path, help='Project directory; defaults to the nearest project ancestor.')
     show.add_argument('--url', help='Override the registered HTTP loopback server address.')
 
+    tasks = command(sub, 'tasks', 'Read and change the shared task board.',
+                    'looking-glass tasks --root ~/project list')
+    tasks.add_argument('--root', type=Path)
+    tasks.add_argument('--url')
+    task_ops = tasks.add_subparsers(dest='operation', required=True)
+    task_list = task_ops.add_parser('list', help='Return board revision and cards as JSON.')
+    task_list.add_argument('--status', choices=('backlog','in_progress','to_review','done'))
+    task_list.add_argument('--milestone-id', type=int, help='Include this milestone and its tasks.')
+    task_list.add_argument('--query', help='Fuzzy subsequence search across title and description.')
+    task_list.add_argument('--archived', action='store_true', help='Include archived cards.')
+    task_read = task_ops.add_parser('read', help='Read one card and its child tasks.')
+    task_read.add_argument('id', type=int)
+    task_create = task_ops.add_parser('create', help='Create a task in backlog or a chosen column.')
+    task_create.add_argument('title')
+    task_create.add_argument('--status', choices=('backlog','in_progress','to_review','done'), default='backlog')
+    for operation in ('update', 'delete', 'move'):
+        task_op = task_ops.add_parser(operation, help='Change cards with a required board revision from list/read.')
+        task_op.add_argument('ids', nargs='+', type=int)
+        task_op.add_argument('--revision', required=True, type=int)
+        if operation == 'update':
+            task_op.add_argument('--title')
+            task_op.add_argument('--description-file', type=Path, help='UTF-8 description; - reads stdin.')
+            task_op.add_argument('--status', choices=('backlog','in_progress','to_review','done'))
+            task_op.add_argument('--milestone', action=argparse.BooleanOptionalAction, default=None)
+            task_op.add_argument('--milestone-id', type=int, help='Use 0 to unassign.')
+            task_op.add_argument('--archived', action=argparse.BooleanOptionalAction, default=None)
+        elif operation == 'move':
+            task_op.add_argument('--status', required=True, choices=('backlog','in_progress','to_review','done'))
+            task_op.add_argument('--before', type=int)
+
     agent = command(sub, 'agent', 'Read, search, and update discussions through the local HTTP API.',
                     'looking-glass agent --root ~/project list --status open',
                     'Use a running local project. Infer the nearest project from the current directory, or set --root. '
@@ -234,7 +264,39 @@ def main(argv=None):
         def call(route, method='GET', data=None):
             return api(root, url, route, method, data)
 
-        if args.command == 'projects':
+        if args.command == 'tasks':
+            if args.operation in ('list', 'read', 'create'):
+                result = call('tasks')
+                if args.operation == 'list':
+                    def matches(card):
+                        text = iter((card['title'] + ' ' + card['description']).lower())
+                        return all(char in text for char in (args.query or '').strip().lower())
+                    result['cards'] = [card for card in result['cards']
+                                       if (args.archived or not card['archived'])
+                                       and (not args.status or card['status'] == args.status)
+                                       and (args.milestone_id is None or card['id'] == args.milestone_id or card['milestone_id'] == args.milestone_id)
+                                       and matches(card)]
+                elif args.operation == 'read':
+                    result['cards'] = [card for card in result['cards'] if card['id'] == args.id or card['milestone_id'] == args.id]
+                    if not any(card['id'] == args.id for card in result['cards']):
+                        raise ValueError('Card does not exist.')
+                elif args.operation == 'create':
+                    result = call('tasks', 'POST', dict(action='create', revision=result['revision'], title=args.title, status=args.status))
+            else:
+                data = dict(action=args.operation, ids=args.ids, revision=args.revision)
+                if args.operation == 'update':
+                    changes = {key:getattr(args,key) for key in ('title','status','milestone','milestone_id','archived') if getattr(args,key) is not None}
+                    if 'milestone_id' in changes:
+                        changes['milestone_id'] = changes['milestone_id'] or None
+                    if args.description_file:
+                        changes['description'] = sys.stdin.read() if str(args.description_file) == '-' else args.description_file.read_text(encoding='utf-8')
+                    data['changes'] = changes
+                elif args.operation == 'move':
+                    if len(args.ids) != 1:
+                        raise ValueError('Move takes exactly one card ID; use update --status for bulk moves.')
+                    data.update(id=args.ids[0], status=args.status, before=args.before)
+                result = call('tasks', 'POST', data)
+        elif args.command == 'projects':
             result = call('workspace')
             result.update(url=url, reachable=True, thread_counts={
                 status:call('threads?' + urlencode({'status':status, 'limit':1}))['total']
