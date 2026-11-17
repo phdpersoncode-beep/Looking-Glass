@@ -384,3 +384,7 @@ body.outline-resizing,body.outline-resizing *{cursor:col-resize!important;user-s
 .cm-match-map{position:absolute;right:1px;width:12px;pointer-events:none;z-index:4}
 .cm-match-marker{position:absolute;right:1px;width:9px;height:6px;min-height:0;padding:0;border:0;border-radius:1px;background:var(--occurrence-edge);pointer-events:auto;opacity:.85}
 .cm-match-marker:hover,.cm-match-marker:focus-visible{background:var(--occurrence-text);outline:1px solid var(--occurrence-edge);outline-offset:1px;opacity:1}
+
+.explorer-warning{margin:6px;padding:8px;border:1px solid var(--git-modified);border-radius:5px;color:var(--git-modified);font-size:11px;line-height:1.5;overflow-wrap:anywhere}.explorer-warning code{font-size:inherit}
+.image-comment-marker.draft{border:1px dashed var(--purple);box-shadow:0 0 0 2px var(--paper)}
+.file-sidebar>.panel-heading>div{flex-wrap:wrap;min-width:0}.file-sidebar>.panel-heading button{padding:3px}

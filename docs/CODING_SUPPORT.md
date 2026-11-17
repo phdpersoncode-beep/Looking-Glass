@@ -141,3 +141,8 @@ Tracked marker reconciliation includes opted-in files with no existing discussio
 so workspace-wide reads discover their first externally added TODO/NOTE. During
 Review approval, marker synchronization waits until operation-based anchors are
 promoted, retaining the original discussion and replies when a marker is reworded.
+
+Multiline browser composition and clipboard text accept LF, CRLF, and CR input
+while retaining the file's newline convention on save. Input normalization stays
+within one editor transaction so undo, Review provenance, selection positions,
+and Python definition line/column calculations use the same logical lines.

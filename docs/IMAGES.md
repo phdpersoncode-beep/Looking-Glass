@@ -27,7 +27,12 @@ Restore original restores the initially imported bytes and keeps discussion
 threads. Drawing saves are immediate image changes in either document mode;
 Markdown Review approval governs Markdown text changes, not image pixels.
 
-Choose Comment and click an image location to enter text. Ctrl+Enter (or
+Choose Comment to immediately open a composer and show a draft comment pin at the
+image center. Click another image location to reposition the pin without clearing
+your text. Ctrl+click the draft pin to enable dragging, or hold Ctrl while dragging
+it directly. Escape during a drag restores its previous position. Cancel/Escape in
+the composer removes the draft pin; sending creates the persistent discussion at
+its chosen location. A failed send keeps the text and pin for retry. Ctrl+Enter (or
 Cmd+Enter) sends a comment or reply; plain Enter adds a line. Failed submissions
 retain the text and show the error. Repeated shortcuts while sending create
 only one comment. A small discussion symbol opens the thread and a reply box. These are ordinary Looking Glass threads:
@@ -61,13 +66,16 @@ panes and survive reopening. Images stay rendered during arrow-key navigation;
 choose the small source symbol to edit an embed explicitly, then Done editing
 image to return.
 
-Ctrl+click an image's comment marker to enable drag mode. Drag it to a new
-location, then release to save its position and automatically exit drag mode.
+Ctrl+click an image's comment marker to enable drag mode, or hold Ctrl while
+dragging it directly. This works for draft pins before sending and saved
+discussions. Drag to a new location, then release to keep its position and
+automatically exit drag mode.
 The next normal click opens the discussion. Ctrl+click again or press Escape
 to exit drag mode; Escape during a drag cancels that move. This works in Live
-Markdown, preview, and the annotation editor. Marker moves are immediate metadata
-changes, keep the discussion and original context intact, and reject concurrent
-moves instead of overwriting them. Normal clicks continue to open the thread.
+Markdown, preview, and the annotation editor. Saved marker moves are immediate
+metadata changes; draft positions remain local until the comment is sent. Saved
+marker moves keep the discussion and original context intact, and reject
+concurrent moves instead of overwriting them. Normal clicks continue to open the thread.
 
 Open an image marker to see its comments. Each comment has a trash symbol with
 a Looking Glass confirmation; deleting one keeps the other comments and any

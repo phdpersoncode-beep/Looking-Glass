@@ -103,6 +103,15 @@ do not count toward the 10,000-file explorer limit. Click **Refresh files** in t
 left sidebar after adding, editing, or removing rules; no server restart is needed.
 The root `.looking.ignore` stays visible so you can edit it in Looking Glass.
 It must be a regular UTF-8 file, not a symlink.
+If discovery exceeds 10,000 files, a warning in the explorer suggests adding
+generated or unused paths to `.looking.ignore`. Refresh after updating the rules
+to remove the warning when the visible workspace fits within the limit.
+
+Use **New file** or **New folder** in the explorer header or right-click menu.
+Header actions create inside the last selected folder (or a selected file's parent);
+right-click empty tree space to create at the workspace root. New files open for
+editing, and new folders appear immediately, including empty ones. Existing files
+and paths with retained review history are protected from replacement.
 
 These rules only filter discovery. Already-open tabs, explicit **Open file** paths,
 and saved discussions remain accessible. Built-in exclusions such as `.git/`,
@@ -209,8 +218,9 @@ Both sidebars use stacked-panel minus/plus icons to collapse/expand all folders
 or threads, and panel icons to hide/show the sidebar itself.
 Drag the discussions divider to resize it; the width persists. Collapse a thread
 with its chevron and reopen it with its comment icon. The header also has collapse-all
-and expand-all controls. **Zen mode** (top-bar button or **Ctrl+Alt+Z**, **Cmd+Alt+Z**
-on macOS) hides the file explorer and tabs and expands only the focused thread.
+and expand-all controls. **Zen mode** (top-bar button or **Alt+Z**; the existing
+**Ctrl+Alt+Z** and **Cmd+Alt+Z** shortcuts also work) hides the file explorer and tabs
+and expands only the focused thread. The shortcut also works inside HTML reports.
 Leaving zen restores the normal collapse settings. **Ctrl+Z remains undo.**
 Resolving or deleting a thread or comment in zen mode advances to the next open
 thread, wrapping to the first when needed. This also works in spotlight; resolving

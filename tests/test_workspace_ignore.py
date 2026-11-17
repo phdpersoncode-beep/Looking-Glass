@@ -133,3 +133,27 @@ def test_workspace_switch_uses_its_own_rules(tmp_path):
     assert response.status_code == 200
     headers = {'X-Looking-Glass-Token': (second / '.looking-glass/token').read_text().strip()}
     assert client.get('/api/workspace', headers=headers).json['files'] == ['.looking.ignore', 'run.log']
+
+
+def test_file_limit_warning_boundary_etag_and_ignore_refresh(tmp_path,monkeypatch):
+    import looking_glass.workspace as workspace
+    monkeypatch.setattr(workspace,'FILE_LIMIT',2)
+    write(tmp_path,'a.txt');write(tmp_path,'b.txt')
+    app=create_app(tmp_path);ws=app.extensions['workspace'];client=app.test_client()
+    headers={'X-Looking-Glass-Token':ws.token}
+    before=client.get('/fragments/files',headers=headers)
+    assert 'File limit reached' not in before.text
+    assert ws.file_listing()==dict(files=['a.txt','b.txt'],truncated=False,limit=2)
+    write(tmp_path,'c.txt')
+    after=client.get('/fragments/files',headers={**headers,'If-None-Match':before.headers['ETag']})
+    assert after.status_code==200 and 'File limit reached (2)' in after.text
+    assert '.looking.ignore' in after.text
+    assert after.headers['ETag']!=before.headers['ETag']
+    api=client.get('/api/workspace',headers=headers).json
+    assert api['files']==['a.txt','b.txt'] and api['files_truncated'] and api['file_limit']==2
+    assert client.get('/fragments/files',headers={**headers,'If-None-Match':after.headers['ETag']}).status_code==304
+    write(tmp_path,'.looking.ignore','b.txt\nc.txt\n')
+    refreshed=client.get('/fragments/files',headers=headers)
+    assert 'File limit reached' not in refreshed.text
+    assert ws.files()==['.looking.ignore','a.txt']
+    assert not client.get('/api/workspace',headers=headers).json['files_truncated']

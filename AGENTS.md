@@ -23,7 +23,7 @@ Persistent, passage-anchored discussions are the priority. Feedback, attachments
 - Use consistent purple passage highlights across code, Markdown, tables, and HTML. Highlight text without filling margins. Resolved discussions leave a subtle indication rather than an active fill.
 - Keep reading stable: document-highlight clicks focus sidebar discussions without moving the passage. Sidebar thread-card clicks, passage links, comment icons, and navigation scroll to the passage. Returning from original context restores reading position and editor/report state.
 - Polling, autosave, and focus changes must not flicker, replace unchanged content, clear selections, reorder cards, lose replies, or steal focus. Routine status feedback stays quiet; errors/conflicts stay clear.
-- Sidebars resize and collapse to thin strips with restore controls in fixed positions. Preserve pane state. Support narrow windows and keyboard access; keep shortcuts discoverable. Ctrl+Z remains undo; Ctrl+Alt+Z is zen mode.
+- Sidebars resize and collapse to thin strips with restore controls in fixed positions. Preserve pane state. Support narrow windows and keyboard access; keep shortcuts discoverable. Ctrl+Z remains undo; Alt+Z toggles zen mode (Ctrl/Cmd+Alt+Z also works).
 - Keep annotation/editing consistent across source, live Markdown, preview, tables, and rendered HTML. Search respects file/resolved scopes. Navigation preserves unsent work. Thread-card clicks retain normal copying, links, and embedded controls.
 
 ## Development practices

@@ -6,6 +6,25 @@ workspace. **Alt+Q** collapses every folder and clears an active explorer filter
 including while editing or reading a sandboxed HTML report. The existing expand
 and collapse symbols remain available in the explorer header.
 
+**New file** and **New folder** are available in the header and right-click menu,
+including in an empty workspace. Select a folder (or a file in it) to choose the
+header actions' destination. Right-click a folder to create inside it, or empty
+tree space to create at the root. Enter a single name in the themed dialog;
+Enter creates it, and Escape/Cancel leaves disk unchanged. Creation expands the
+destination folders and clears the explorer filter; new files open as empty disk
+files while existing tabs keep their drafts and undo history. Collisions, protected
+paths, symlinks, and paths with older review history are rejected with an error
+that keeps the entered name for correction.
+
+The explorer shows a warning when more than 10,000 discoverable files exist.
+Add generated or unused paths to the workspace-root `.looking.ignore`, then
+refresh. Ignored paths do not consume the cap. Exactly 10,000 files is a complete
+listing and does not warn; truncation changes invalidate the tree's ETag even if
+the displayed file names stay the same. `GET /api/workspace` retains `files` and
+adds `files_truncated` and `file_limit`. `POST /api/explorer/create` accepts
+`{"path":"src/new.py","kind":"file"}` (or `"kind":"folder"`), requires an
+existing parent, and returns the normalized `path` and `directory` with status 201.
+
 Right-click a file or folder to open a small theme-matched menu at the cursor:
 **Rename**, **Delete**, **Copy relative path**, and **Copy absolute path**.
 Rename and deletion use Looking Glass dialogs. Escape dismisses the menu;

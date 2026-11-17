@@ -51,7 +51,7 @@ export function createImageTools({token,api,context,comment,focus,error,changed,
     function draw(){const c=canvas.getContext('2d');c.clearRect(0,0,canvas.width,canvas.height);c.drawImage(ink,0,0);}
     function buttons(){undo.disabled=at===0;redo.disabled=at===history.length-1;pen.setAttribute('aria-pressed',String(tool==='pen'));eraser.setAttribute('aria-pressed',String(tool==='eraser'));note.setAttribute('aria-pressed',String(tool==='comment'));}
     function snapshot(){history=history.slice(0,at+1);history.push(ctx.getImageData(0,0,ink.width,ink.height));if(history.length>Math.max(2,Math.min(20,Math.floor(64000000/(ink.width*ink.height*4)))))history.shift();at=history.length-1;dirty=true;buttons();}
-    const pen=button('Red pen',()=>{tool='pen';buttons();}),eraser=button('Eraser',()=>{tool='eraser';buttons();}),note=button('Comment',()=>{tool='comment';buttons();});
+    const pen=button('Red pen',()=>{tool='pen';buttons();}),eraser=button('Eraser',()=>{tool='eraser';buttons();}),note=button('Comment',()=>{tool='comment';buttons();commentBox(stage,id,null,dialog);});
     const undo=button('Undo',()=>{if(at){ctx.putImageData(history[--at],0,0);dirty=true;draw();buttons();}}),redo=button('Redo',()=>{if(at<history.length-1){ctx.putImageData(history[++at],0,0);dirty=true;draw();buttons();}});
     const close=run(async()=>{if(!busy&&(!dirty||await confirmAction({title:'Discard annotations?',message:'Your unsaved drawing changes will be discarded.',confirmLabel:'Discard annotations',symbol:'trash',danger:true})))dialog.close();});
     const save=button('Save image',run(async()=>{
@@ -82,13 +82,23 @@ export function createImageTools({token,api,context,comment,focus,error,changed,
   }
   function commentBox(host,id,p,dialog=null,thread=null){
     const panel=dialog?.querySelector('.image-comments')||host;
-    panel.querySelector('.image-comment-box')?.remove();panel.hidden=false;
+    const previous=panel.querySelector('.image-comment-box');
+    if(!thread&&previous?._draft){if(p)previous._moveDraft(p);previous.querySelector('textarea').focus();return;}
+    if(previous&&previous._dismiss()===false)return;
+    p={...(p||{x:.5,y:.5})};panel.hidden=false;
     const box=document.createElement('form');box.className='image-comment-box';box.noValidate=true;box.setAttribute('aria-label',thread?'Image thread':'Image comment');
     const text=document.createElement('textarea');text.placeholder=thread?'Reply to image thread':'Comment on image';text.setAttribute('aria-label',text.placeholder);text.required=true;text.title='Ctrl+Enter / ⌘+Enter to send';
     const feedback=document.createElement('p');feedback.setAttribute('role','alert');
-    let busy=false;
-    const dismiss=()=>{if(busy)return;box.remove();if(dialog)panel.hidden=true;};
-    const setBusy=value=>{busy=value;text.readOnly=value;box.querySelectorAll('button').forEach(b=>b.disabled=value);};
+    let busy=false,draftMarker=null;
+    const dismiss=()=>{if(busy)return false;draftMarker?.remove();box.remove();if(dialog)panel.hidden=true;return true;};
+    box._dismiss=dismiss;
+    const setBusy=value=>{busy=value;text.readOnly=value;if(draftMarker)draftMarker.disabled=value;box.querySelectorAll('button').forEach(b=>b.disabled=value);};
+    if(!thread){
+      draftMarker=button('New image comment');draftMarker.className='image-comment-marker draft';draftMarker.title='New image comment · Ctrl+click to move';
+      host.append(draftMarker);box._draft=true;
+      const place=movableMarker(host,draftMarker,{point:()=>p,open:()=>text.focus(),save:next=>Object.assign(p,next)});
+      box._moveDraft=next=>{if(!busy&&!draftMarker._dragging){Object.assign(p,next);place(p);}};
+    }
     const submit=button(thread?'Reply':'Add comment');submit.type='submit';
     const cancel=button('Cancel',dismiss),actions=document.createElement('div');actions.className='dialog-actions';actions.append(cancel,submit);
     const messages=document.createElement('div');messages.className='image-comment-messages';
@@ -127,41 +137,56 @@ export function createImageTools({token,api,context,comment,focus,error,changed,
     };
     box.append(text,feedback,actions);panel.append(box);text.focus();
   }
+  function movableMarker(host,b,{point,open,save,changed}){
+    let drag=null,ignoreClick=false,armedByPointer=false;
+    const place=p=>{b.style.left=(p.x*100)+'%';b.style.top=(p.y*100)+'%';};
+    const mode=enabled=>{b.classList.toggle('drag-mode',enabled);b.setAttribute('aria-pressed',String(enabled));};mode(false);
+    b.onclick=event=>{
+      event.stopPropagation();if(ignoreClick){ignoreClick=false;armedByPointer=false;return;}
+      if(event.ctrlKey){if(!armedByPointer)mode(!b.classList.contains('drag-mode'));armedByPointer=false;return;}
+      if(b.classList.contains('drag-mode'))return;
+      open();
+    };
+    b.onpointerdown=event=>{
+      if(event.button!==0||b.disabled||b._moving)return;
+      armedByPointer=event.ctrlKey&&!b.classList.contains('drag-mode');
+      if(armedByPointer)mode(true);
+      if(!b.classList.contains('drag-mode'))return;
+      event.preventDefault();event.stopPropagation();
+      b.focus({preventScroll:true});
+      drag={x:event.clientX,y:event.clientY,rect:host.getBoundingClientRect(),point:{...point()}};b._dragging=true;ignoreClick=false;b.setPointerCapture(event.pointerId);
+    };
+    b.onpointermove=event=>{
+      if(!drag)return;
+      drag.next={x:Math.max(0,Math.min(1,drag.point.x+(event.clientX-drag.x)/drag.rect.width)),y:Math.max(0,Math.min(1,drag.point.y+(event.clientY-drag.y)/drag.rect.height))};place(drag.next);
+    };
+    const finish=(event,cancel=false)=>{
+      if(!drag)return;const current=drag;drag=null;b._dragging=false;
+      const moved=Math.hypot(event.clientX-current.x,event.clientY-current.y)>2;
+      ignoreClick=moved;if(cancel||moved)mode(false);
+      if(cancel||!moved||!current.next){place(current.point);return;}
+      b._moving=true;
+      run(async()=>{try{await save(current.next,current.point);}catch(e){place(current.point);throw e;}finally{b._moving=false;changed?.();}})();
+    };
+    b.onpointerup=event=>finish(event);b.onpointercancel=event=>finish(event,true);
+    b.onkeydown=event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();if(drag){place(drag.point);drag=null;b._dragging=false;ignoreClick=true;}mode(false);}};
+    // Persisted markers get their first point from markers() after _thread is set.
+    if(b.classList.contains('draft'))place(point());
+    return place;
+  }
   function markers(host,id,dialog=null){
     const threads=context().threads.filter(t=>t.image_annotation?.image_id===id&&t.anchor_status==='attached');
-    const existing=new Map([...host.querySelectorAll(':scope > .image-comment-marker')].map(b=>[Number(b.dataset.thread),b]));
+    const existing=new Map([...host.querySelectorAll(':scope > .image-comment-marker[data-thread]')].map(b=>[Number(b.dataset.thread),b]));
     for(const thread of threads){
       let b=existing.get(thread.id);existing.delete(thread.id);
       if(!b){
         b=button('Image thread #'+thread.id);b.className='image-comment-marker';b.dataset.thread=thread.id;b.title='Image thread #'+thread.id+' · Ctrl+click to move';
-        let drag=null,ignoreClick=false;
-        const place=p=>{b.style.left=(p.x*100)+'%';b.style.top=(p.y*100)+'%';};
-        const mode=enabled=>{b.classList.toggle('drag-mode',enabled);b.setAttribute('aria-pressed',String(enabled));};mode(false);
-        b.onclick=event=>{
-          event.stopPropagation();if(ignoreClick){ignoreClick=false;return;}
-          if(event.ctrlKey){mode(!b.classList.contains('drag-mode'));return;}
-          if(b.classList.contains('drag-mode'))return;
-          commentBox(host,id,b._thread.image_annotation,dialog,b._thread);if(!dialog)focus(b._thread.id);
-        };
-        b.onpointerdown=event=>{
-          if(event.button!==0||!b.classList.contains('drag-mode')||b._moving)return;
-          event.preventDefault();event.stopPropagation();const rect=host.getBoundingClientRect();
-          drag={x:event.clientX,y:event.clientY,rect,point:{...b._thread.image_annotation},thread:b._thread};b._dragging=true;ignoreClick=false;b.setPointerCapture(event.pointerId);
-        };
-        b.onpointermove=event=>{
-          if(!drag)return;
-          drag.next={x:Math.max(0,Math.min(1,drag.point.x+(event.clientX-drag.x)/drag.rect.width)),y:Math.max(0,Math.min(1,drag.point.y+(event.clientY-drag.y)/drag.rect.height))};place(drag.next);
-        };
-        const finish=(event,cancel=false)=>{
-          if(!drag)return;const current=drag;drag=null;b._dragging=false;
-          const moved=Math.hypot(event.clientX-current.x,event.clientY-current.y)>2;
-          ignoreClick=moved;if(cancel||moved)mode(false);
-          if(cancel||!moved||!current.next){place(current.point);return;}
-          b._moving=true;
-          run(async()=>{try{await move(id,current.thread,current.next);}catch(e){place(current.point);throw e;}finally{b._moving=false;markers(host,id,dialog);}})();
-        };
-        b.onpointerup=event=>finish(event);b.onpointercancel=event=>finish(event,true);
-        b.onkeydown=event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();if(drag){place(drag.point);drag=null;b._dragging=false;ignoreClick=true;}mode(false);}};
+        movableMarker(host,b,{
+          point:()=>b._thread.image_annotation,
+          open:()=>{commentBox(host,id,b._thread.image_annotation,dialog,b._thread);if(!dialog)focus(b._thread.id);},
+          save:(next,previous)=>move(id,{...b._thread,image_annotation:previous},next),
+          changed:()=>markers(host,id,dialog),
+        });
         host.append(b);
       }
       b._thread=thread;b.classList.toggle('resolved',thread.resolved);

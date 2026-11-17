@@ -6,5 +6,6 @@
 <button draggable="true" class="file-entry" data-git-status="{{ statuses.get(path, '') }}" data-path="{{ path }}" title="{{ path }}"><span class="file-type">{% if path.endswith('.md') %}M↓{% elif path.endswith('.py') %}Py{% elif path.endswith('.stl') %}△{% elif path.endswith('.html') %}◇{% elif path.endswith('.jsonl') %}{ }{% else %}≡{% endif %}</span><span class="file-name">{{ name }}</span></button>
 {% endif %}{% endfor %}
 {% endmacro %}
+{% if listing.truncated %}<p class="explorer-warning" role="status">File limit reached ({{ '{:,}'.format(listing.limit) }}). Some files are hidden. Add generated or unused paths to <code>.looking.ignore</code>, then refresh files.</p>{% endif %}
 {{ entries(tree) }}
 {% if not tree %}<p class="muted p-4">No files in this directory.</p>{% endif %}
