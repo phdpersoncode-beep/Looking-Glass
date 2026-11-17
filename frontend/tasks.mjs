@@ -308,6 +308,12 @@ function mountTasks(host, state, api, options = {}) {
     status.value = draft?.status ?? card.status;
     milestones(parent, (draft ? draft.milestone_id : card.milestone_id) || "", [card.id]);
     parent.disabled = !!card.milestone;
+    const number=card.milestone ? field(form,"Milestone number (#M)",el("input")) : null;
+    if(number){
+      number.type="number";number.min="1";number.max="999999";number.step="1";number.required=true;
+      number.value=draft?.milestone_number ?? card.milestone_number;
+      number.title="Choose a unique milestone number. Saved numbers stay fixed until you edit them.";
+    }
     const permanent=el("p", "Card " + cardReference(card.id), "task-permanent-reference");
     d.querySelector("h2").after(permanent);
     d.refreshReference=()=>{
@@ -325,7 +331,7 @@ function mountTasks(host, state, api, options = {}) {
     d.refreshReference();
     const actions = el("div", void 0, "task-edit-actions"), save = el("button", "Save");
     save.type = "submit";
-    const retainDraft = () => drafts.set(card.id, {revision, title:title.value, description:description.value, status:status.value, milestone_id:Number(parent.value)||null});
+    const retainDraft = () => drafts.set(card.id, {revision, title:title.value, description:description.value, status:status.value, milestone_id:Number(parent.value)||null,...(number?{milestone_number:number.value}: {})});
     form.oninput = form.onchange = retainDraft;
     d.addEventListener("cancel", () => drafts.delete(card.id));
     actions.append(save, button("Cancel", () => { drafts.delete(card.id); d.close(); }), button(card.milestone ? "Convert to task" : "\u25C7 Promote to milestone", async () => {
@@ -341,7 +347,7 @@ function mountTasks(host, state, api, options = {}) {
     form.onsubmit = async (e) => {
       e.preventDefault();
       save.disabled = true;
-      if (await change({ action: "update", ids: [card.id], changes: { title: title.value, description: description.value, status: status.value, ...(Number(parent.value) || null) !== card.milestone_id ? { milestone_id: Number(parent.value) || null } : {} } }, revision)) { drafts.delete(card.id); d.close(); }
+      if (await change({ action: "update", ids: [card.id], changes: { title: title.value, description: description.value, status: status.value, ...(number?{milestone_number:Number(number.value)}:{}), ...(Number(parent.value) || null) !== card.milestone_id ? { milestone_id: Number(parent.value) || null } : {} } }, revision)) { drafts.delete(card.id); d.close(); }
       else {
         save.disabled = false;
         error.textContent = notice.textContent;
@@ -350,7 +356,7 @@ function mountTasks(host, state, api, options = {}) {
           const latest = board.cards.find((c) => c.id === card.id), reviewedRevision = board.revision;
           if (latest) {
             const details = el("details"), summary = el("summary", "Review latest saved card");
-            details.append(summary, el("pre", JSON.stringify({ title: latest.title, description: latest.description, status: latest.status, milestone_id: latest.milestone_id, milestone: !!latest.milestone, archived: !!latest.archived }, null, 2)), button("Use this revision and keep my edits", () => {
+            details.append(summary, el("pre", JSON.stringify({ title: latest.title, description: latest.description, status: latest.status, milestone_id: latest.milestone_id, milestone: !!latest.milestone, milestone_number:latest.milestone_number, archived: !!latest.archived }, null, 2)), button("Use this revision and keep my edits", () => {
               revision = reviewedRevision;
               retainDraft();
               error.textContent = "Latest revision acknowledged. Review your fields, then save.";

@@ -129,10 +129,11 @@ journey forces the discussion heading across its wrap threshold, then checks tha
 search keeps the same vertical position during keyboard resizing in both engines;
 this covers platform font differences without relaxing the geometry assertion.
 
-Task board checks cover derived `#M` numbering separately from permanent `#C`
-identity. Fast Python/JavaScript checks exercise promotion order, gap closure,
-archive/restart persistence, exact reference search, stale edits, and unchanged
-assignment/history targets. The Chromium/Firefox journeys cover renumbering in
-open editors without clearing drafts, restoring card IDs after demotion, a larger
-sidebar Tasks SVG, and compact update rows with smaller type and working delete
-controls in light/dark themes and a narrow window.
+Task board checks cover saved, editable `#M` numbers separately from permanent
+`#C` identity. Fast Python/JavaScript checks exercise number edits, uniqueness and
+range validation, migration preserving old labels, archive/restart/snapshot
+persistence, exact reference search, stale edits, and unchanged assignment/history
+targets. Chromium/Firefox journeys cover manual edits and conflict recovery,
+number changes in open editors without clearing drafts, restoring card IDs after
+demotion, the larger Tasks SVG, and compact update rows with working deletion in
+light/dark themes and a narrow window.

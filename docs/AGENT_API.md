@@ -375,4 +375,10 @@ Use `looking-glass tasks` or the token-protected `/api/tasks` endpoints to plan 
 
 Card references such as `C01` are accepted by `tasks` commands (quote `'#C01'` in a shell). Use `tasks activity C01`, `tasks comment C01 --author Agent --body-file reply.md`, and `tasks delete-activity C01 ENTRY_ID` for the card conversation. Activity is read separately from board snapshots; field changes generate updates automatically. See [Tasks](TASKS.md#comments-and-activity).
 
-Milestones display dynamic `#M1`, `#M2` labels in creation order, including archived milestones. `tasks list --query M1` resolves the current label; use the returned permanent `card_reference` for CLI read/write arguments. Snapshot `reference` is the displayed label, while `card_reference` remains the original #C identity. HTTP mutations continue to use numeric IDs.
+Milestones have saved, editable #M numbers. Use `tasks list --query M12` to resolve
+#M12, then the permanent `card_reference` for read/write commands. Change a number
+with `tasks update C01 --revision N --milestone-number 12`; API updates use
+`changes: {"milestone_number":12}`. Numbers must be unique (including archived
+milestones), from 1 to 999999. Number changes are logged; stale writes are rejected.
+Snapshot `reference` is the display label; `card_reference` always retains the #C
+identity. Existing displayed numbers are preserved on upgrade.

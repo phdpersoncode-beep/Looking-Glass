@@ -26,6 +26,16 @@ class Tasks:
                     changes TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
                 CREATE INDEX IF NOT EXISTS task_activity_card ON task_activity(card_id,id);
             ''')
+            task_columns = {row['name'] for row in db.execute('PRAGMA table_info(tasks)')}
+            if 'milestone_number' not in task_columns:
+                db.execute('ALTER TABLE tasks ADD COLUMN milestone_number INTEGER')
+            # Freeze the previously displayed creation-order numbers on upgrade.
+            used = {row[0] for row in db.execute('SELECT milestone_number FROM tasks WHERE milestone=1 AND milestone_number IS NOT NULL')}
+            for row in db.execute('SELECT id FROM tasks WHERE milestone=1 AND milestone_number IS NULL ORDER BY id').fetchall():
+                number = self.free_number(used)
+                db.execute('UPDATE tasks SET milestone_number=? WHERE id=?', (number,row['id']))
+                used.add(number)
+            db.execute('CREATE UNIQUE INDEX IF NOT EXISTS task_milestone_numbers ON tasks(milestone_number) WHERE milestone=1')
             columns = {row['name'] for row in db.execute('PRAGMA table_info(task_board_revision)')}
             for name in ('next_card_id', 'next_activity_id'):
                 if name not in columns:
@@ -34,10 +44,18 @@ class Tasks:
                 db.execute(f'UPDATE task_board_revision SET {name}=MAX({name},(SELECT COALESCE(MAX(id),0)+1 FROM {table})) WHERE id=1')
 
     @staticmethod
+    def free_number(used):
+        number = 1
+        while number in used:
+            number += 1
+        if number > 999999:
+            raise Problem('No milestone numbers are available.')
+        return number
+
+    @staticmethod
     def snapshot(db):
         cards = [dict(row) for row in db.execute('SELECT * FROM tasks ORDER BY position,id')]
-        milestones = {card['id']:f'#M{number}' for number, card in enumerate(
-            sorted((card for card in cards if card['milestone']), key=lambda card:card['id']), 1)}
+        milestones = {card['id']:f"#M{card['milestone_number']}" for card in cards if card['milestone']}
         for card in cards:
             card['card_reference'] = f"#C{card['id']:02d}"
             card['milestone_reference'] = milestones.get(card['id'])
@@ -73,7 +91,7 @@ class Tasks:
                    (identifier,card_id,kind,author,body,json.dumps(changes or {},ensure_ascii=False)))
 
     def mutate(self, data):
-        allowed = {'title', 'description', 'status', 'milestone', 'milestone_id', 'archived'}
+        allowed = {'title', 'description', 'status', 'milestone', 'milestone_id', 'milestone_number', 'archived'}
         with self.ws.connection() as db:
             db.execute('BEGIN IMMEDIATE')
             action = data.get('action')
@@ -137,6 +155,12 @@ class Tasks:
                     for field in ('milestone', 'archived'):
                         if field in changes and type(changes[field]) is not bool:
                             raise Problem(f'{field} must be a boolean.')
+                    if 'milestone_number' in changes:
+                        number = changes['milestone_number']
+                        if type(number) is not int or not 1 <= number <= 999999:
+                            raise Problem('Use a milestone number from 1 to 999999.')
+                        if len(rows) != 1 or not changes.get('milestone', rows[0]['milestone']):
+                            raise Problem('Set the number of one milestone at a time.')
                     parent = changes.get('milestone_id')
                     if parent is not None:
                         if type(parent) is not int or parent in ids:
@@ -148,7 +172,22 @@ class Tasks:
                         changes = {**changes, 'milestone_id': None}
                     if changes.get('milestone') is False:
                         db.execute(f'UPDATE tasks SET milestone_id=NULL WHERE milestone_id IN ({marks})', ids)
-                    db.execute(f'UPDATE tasks SET {",".join(field+"=?" for field in changes)},updated_at=CURRENT_TIMESTAMP WHERE id IN ({marks})', [*changes.values(), *ids])
+                    used = {row['milestone_number']:row['id'] for row in db.execute('SELECT id,milestone_number FROM tasks WHERE milestone=1')}
+                    for row in rows:
+                        updates = dict(changes)
+                        if updates.get('milestone', row['milestone']):
+                            number = updates.get('milestone_number', row['milestone_number'])
+                            if 'milestone_number' in updates and number in used and used[number] != row['id']:
+                                raise Problem(f'Milestone #M{number} is already in use. Choose an unused number.', 409)
+                            if number is None or (number in used and used[number] != row['id']):
+                                number = self.free_number(used)
+                            if row['milestone']:
+                                used.pop(row['milestone_number'], None)
+                            used[number] = row['id']
+                            updates['milestone_number'] = number
+                        elif row['milestone']:
+                            used.pop(row['milestone_number'], None)
+                        db.execute(f'UPDATE tasks SET {",".join(field+"=?" for field in updates)},updated_at=CURRENT_TIMESTAMP WHERE id=?', [*updates.values(),row['id']])
                     if 'status' in changes:
                         position = db.execute('SELECT COALESCE(MAX(position),0) FROM tasks').fetchone()[0]
                         for offset, row in enumerate(rows, 1):

@@ -12,11 +12,17 @@ to dragging. All titles and descriptions are treated as plain text.
 
 Milestone cards have a purple left bar; task assignment labels stay small and muted.
 Every card keeps a permanent reference such as **#C01**, including while promoted.
-Milestones display **#M1**, **#M2**, and so on, in card-creation order. The milestone
-sequence updates after promotion, demotion, or deletion to close gaps. Column moves,
-search/filter changes, and archive/restore do not renumber it: archived milestones
-keep their place. Demotion restores the original #C reference; re-promotion computes
-the current #M number. The milestone editor also shows its permanent #C identity.
+Milestones display **#M1**, **#M2**, and so on. Open a milestone, edit
+**Milestone number (#M)**, then Save to change its number as the plan evolves.
+Numbers are unique positive integers from 1 to 999999, including archived
+milestones. A duplicate number keeps the editor open with a clear error.
+
+Saved numbers stay fixed until explicitly edited; promoting, demoting, deleting,
+archiving, or moving another card never shifts them. New promotions take the
+lowest unused number. Demotion restores the original #C identity and remembers
+the previous milestone number; re-promotion reuses it when free, otherwise assigns
+an unused number. The milestone editor also shows its permanent #C identity.
+Existing boards retain the numbers displayed before this upgrade.
 
 Search `#M1` or `M1` for a current milestone, or `#C01` / `C01` for a permanent card.
 Both searches work while the card is promoted. Stable #C numbers survive restarts,
@@ -114,6 +120,10 @@ looking-glass tasks --root /path/to/project delete-activity C01 42
 
 `read` returns card fields; `activity` returns conversation entries separately.
 Card mutations also accept `--author` (default: Agent) to identify updates.
+Use `tasks update C01 --revision N --milestone-number 12` to assign #M12 to a
+milestone. Set `--milestone` in the same command to promote a task with a chosen
+number. Only one milestone can receive an explicit number per update; duplicate
+numbers, including archived owners, are rejected atomically.
 
 `--milestone-id 0` unassigns; `--no-milestone` demotes. `--description-file -`
 reads stdin. Multi-card `update` and `delete` are atomic. `move` takes one card;
@@ -158,7 +168,8 @@ for mutations (defaults to User for HTTP; the browser uses its saved author).
 
 Statuses are `backlog`, `in_progress`, `to_review`, `done`. Editable fields are
 `title`, `description`, `status`, `milestone` (boolean), `milestone_id` (integer or
-null), and `archived` (boolean). Move's optional `before` identifies an active card
+null), `milestone_number` (integer from 1 to 999999, for a single milestone), and
+`archived` (boolean). Move's optional `before` identifies an active card
 in the destination column. Responses return the complete updated board.
 
 Cards and ordering persist in the existing `.looking-glass/state.sqlite3`; ordinary
@@ -178,7 +189,7 @@ or automatic Git commits are introduced.
   includes hidden selected cards. Switching archive scope clears selection.
 - Comments and update entries are both deletable; deletion does not undo changes.
 - Every card retains its stable `#C` identity, with two-digit minimum padding. Milestones
-  display a separate, contiguous `#M` sequence in creation order, including archived milestones.
+  display editable, saved `#M` numbers; gaps are allowed and archived numbers remain reserved.
 - A completion celebration is only for a successful local task transition into Done.
 - Tab pinning follows existing behavior; board search/filter state lasts while its tab
   session remains open, while card data and tab metadata survive reloads.
