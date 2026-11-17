@@ -64,6 +64,42 @@ def test_spotlight_arrows_keep_sidebar_focus_drafts_and_search_position(workspac
 
 
 @pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_discussion_search_stays_fixed_when_heading_reflows(workspace_page):
+    from playwright.sync_api import expect
+    root, page, url, ws = workspace_page
+    discussions(root, ws)
+    page.goto(url); open_file(page, 'note.md')
+    expect(page.locator('#thread-total')).to_have_text('3 threads · 3 open · 0 closed')
+    heading = page.locator('#discussion-sidebar>.panel-heading')
+    # Font metrics differ across platforms. Place the label just beyond the
+    # wrapping threshold so a 10px resize exercises both heading layouts.
+    heading.evaluate("""header => {
+        const label = header.firstElementChild, actions = header.lastElementChild;
+        const style = getComputedStyle(header);
+        const inner = header.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+        const labelWidth = inner - actions.getBoundingClientRect().width - parseFloat(style.columnGap) + 5;
+        label.style.flex = `0 0 ${labelWidth}px`;
+    }""")
+    def rows():
+        return heading.evaluate("""header => {
+            const label = header.firstElementChild.getBoundingClientRect();
+            const actions = header.lastElementChild.getBoundingClientRect();
+            return {wrapped: actions.top >= label.bottom, inside: actions.right <= header.getBoundingClientRect().right};
+        }""")
+    assert rows()['wrapped'] and rows()['inside']
+    search = page.locator('#thread-search'); before = search.bounding_box()['y']
+    resize = page.locator('#discussion-resize'); width = int(resize.get_attribute('aria-valuenow'))
+    resize.press('ArrowLeft')
+    expect(resize).to_have_attribute('aria-valuenow', str(width + 10))
+    assert not rows()['wrapped'] and rows()['inside']
+    assert abs(search.bounding_box()['y'] - before) < 1
+    resize.press('ArrowRight')
+    expect(resize).to_have_attribute('aria-valuenow', str(width))
+    assert rows()['wrapped'] and rows()['inside']
+    assert abs(search.bounding_box()['y'] - before) < 1
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
 @pytest.mark.parametrize('control', ['reply', 'search', 'filtered-search'])
 def test_escape_from_spotlight_fields_returns_to_current_thread_shortcuts(workspace_page, control):
     from playwright.sync_api import expect

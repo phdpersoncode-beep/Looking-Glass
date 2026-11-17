@@ -124,4 +124,7 @@ CRLF Edit/Review files, definition navigation, saved bytes, and single-step undo
 input while retaining Alt+Z aliases. Image draft-pin cancellation uses global
 Escape during a direct Ctrl-drag, without a locator setting focus on its behalf.
 Sidebar geometry checks test every button pair and both axes of the heading
-bounds, including wrapped rows at the minimum pane width.
+bounds, including wrapped rows at the minimum pane width. The spotlight controls
+journey forces the discussion heading across its wrap threshold, then checks that
+search keeps the same vertical position during keyboard resizing in both engines;
+this covers platform font differences without relaxing the geometry assertion.

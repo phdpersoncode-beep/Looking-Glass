@@ -134,7 +134,8 @@ dialog:modal{margin:auto}.directory-list{height:260px;overflow:auto;margin-top:8
 
 .jsonl-navigation{display:flex;align-items:center;gap:8px;flex-shrink:0;border-bottom:1px solid var(--border)}.jsonl-navigation .viewer-heading{flex:1;min-width:0;border:0;padding:10px 0 10px 16px}.jsonl-entry-buttons{display:flex;gap:2px;padding:4px 8px}.jsonl-entry-buttons button{display:grid;place-items:center;width:32px;height:32px;border:0;padding:6px;color:var(--muted)}.jsonl-raw>.viewer-heading{position:sticky;top:0;z-index:2;background:var(--panel)}.jsonl-raw .jsonl-row{scroll-margin-top:42px}
 
-#discussions-toggle{position:absolute;top:10px;right:3px;z-index:3}.discussion-sidebar>.panel-heading{padding-right:40px}.discussions-hidden{--discussion-column:36px}.discussions-hidden #discussions-toggle .sidebar-toggle-arrow{transform:scaleX(-1);transform-origin:8px 10px}
+#discussions-toggle{position:absolute;top:10px;right:3px;z-index:3}/* Reserve both heading rows so font-dependent wrapping cannot move search. */
+.discussion-sidebar>.panel-heading{padding-right:40px;min-height:57px}.discussions-hidden{--discussion-column:36px}.discussions-hidden #discussions-toggle .sidebar-toggle-arrow{transform:scaleX(-1);transform-origin:8px 10px}
 
 .live-markdown .cm-editor .cm-content{max-width:none;margin:0;width:100%;padding:20px 0}.live-markdown .cm-editor .cm-line{max-width:850px;margin:0 auto;padding-left:28px;padding-right:28px}.live-markdown .md-diagram,.live-markdown .markdown-source-controls{padding-left:16px;padding-right:16px}
 /* Keep the former prose measure without constraining rendered table regions. */
