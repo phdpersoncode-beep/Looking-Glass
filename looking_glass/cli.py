@@ -120,7 +120,8 @@ def build_parser():
     task_create.add_argument('title')
     task_create.add_argument('--author', default='Agent')
     task_create.add_argument('--status', choices=('backlog','in_progress','to_review','done'), default='backlog')
-    for operation in ('update', 'delete', 'move'):
+    task_create.add_argument('--parent-id', type=card_id, help='Create a checklist subitem under this card.')
+    for operation in ('update', 'delete', 'move', 'outline-move'):
         task_op = task_ops.add_parser(operation, help='Change cards with a required board revision from list/read.')
         task_op.add_argument('ids', nargs='+', type=card_id)
         task_op.add_argument('--author', default='Agent')
@@ -132,9 +133,13 @@ def build_parser():
             task_op.add_argument('--milestone', action=argparse.BooleanOptionalAction, default=None)
             task_op.add_argument('--milestone-number', type=int, help='Set a unique milestone number (1–999999).')
             task_op.add_argument('--milestone-id', type=card_id, help='Use 0 to unassign.')
+            task_op.add_argument('--parent-id', type=card_id, help='Nest under a card; use 0 for the top level.')
             task_op.add_argument('--archived', action=argparse.BooleanOptionalAction, default=None)
         elif operation == 'move':
             task_op.add_argument('--status', required=True, choices=('backlog','in_progress','to_review','done'))
+            task_op.add_argument('--before', type=card_id)
+        elif operation == 'outline-move':
+            task_op.add_argument('--parent-id', type=card_id, default=0)
             task_op.add_argument('--before', type=card_id)
 
     activity = task_ops.add_parser('activity', help='Read a card conversation and automatic updates.')
@@ -309,11 +314,14 @@ def main(argv=None):
                                        and (args.milestone_id is None or card['id'] == args.milestone_id or card['milestone_id'] == args.milestone_id)
                                        and matches(card)]
                 elif args.operation == 'read':
-                    result['cards'] = [card for card in result['cards'] if card['id'] == args.id or card['milestone_id'] == args.id]
+                    descendants = {args.id}
+                    for _ in range(32):
+                        descendants.update(card['id'] for card in result['cards'] if card['parent_id'] in descendants)
+                    result['cards'] = [card for card in result['cards'] if card['id'] in descendants]
                     if not any(card['id'] == args.id for card in result['cards']):
                         raise ValueError('Card does not exist.')
                 elif args.operation == 'create':
-                    result = call('tasks', 'POST', dict(action='create', revision=result['revision'], title=args.title, status=args.status, author=args.author))
+                    result = call('tasks', 'POST', dict(action='create', revision=result['revision'], title=args.title, status=args.status, parent_id=args.parent_id or None, author=args.author))
             elif args.operation == 'activity':
                 query = {'limit':args.limit}
                 if args.before is not None:
@@ -334,9 +342,10 @@ def main(argv=None):
             else:
                 data = dict(action=args.operation, ids=args.ids, revision=args.revision, author=args.author)
                 if args.operation == 'update':
-                    changes = {key:getattr(args,key) for key in ('title','status','milestone','milestone_id','milestone_number','archived') if getattr(args,key) is not None}
-                    if 'milestone_id' in changes:
-                        changes['milestone_id'] = changes['milestone_id'] or None
+                    changes = {key:getattr(args,key) for key in ('title','status','milestone','milestone_id','milestone_number','archived','parent_id') if getattr(args,key) is not None}
+                    for key in ('milestone_id','parent_id'):
+                        if key in changes:
+                            changes[key] = changes[key] or None
                     if args.description_file:
                         changes['description'] = sys.stdin.read() if str(args.description_file) == '-' else args.description_file.read_text(encoding='utf-8')
                     data['changes'] = changes
@@ -344,6 +353,8 @@ def main(argv=None):
                     if len(args.ids) != 1:
                         raise ValueError('Move takes exactly one card ID; use update --status for bulk moves.')
                     data.update(id=args.ids[0], status=args.status, before=args.before)
+                elif args.operation == 'outline-move':
+                    data.update(action='outline_move',parent_id=args.parent_id or None,before=args.before)
                 result = call('tasks', 'POST', data)
         elif args.command == 'projects':
             result = call('workspace')

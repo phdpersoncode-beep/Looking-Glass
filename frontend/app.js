@@ -739,7 +739,12 @@ async function loadFile(path,request){
 }
 
 async function mountFileSurface(e){
-  if(e.kind==='tasks')cleanup=mountTasks($('#surface'),e.tasks??={},api,{author:()=>authorName});
+  if(e.kind==='tasks')cleanup=mountTasks($('#surface'),e.tasks??={},api,{author:()=>authorName,sidebar:$('#task-sidebar'),onSidebarMode:active=>{
+    document.body.classList.toggle('tasks-view',active);
+    $('#discussion-sidebar').setAttribute('aria-label',active?'Task hierarchy':'Discussions');
+    $('#discussion-resize').setAttribute('aria-label',active?'Resize task list':'Resize discussions');
+    setDiscussionsHidden(discussionsHidden);
+  }});
   else if(e.kind==='history')cleanup=mountHistory($('#surface'),e.history??={},api,{onTarget:guard(async()=>{closeComment();clearThreadFocus();remember();await refreshThreads();}),onComment:guard(startGitComment),onState:remember});
   else if(e.kind==='original')mountOriginal(e);
   else if(e.kind==='oversized')mountOversized(e);
@@ -1792,7 +1797,7 @@ function setDiscussionsHidden(hidden,focus=false){
   if(hidden&&contextVisit)guard(returnFromOriginal)();
   if(hidden){cancelSidebarNavigation();clearSpotlight();}
   discussionsHidden=hidden;document.body.classList.toggle('discussions-hidden',hidden);
-  const button=$('#discussions-toggle'),label=(hidden?'Show':'Hide')+' discussions';
+  const button=$('#discussions-toggle'),label=(hidden?'Show':'Hide')+(document.body.classList.contains('tasks-view')?' task list':' discussions');
   button.setAttribute('aria-expanded',String(!hidden));button.setAttribute('aria-label',label);button.title=label;
   for(const child of $('#discussion-sidebar').children)if(child!==button&&child.id!=='passage-spotlight'&&child.id!=='thread-search-status')child.hidden=hidden;
   localStorage.setItem('looking-glass-discussions-hidden',String(hidden));

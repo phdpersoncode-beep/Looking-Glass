@@ -380,5 +380,16 @@ Milestones have saved, editable #M numbers. Use `tasks list --query M12` to reso
 with `tasks update C01 --revision N --milestone-number 12`; API updates use
 `changes: {"milestone_number":12}`. Numbers must be unique (including archived
 milestones), from 1 to 999999. Number changes are logged; stale writes are rejected.
+
+Each card also has `parent_id` and `outline_position` for the editable task sidebar
+and checklists. Subitems are full cards; descendants inherit `milestone_id` from
+their root milestone. Use `tasks create 'Subitem' --parent-id C02`,
+`tasks update C03 --revision N --parent-id C02`, or
+`tasks outline-move C03 --revision N --parent-id C02 --before C04`.
+Use parent 0 for the root; omit `--before` to append. The API action is
+`outline_move` with `ids`, `parent_id` (integer/null), and `before` (integer/null).
+Task outline order is separate from column order; milestones stay at the root and
+sort by number. `tasks read` includes the card's complete subtree. Cycles, nesting
+milestones, and stale moves are rejected atomically. See [Task outline](TASKS.md#task-outline-and-keyboard-editing).
 Snapshot `reference` is the display label; `card_reference` always retains the #C
 identity. Existing displayed numbers are preserved on upgrade.

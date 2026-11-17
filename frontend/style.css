@@ -404,3 +404,38 @@ body.outline-resizing,body.outline-resizing *{cursor:col-resize!important;user-s
 #tasks-open .tasks-symbol{width:20px;height:20px;flex-shrink:0}.task-permanent-reference{font:10px/1.5 var(--mono);color:var(--muted);margin:-12px 0 12px}
 /* Updates occupy a quiet line; comments retain their reading space. */
 .task-update{display:flex;align-items:flex-start;gap:6px;padding:3px 7px;font-size:10px;line-height:1.35;border-radius:4px}.task-update .task-activity-meta{display:contents}.task-update .task-update-fields{flex:1;min-width:0;order:1;align-self:center;display:flex;flex-wrap:wrap;gap:2px 8px}.task-update p{margin:0;white-space:normal}.task-update .task-activity-kind{font-size:8px;align-self:center;order:0}.task-update .task-activity-meta strong{font-size:8px;font-weight:400;order:2;align-self:center;max-width:60px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.task-update .task-activity-meta time{font-size:8px;order:3;align-self:center;margin:0;white-space:nowrap}.task-update .task-activity-meta .icon-button{order:4;align-self:center;display:grid;place-items:center;width:22px;height:22px;padding:3px}.task-update .task-activity-meta svg{width:12px;height:12px}.task-update details{min-width:0}.task-update details[open]{flex-basis:100%}.task-update details p{margin-top:4px;white-space:pre-wrap}
+
+/* The task outline shares the discussion pane's resize and collapse controls. */
+.task-sidebar{display:none;min-height:0;flex:1;flex-direction:column;font:12px/1.5 var(--font-sans)}
+body.tasks-view #discussion-sidebar>:not(#discussions-toggle):not(#discussion-resize):not(#task-sidebar){display:none!important}
+body.tasks-view .task-sidebar:not([hidden]){display:flex}
+.task-sidebar>.panel-heading{min-height:57px;padding-right:40px;flex-shrink:0}
+.task-outline-help{font-size:9px;color:var(--muted);padding:0 14px 8px;margin:0;border-bottom:1px solid var(--border)}
+.task-outline{min-width:0;min-height:0;display:flex;flex-direction:column;gap:6px}
+.task-sidebar>.task-outline{overflow:auto;flex:1;padding:10px 8px}
+.task-outline-list{display:flex;flex-direction:column;gap:2px;min-width:0}
+.task-outline-row{display:flex;align-items:center;gap:4px;min-height:34px;padding:3px 4px 3px calc(2px + var(--task-depth)*16px);position:relative;border-radius:4px;min-width:0;border:1px solid transparent;cursor:grab}
+.task-outline-row:hover{background:var(--panel)}
+.task-outline-row[aria-selected=true]{background:color-mix(in srgb,var(--purple) 9%,var(--paper));border-color:var(--purple)}
+.task-outline-row:focus-within{background:var(--panel)}
+.task-outline-row>button{border:0;background:none;padding:0;flex-shrink:0}
+.task-outline-fold{width:12px;color:var(--muted);font-size:15px;cursor:pointer}.task-outline-fold:disabled{opacity:0;pointer-events:none}
+.task-outline-row>.task-outline-check{width:12px;height:12px;min-width:12px;margin:0;accent-color:var(--purple);flex-shrink:0;cursor:pointer}
+.task-outline-reference{font:9px/1.4 var(--mono);color:var(--muted);cursor:pointer}
+.task-outline-reference:hover{color:var(--purple);text-decoration:underline}
+.task-outline-prefix{font-size:11px;color:var(--purple);flex-shrink:0}
+.task-outline-row>.task-outline-name{border:0;box-shadow:none;background:transparent;padding:3px 1px;font:11px/1.5 var(--font-sans);min-width:30px;width:0;flex:1;color:var(--ink);outline-offset:1px;text-overflow:ellipsis;border-radius:2px}
+.task-outline-row>.task-outline-name:focus{outline:1px solid color-mix(in srgb,var(--purple) 40%,transparent);text-overflow:clip}
+.task-outline-pen{width:22px;height:24px;color:var(--muted);opacity:0;cursor:pointer}.task-outline-pen svg{width:13px;height:13px}.task-outline-row:hover .task-outline-pen,.task-outline-row:focus-within .task-outline-pen{opacity:1}
+.task-outline-milestone{border-left:2px solid var(--purple);margin-top:5px}.task-outline-milestone .task-outline-name{font-weight:500}
+.task-outline-done .task-outline-name{color:var(--muted);text-decoration:line-through}.task-outline-context{opacity:.6}
+.task-outline-add{align-self:flex-start;font-size:11px;border:0;background:none;color:var(--muted);padding:5px 10px;margin-top:4px}.task-outline-add:hover{color:var(--purple)}
+.task-outline-status{font-size:10px;color:var(--purple);overflow-wrap:anywhere}.task-outline-status:empty{display:none}.task-outline-status button{font-size:10px;margin-top:4px}
+.task-outline-row[data-drop=before]{border-top:2px solid var(--purple)}.task-outline-row[data-drop=after]{border-bottom:2px solid var(--purple)}.task-outline-row[data-drop=inside]{background:color-mix(in srgb,var(--purple) 12%,var(--paper));box-shadow:inset 3px 0 var(--purple)}.task-outline-row[data-drop=outside]{box-shadow:inset -3px 0 var(--purple);background:var(--panel)}.task-outline-dragging{opacity:.4}
+.task-context-menu{position:fixed;z-index:1000;display:flex;flex-direction:column;min-width:180px;max-width:250px;max-height:280px;overflow:auto;padding:4px;border:1px solid var(--border);border-radius:6px;background:var(--paper);box-shadow:0 5px 18px #0002}
+.task-context-menu button{border:0;text-align:left;background:none;font-size:11px;padding:6px 9px}.task-context-menu button:hover,.task-context-menu button:focus{background:var(--panel);color:var(--purple)}
+.task-detail[open]{position:absolute;inset:0 auto auto 0;box-sizing:border-box;margin:0;border:0;border-radius:0;width:100%;max-width:100%;min-height:100%;max-height:none;overflow:visible;background:var(--paper);padding:22px clamp(18px,4vw,64px);z-index:3;box-shadow:none}
+.task-detail-back{border:0;color:var(--muted);background:none;font-size:11px;margin:0 0 12px;padding:0}.task-detail h2{margin-top:0}.task-detail>form,.task-detail>.task-activity,.task-detail>.task-checklist{max-width:680px}.task-detail textarea{min-height:80px}.task-detail .task-comment-form textarea{min-height:70px}
+.task-checklist{margin:0 0 16px}.task-checklist .task-outline-row{margin:0;gap:5px}.task-checklist .task-outline-row>button{padding:0}.task-editing>.task-tools,.task-editing>.task-bulk,.task-editing>.task-lanes{visibility:hidden}.task-editing>.task-notice{position:relative;z-index:4;margin:0 0 0 90px;font-size:11px}
+@media(hover:none){.task-outline-pen{opacity:1}}
+.task-confetti{z-index:6}

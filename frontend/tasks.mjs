@@ -1,4 +1,5 @@
 import {mountTaskActivity} from './task-activity.mjs';
+import {cardTitle, mountTaskOutline} from './task-outline.mjs';
 const columns = [["backlog", "\u25CC", "Backlog"], ["in_progress", "\u25D0", "In progress"], ["to_review", "\u25CE", "To review"], ["done", "\u2713", "Done"]];
 export function cardReference(id) { return `#C${String(id).padStart(2, "0")}`; }
 export function displayReference(card) { return card.reference || cardReference(card.id); }
@@ -29,7 +30,7 @@ function button(text, action, title = text) {
   return b;
 }
 function mountTasks(host, state, api, options = {}) {
-  let board = { cards: [], revision: 0 }, disposed = false, busy = false, refreshing = false, dragged = null, editor = null;
+  let board = { cards: [], revision: 0 }, disposed = false, busy = false, refreshing = false, dragged = null, editor = null, outline = null, context = null;
   const drafts = state.drafts ??= new Map();
   const picked = new Set(), root = el("section", void 0, "task-board"), tools = el("div", void 0, "task-tools"), search = el("input"), filter = el("select"), archived = el("input"), bulk = el("div", void 0, "task-bulk"), lanes = el("div", void 0, "task-lanes"), notice = el("p", void 0, "task-notice");
   search.placeholder = "Search cards\u2026";
@@ -55,13 +56,49 @@ function mountTasks(host, state, api, options = {}) {
   tools.append(muteLabel);
   root.append(tools, bulk, notice, lanes);
   host.append(root);
+  options.onSidebarMode?.(true);
+  if(options.sidebar){
+    const heading=el('div',undefined,'panel-heading'), label=el('span','TASKS'), count=el('span','0');
+    label.append(' ',count);heading.append(label);
+    const help=el('p','Tab / Shift+Tab nest · Alt+↑↓ reorder','task-outline-help');
+    help.title='Edit names directly. Enter saves; Shift+Enter adds a sibling; Ctrl/Cmd+Enter adds a subitem. Drag vertically to reorder and right/left to nest or outdent. Ctrl/Cmd+click selects; right-click opens actions. Milestones follow their numbers.';
+    options.sidebar.append(heading,help);
+    outline=mountTaskOutline(options.sidebar,outlineOptions());
+    outline.updateCount=()=>count.textContent=String(board.cards.filter(c=>!!c.archived===!!state.archived).length);
+  }
+  function outlineOptions(extra={}){
+    return {getBoard:()=>board,state,picked,write:change,open:card=>{if(card)edit(card);},contextMenu:openContext,changed:render,create:parent=>editNew('backlog',parent),error:()=>notice.textContent,...extra};
+  }
+  function closeContext(){context?.remove();context=null;}
+  function openContext(event,id){
+    event.preventDefault();event.stopPropagation();closeContext();
+    if(!picked.has(id)){picked.clear();picked.add(id);render();}
+    context=el('div',undefined,'task-context-menu');context.setAttribute('role','menu');context.setAttribute('aria-label','Selected task actions');
+    const action=(label,fn)=>{const b=button(label,()=>{closeContext();fn();});b.setAttribute('role','menuitem');context.append(b);};
+    const ids=[...picked];
+    for(const card of board.cards.filter(c=>c.milestone&&!c.archived&&!ids.includes(c.id)).sort((a,b)=>a.milestone_number-b.milestone_number))action('Assign to '+cardTitle(card),()=>change({action:'update',ids,changes:{milestone_id:card.id}}));
+    action('No milestone',()=>change({action:'update',ids,changes:{milestone_id:null}}));
+    action('Archive',()=>change({action:'update',ids,changes:{archived:true}}));
+    action('Restore',()=>change({action:'update',ids,changes:{archived:false}}));
+    action('Delete',()=>confirmDelete(ids));
+    action('Clear selection',()=>{picked.clear();render();});
+    context.style.left=Math.min(event.clientX,innerWidth-250)+'px';context.style.top=Math.min(event.clientY,innerHeight-280)+'px';
+    context.onkeydown=e=>{
+      const buttons=[...context.querySelectorAll('button')],at=buttons.indexOf(document.activeElement);
+      if(e.key==='Escape'){e.preventDefault();closeContext();}
+      else if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();buttons[(at+(e.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length].focus();}
+    };
+    document.body.append(context);context.firstChild?.focus();
+  }
+  const contextAbort=new AbortController();
+  document.addEventListener('pointerdown',e=>{if(context&&!context.contains(e.target))closeContext();},{signal:contextAbort.signal});
   function fail(error) {
     if (!disposed) notice.textContent = error.message;
   }
   function milestones(select, value = "", exclude = []) {
     select.replaceChildren(el("option", "No milestone"));
     select.firstChild.value = "";
-    for (const card of board.cards.filter((c) => c.milestone && (!c.archived || c.id === Number(value)) && !exclude.includes(c.id))) {
+    for (const card of board.cards.filter((c) => c.milestone && (!c.archived || c.id === Number(value)) && !exclude.includes(c.id)).sort((a,b)=>a.milestone_number-b.milestone_number)) {
       const option = el("option", "\u25C7 " + displayReference(card) + " " + card.title + (card.archived ? " (archived)" : ""));
       option.value = card.id;
       select.append(option);
@@ -109,6 +146,7 @@ function mountTasks(host, state, api, options = {}) {
       const next = await api("tasks", "POST", { ...data, revision, author:options.author?.() || "User" });
       if (disposed) return false;
       board = next;
+      document.querySelectorAll('.task-detail[open]').forEach(d=>d.acknowledge?.(old.revision,next.revision,data));
       render();
       if (board.cards.some((c) => !c.milestone && c.status === "done" && old.cards.some((o) => o.id === c.id && o.status !== "done"))) celebrate();
       return true;
@@ -169,14 +207,15 @@ function mountTasks(host, state, api, options = {}) {
       heading.append(el("h3", symbol + " " + label), el("span", String(cards.length)), button("+", () => editNew(status), "Add task to " + label));
       lane.append(heading);
       lane.ondragover = (e) => {
-        if (dragged !== null) {
+        if (dragged !== null || e.dataTransfer.types.includes('application/x-looking-glass-cards')) {
           e.preventDefault();
           e.dataTransfer.dropEffect = "move";
         }
       };
       lane.ondrop = (e) => {
         e.preventDefault();
-        const id = dragged;
+        let id = dragged;
+        if(id===null){try{id=JSON.parse(e.dataTransfer.getData('application/x-looking-glass-cards')).id;}catch{}}
         dragged = null;
         if (id === null) return;
         const target = e.target.closest(".task-card");
@@ -194,16 +233,17 @@ function mountTasks(host, state, api, options = {}) {
         item.ondragstart = (e) => {
           dragged = card.id;
           e.dataTransfer.setData("text/plain", String(card.id));
+          e.dataTransfer.setData('application/x-looking-glass-cards',JSON.stringify({id:card.id,ids:picked.has(card.id)?[...picked]:[card.id],x:e.clientX}));
           e.dataTransfer.effectAllowed = "move";
         };
         item.ondragend = () => {
           dragged = null;
         };
-        const title = el("div", (card.milestone ? "\u25C7 " : "") + card.title, "task-card-title");
+        const title = el("div", cardTitle(card), "task-card-title");
         item.append(title);
         const reference=el("span", displayReference(card), "task-reference");
         reference.title="Permanent card ID: " + cardReference(card.id);
-        item.append(reference);
+        if(!card.milestone)item.append(reference);
         if (card.milestone) {
           const children = board.cards.filter((c) => c.milestone_id === card.id && !c.archived);
           item.append(el("small", `${children.filter((c) => c.status === "done").length}/${children.length} tasks`));
@@ -218,6 +258,7 @@ function mountTasks(host, state, api, options = {}) {
             render();
           } else edit(card);
         };
+        item.oncontextmenu=e=>openContext(e,card.id);
         item.onkeydown = (e) => {
           if (e.target !== item) return;
           if (e.key === "Enter") {
@@ -238,7 +279,11 @@ function mountTasks(host, state, api, options = {}) {
       if (!cards.length) lane.append(el("p", "No cards", "task-empty"));
       lanes.append(lane);
     }
-    document.querySelectorAll(".task-dialog").forEach(d=>{d.refreshReference?.();d.refreshActivity?.();});
+    document.querySelectorAll(".task-dialog").forEach(d=>{
+      if(d.cardId&&!board.cards.some(c=>c.id===d.cardId)){d.close();d.remove();}
+      else {d.refreshReference?.();d.refreshActivity?.();}
+    });
+    outline?.render();outline?.updateCount();
     lanes.scrollLeft = scroll;
     if (focusedId) {
       const card = lanes.querySelector('[data-id="' + focusedId + '"]');
@@ -247,16 +292,24 @@ function mountTasks(host, state, api, options = {}) {
       [...bulk.querySelectorAll("button,select")].find((b) => b.getAttribute("aria-label") === bulkFocused)?.focus({ preventScroll: true });
     }
   }
-  function dialog(title) {
+  function dialog(title, detail=false) {
+    const previous=root.querySelector('.task-detail[open]');
+    if(detail&&previous){previous.retainDraft?.();previous.close();previous.remove();}
     const d = el("dialog", void 0, "task-dialog"), heading = el("h2", title);
+    if(detail)d.classList.add('task-detail');
     d.append(heading);
-    document.body.append(d);
+    (detail?root:document.body).append(d);
     editor = d;
     d.addEventListener("close", () => {
       d.remove();
       notice.textContent = "";
-      if (editor === d) editor = null;
+      if (editor === d) editor = root.querySelector('.task-detail[open]');
+      if(detail&&!root.querySelector('.task-detail[open]')){root.classList.remove('task-editing');lanes.inert=false;tools.inert=false;bulk.inert=false;}
     });
+    if(detail){
+      root.classList.add('task-editing');lanes.inert=true;tools.inert=true;bulk.inert=true;
+      d.addEventListener('keydown',e=>{if(e.key==='Escape'&&!e.defaultPrevented){e.preventDefault();drafts.delete(d.cardId);d.close();}});
+    }
     return d;
   }
   function field(form, text, node) {
@@ -267,7 +320,7 @@ function mountTasks(host, state, api, options = {}) {
     form.append(wrap);
     return node;
   }
-  function editNew(status) {
+  function editNew(status, parentId=null) {
     const d = dialog("New task"), form = el("form"), title = field(form, "Title", el("input"));
     title.name = "title";
     title.required = true;
@@ -279,7 +332,7 @@ function mountTasks(host, state, api, options = {}) {
     form.onsubmit = async (e) => {
       e.preventDefault();
       save.disabled = true;
-      if (await change({ action: "create", title: title.value, status })) d.close();
+      if (await change({ action: "create", title: title.value, status, parent_id:parentId })) d.close();
       else {
         save.disabled = false;
         error.textContent = notice.textContent;
@@ -293,9 +346,12 @@ function mountTasks(host, state, api, options = {}) {
     title.focus();
   }
   function edit(card) {
+    if(editor?.open&&editor.cardId===card.id){editor.querySelector('input')?.focus();return;}
     const draft = drafts.get(card.id);
     let revision = draft?.revision ?? board.revision;
-    const d = dialog((card.milestone ? "\u25C7 Milestone" : "Task") + " · " + displayReference(card)), form = el("form"), title = field(form, "Title", el("input")), description = field(form, "Description", el("textarea")), status = field(form, "Status", el("select")), parent = field(form, "Milestone", el("select"));
+    const d = dialog((card.milestone ? "\u25C7 Milestone" : "Task") + " · " + displayReference(card),true), form = el("form"), title = field(form, "Title", el("input")), description = field(form, "Description", el("textarea")), status = field(form, "Status", el("select")), parent = field(form, "Milestone", el("select"));
+    d.cardId=card.id;
+    const back=button('← Board',()=>{retainDraft();d.close();},'Back to board');back.className='task-detail-back';d.prepend(back);
     title.value = draft?.title ?? card.title;
     title.required = true;
     title.maxLength = 500;
@@ -319,7 +375,7 @@ function mountTasks(host, state, api, options = {}) {
     d.refreshReference=()=>{
       const latest=board.cards.find(c=>c.id===card.id);
       if(latest){
-        d.querySelector("h2").textContent=(latest.milestone ? "◇ Milestone" : "Task") + " · " + displayReference(latest);
+        d.querySelector("h2").textContent=latest.milestone ? cardTitle(latest) : "Task · " + displayReference(latest);
         permanent.hidden=!latest.milestone;
         permanent.title="This card ID is retained when the milestone is demoted.";
       }
@@ -332,6 +388,15 @@ function mountTasks(host, state, api, options = {}) {
     const actions = el("div", void 0, "task-edit-actions"), save = el("button", "Save");
     save.type = "submit";
     const retainDraft = () => drafts.set(card.id, {revision, title:title.value, description:description.value, status:status.value, milestone_id:Number(parent.value)||null,...(number?{milestone_number:number.value}: {})});
+    d.retainDraft=retainDraft;
+    d.acknowledge=(before,after,data)=>{
+      // Local edits elsewhere in the outline can advance this draft's base;
+      // edits to the same fields still require conflict review.
+      const editsThisCard=data.action==='update'&&data.ids.includes(card.id);
+      if(revision===before && after===before+1 && !editsThisCard && data.action!=='delete'){
+        revision=after;if(drafts.has(card.id))retainDraft();
+      }
+    };
     form.oninput = form.onchange = retainDraft;
     d.addEventListener("cancel", () => drafts.delete(card.id));
     actions.append(save, button("Cancel", () => { drafts.delete(card.id); d.close(); }), button(card.milestone ? "Convert to task" : "\u25C7 Promote to milestone", async () => {
@@ -367,36 +432,15 @@ function mountTasks(host, state, api, options = {}) {
       }
     };
     d.append(form);
-    if (card.milestone) {
-      const list = el("ul", void 0, "task-checklist");
-      d.append(el("h3", "Tasks"), list);
-      for (const child of board.cards.filter((c) => c.milestone_id === card.id && !c.archived)) {
-        const li = el("li"), check = el("input");
-        check.type = "checkbox";
-        check.checked = child.status === "done";
-        check.setAttribute("aria-label", "Complete " + child.title);
-        check.onchange = async () => {
-          check.disabled = true;
-          if (await change({ action: "update", ids: [child.id], changes: { status: check.checked ? "done" : "backlog" } }, revision)) {
-            revision = board.revision;
-            if (drafts.has(card.id)) retainDraft();
-            check.disabled = false;
-          } else {
-            check.checked = !check.checked;
-            check.disabled = false;
-            error.textContent = notice.textContent;
-          }
-        };
-        li.append(check, button(displayReference(child) + " " + child.title, () => {
-          const latest = board.cards.find((c) => c.id === child.id);
-          if (!latest) { error.textContent = "This task was deleted. Reopen the milestone to refresh its checklist."; return; }
-          retainDraft();
-          d.close();
-          edit(latest);
-        }, child.title));
-        list.append(li);
-      }
-    }
+    const checklistHost=el('div',undefined,'task-checklist');d.append(el('h3',card.milestone?'Tasks':'Checklist'),checklistHost);
+    const checklist=mountTaskOutline(checklistHost,outlineOptions({rootId:card.id,write:async(data,base)=>{
+      const before=board.revision,saved=await change(data,base??revision);
+      if(saved&&revision===before&&board.revision===before+1){revision=board.revision;if(drafts.has(card.id))retainDraft();}
+      return saved;
+    }}));
+    const refreshReference=d.refreshReference;
+    d.refreshReference=()=>{refreshReference();checklist.render();};
+    d.addEventListener('close',checklist.dispose);
     const activity = mountTaskActivity(d, card.id, {
       api, state, getRevision:()=>board.revision,
       write:async data=>{
@@ -412,7 +456,7 @@ function mountTasks(host, state, api, options = {}) {
     });
     d.refreshActivity=activity.refresh;
     d.addEventListener("close", activity.dispose);
-    d.showModal();
+    d.show();
     title.focus();
   }
   function confirmDelete(ids, previous) {
@@ -448,6 +492,8 @@ function mountTasks(host, state, api, options = {}) {
   return () => {
     disposed = true;
     clearInterval(timer);
+    closeContext();contextAbort.abort();outline?.dispose();
+    options.sidebar?.replaceChildren();options.onSidebarMode?.(false);
     document.querySelectorAll(".task-dialog").forEach((d) => {
       d.close();
       d.remove();

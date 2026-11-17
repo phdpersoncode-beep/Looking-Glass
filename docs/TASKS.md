@@ -12,7 +12,8 @@ to dragging. All titles and descriptions are treated as plain text.
 
 Milestone cards have a purple left bar; task assignment labels stay small and muted.
 Every card keeps a permanent reference such as **#C01**, including while promoted.
-Milestones display **#M1**, **#M2**, and so on. Open a milestone, edit
+Milestone titles display **M1: My awesome card** (without changing the stored title).
+Open a milestone, edit
 **Milestone number (#M)**, then Save to change its number as the plan evolves.
 Numbers are unique positive integers from 1 to 999999, including archived
 milestones. A duplicate number keeps the editor open with a clear error.
@@ -31,19 +32,53 @@ Assignments and edit headings follow milestone renumbering without changing the
 underlying relationships or clearing unsent fields.
 
 Use the **◇** button, with its hover tooltip, to promote a task to a milestone.
-Milestones remain movable cards with their own status and description. Opening a
-milestone shows its child tasks as a checklist with completion counts. Click a
-child title to edit it; check a child to finish it. Unchecking returns it to
-backlog. Tasks can belong to one milestone; milestones cannot be nested. Completing
-all children does not move the milestone automatically.
+Milestones remain movable cards with their own status and description. Their
+completion counts include all descendant tasks. Every card has a nested checklist;
+each subitem is itself a full card with a permanent ID, status, and conversation.
+Click its **#Cxx** reference or pen to open its detail in the main pane. Parent
+field drafts remain available when following these links or returning to the board.
+Check a child to finish it; unchecking returns it to backlog. Completion never
+automatically changes a parent's status. Milestones cannot be nested; task
+hierarchies support up to 32 levels and inherit the top milestone's assignment.
+
+## Task outline and keyboard editing
+
+In the Tasks tab, the right discussion sidebar becomes a hierarchical task list.
+It uses the same resize and minimize controls; returning to a file restores the
+discussion controls. Milestones appear first, in ascending number order, followed
+by unassigned tasks. To change milestone order, edit their numbers. Other siblings
+have their own saved outline order, independent of Kanban status/column order.
+The outline shows the whole board in the selected archive scope, independently of
+the board's search and milestone filter. Hidden ancestors appear as muted read-only
+context, keeping active descendants visible beneath archived parents.
+
+Edit a name directly in its row. Enter saves and moves to the next row; Up/Down
+move through names. Names also save on blur. Escape discards that inline draft.
+Tab nests a task under its previous sibling; Shift+Tab lifts it after its parent.
+Alt+Up/Down reorders siblings. Shift+Enter creates a sibling and Ctrl/Cmd+Enter
+creates a subitem; **+ Add task/subitem** is the pointer equivalent. Milestones
+remain at the top level. The pen opens the full editor in the main task pane,
+leaving the sidebar available. Inline drafts and caret survive unrelated polling;
+stale names require explicit review before overwriting the latest saved title.
+
+Drag rows vertically to reorder siblings. Drag a row right to nest under a target,
+or left to lift a level; dragging a row horizontally on itself uses the previous
+sibling for indentation. The drop indicator previews before/after/inside/outside.
+Dropping onto a milestone assigns the task and its subtree to that milestone.
+All card checklists use the same editable, draggable rows and saved hierarchy.
+Ctrl/Cmd+click selects multiple rows and shares selection with Kanban cards;
+right-click exposes assign/unassign, archive, restore, delete, and clear actions.
+Selected descendants travel once with a selected ancestor. Archived cards must be
+restored before dragging.
 
 Search matches a case-insensitive character subsequence across title and
 description. The milestone filter shows the milestone and its children. Search,
 filter, and archive scope combine. Ctrl+click (Cmd+click on macOS), or Space on a
 focused card, toggles selection. Selected cards expose assign/unassign, archive,
 restore, delete, and clear actions. Delete asks for confirmation; archive is
-reversible through **Show archive**. Deleting or demoting a milestone keeps its
-tasks and unassigns them. Archiving a milestone preserves its task relationships;
+reversible through **Show archive**. Deleting a card lifts surviving children to
+its nearest surviving parent. Deleting or demoting a milestone keeps its tasks,
+lifts direct children to the root, and unassigns the subtree. Archiving a milestone preserves its task relationships;
 its tasks remain visible and the archived milestone is unavailable for new assignments.
 
 Moving a task into Done produces a brief confetti burst and a soft synthesized
@@ -59,7 +94,7 @@ Each task and milestone edit view has **Comments & activity** below its fields
 chronological conversation. Comments show their author and time; automatic updates
 have an **Update** label and a thin grey row with smaller text, compact timestamps,
 and the same delete control. Comments retain their larger reading space. Title,
-description, status, assignment, promotion/demotion, archive/restore, and drag order
+description, status, parent/assignment, promotion/demotion, archive/restore, and drag order
 changes record their actual before/after values in the same transaction as the edit.
 Milestones also record child assignment/unassignment. Description differences expand
 on demand. Saving unchanged fields does not create an update or reorder the card.
@@ -93,6 +128,9 @@ looking-glass tasks --root /path/to/project read 1
 looking-glass tasks --root /path/to/project create 'Ship shared planning' --status backlog
 looking-glass tasks --root /path/to/project update 1 --revision 1 --milestone
 looking-glass tasks --root /path/to/project create 'Build board UI'
+looking-glass tasks --root /path/to/project create 'Keyboard flow' --parent-id C02
+looking-glass tasks --root /path/to/project outline-move C03 --revision N --parent-id C02 --before C04
+looking-glass tasks --root /path/to/project update C03 --revision N --parent-id 0
 looking-glass tasks --root /path/to/project update 2 --revision 3 --milestone-id 1
 looking-glass tasks --root /path/to/project update 2 --revision 4 --description-file plan.md
 looking-glass tasks --root /path/to/project move 2 --revision 5 --status in_progress
@@ -118,14 +156,19 @@ looking-glass tasks --root /path/to/project comment C01 --author Agent --body-st
 looking-glass tasks --root /path/to/project delete-activity C01 42
 ```
 
-`read` returns card fields; `activity` returns conversation entries separately.
+`read` returns the card and its entire subtree; `activity` returns conversation entries separately.
 Card mutations also accept `--author` (default: Agent) to identify updates.
 Use `tasks update C01 --revision N --milestone-number 12` to assign #M12 to a
 milestone. Set `--milestone` in the same command to promote a task with a chosen
 number. Only one milestone can receive an explicit number per update; duplicate
 numbers, including archived owners, are rejected atomically.
 
-`--milestone-id 0` unassigns; `--no-milestone` demotes. `--description-file -`
+`--milestone-id 0` unassigns to the root; `--no-milestone` demotes.
+`create --parent-id C02` adds a checklist subitem. `update --parent-id C02` reparents
+a subtree; `--parent-id 0` lifts it to the root. Do not combine `--parent-id` and
+`--milestone-id`. `outline-move` accepts multiple IDs, a parent (default: root), and
+an optional `--before` sibling; it changes hierarchy/order without changing status.
+`--description-file -`
 reads stdin. Multi-card `update` and `delete` are atomic. `move` takes one card;
 use `update ... --status` to move several cards to the end of a column.
 
@@ -147,6 +190,8 @@ as other agent routes:
 {"action":"update","revision":1,"ids":[1],"changes":{"milestone":true}}
 {"action":"move","revision":2,"id":1,"status":"in_progress","before":null}
 {"action":"delete","revision":3,"ids":[1]}
+{"action":"create","revision":4,"title":"Subitem","parent_id":2}
+{"action":"outline_move","revision":5,"ids":[3],"parent_id":2,"before":null}
 ```
 
 `GET /api/tasks/1/activity?limit=100&before=42` returns `{revision, entries,
@@ -163,12 +208,15 @@ Additional `POST /api/tasks` actions:
 
 Deletion checks both the card and entry IDs. Card snapshots also contain a
 `reference` (the displayed #M or #C label), `card_reference` (permanent #C ID),
-and `milestone_reference` (#M label or null). HTTP action IDs remain integers. `author` is optional
+`milestone_reference` (#M label or null), `parent_id` (immediate card parent or null),
+and `outline_position` (sibling ordering key). `milestone_id` is derived from the
+hierarchy and identifies the root milestone for every descendant. HTTP action IDs remain integers. `author` is optional
 for mutations (defaults to User for HTTP; the browser uses its saved author).
 
 Statuses are `backlog`, `in_progress`, `to_review`, `done`. Editable fields are
 `title`, `description`, `status`, `milestone` (boolean), `milestone_id` (integer or
-null), `milestone_number` (integer from 1 to 999999, for a single milestone), and
+null; reassigns the subtree directly under that milestone), `parent_id` (integer
+or null), `milestone_number` (integer from 1 to 999999, for a single milestone), and
 `archived` (boolean). Move's optional `before` identifies an active card
 in the destination column. Responses return the complete updated board.
 
@@ -182,7 +230,9 @@ or automatic Git commits are introduced.
 ## Design assumptions
 
 - One board per workspace, shared by people and independent agents.
-- One milestone level and one optional milestone per task; milestones are promoted cards.
+- Milestones are promoted root cards. Tasks and checklist subitems are full cards,
+  with one immediate parent and one inherited milestone; cycles are rejected atomically.
+- Milestones follow numeric order. Task sibling order is saved independently of columns.
 - Milestone status is explicit. A checklist completion is a task status change.
 - Archive preserves data and relationships. Delete permanently removes only selected cards.
 - Ctrl/Cmd+click selection persists across search/filter changes until cleared; the count

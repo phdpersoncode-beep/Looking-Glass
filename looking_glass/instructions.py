@@ -27,6 +27,8 @@ Plan with the shared Tasks board:
 {task_command} list
 {task_command} read CARD_ID
 {task_command} create 'Task title'
+{task_command} create 'Checklist subitem' --parent-id CARD_ID
+{task_command} outline-move CARD_ID --revision BOARD_REVISION --parent-id PARENT_ID --before SIBLING_ID
 {task_command} activity C01
 {task_command} comment C01 --author "Agent" --body-file reply.md
 {task_command} delete-activity C01 ENTRY_ID
@@ -39,7 +41,12 @@ Plan with the shared Tasks board:
 Use list/read's revision for every update, move, or delete. On conflict, reread and
 reconsider; never blindly retry over human changes. Use --archived/--no-archived to
 archive/restore. Deleting a milestone keeps its tasks and unassigns them. Milestones
-are one level deep; completing children does not automatically complete the milestone.
+stay at the root in numeric order. Every task can have nested full-card checklist
+subitems (up to 32 levels). Use create/update --parent-id; 0 lifts to the root.
+outline-move changes sibling order and hierarchy independently of Kanban status.
+Subtrees inherit their root milestone; cycles are rejected. read includes the
+card's subtree. Deleting a task lifts surviving children to its parent.
+Completing children does not automatically complete the milestone.
 Every card keeps a stable #C01 identity (quote shell arguments containing #).
 Milestones have saved, editable #M1 numbers; use tasks list --query M1 to look one up,
 then use its permanent card_reference for read/write commands. Change the number

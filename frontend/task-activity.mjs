@@ -1,6 +1,6 @@
 import { iconButton } from "./icons.mjs";
 const statuses = { backlog: "Backlog", in_progress: "In progress", to_review: "To review", done: "Done" };
-const labels = { title: "Title", description: "Description", status: "Status", milestone: "Milestone", milestone_id: "Assignment", milestone_number:"Milestone number", archived: "Archive", position: "Order" };
+const labels = { title: "Title", description: "Description", status: "Status", milestone: "Milestone", milestone_id: "Assignment", milestone_number:"Milestone number", archived: "Archive", position: "Order", parent_id:"Parent", outline_position:"Checklist order" };
 const node = (tag, text, className) => {
   const e = document.createElement(tag);
   if (text !== void 0) e.textContent = text;
@@ -11,7 +11,7 @@ function value(field, v) {
   if (v === null || v === "") return "None";
   if (field === "status") return statuses[v] || v;
   if (field === "milestone_number") return "#M"+v;
-  if (field === "milestone_id") return "#C" + String(v).padStart(2, "0");
+  if (field === "milestone_id" || field === "parent_id") return "#C" + String(v).padStart(2, "0");
   if (field === "milestone") return v ? "Milestone" : "Task";
   if (field === "archived") return v ? "Archived" : "Active";
   return String(v);

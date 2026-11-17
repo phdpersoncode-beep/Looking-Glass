@@ -137,3 +137,13 @@ targets. Chromium/Firefox journeys cover manual edits and conflict recovery,
 number changes in open editors without clearing drafts, restoring card IDs after
 demotion, the larger Tasks SVG, and compact update rows with working deletion in
 light/dark themes and a narrow window.
+
+Hierarchy checks (`test_task_hierarchy.py`, `task-outline.test.mjs`, and
+`test_task_hierarchy_browser.py`) cover old-board migration, subtree assignment,
+cycle/depth/stale-move rejection with rollback, independent sibling/column order,
+parent deletion/demotion, CLI subtree reads/moves, and database snapshot round trips.
+Both browser engines exercise inline names, preserved draft/caret during agent
+polls, explicit conflict review, Tab/Shift+Tab indentation, Alt+arrow ordering,
+keyboard/checklist creation, vertical/horizontal drag, milestone drop assignment,
+shared Ctrl+click/context actions, clickable references/main-pane editors, and
+discussion/task sidebar resize/collapse/restoration in both themes and narrow panes.

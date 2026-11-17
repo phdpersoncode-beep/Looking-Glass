@@ -29,6 +29,12 @@ class Tasks:
             task_columns = {row['name'] for row in db.execute('PRAGMA table_info(tasks)')}
             if 'milestone_number' not in task_columns:
                 db.execute('ALTER TABLE tasks ADD COLUMN milestone_number INTEGER')
+            if 'parent_id' not in task_columns:
+                db.execute('ALTER TABLE tasks ADD COLUMN parent_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL')
+                db.execute('UPDATE tasks SET parent_id=milestone_id')
+            if 'outline_position' not in task_columns:
+                db.execute('ALTER TABLE tasks ADD COLUMN outline_position INTEGER NOT NULL DEFAULT 0')
+                db.execute('UPDATE tasks SET outline_position=position')
             # Freeze the previously displayed creation-order numbers on upgrade.
             used = {row[0] for row in db.execute('SELECT milestone_number FROM tasks WHERE milestone=1 AND milestone_number IS NOT NULL')}
             for row in db.execute('SELECT id FROM tasks WHERE milestone=1 AND milestone_number IS NULL ORDER BY id').fetchall():
@@ -51,6 +57,41 @@ class Tasks:
         if number > 999999:
             raise Problem('No milestone numbers are available.')
         return number
+
+    @staticmethod
+    def hierarchy(db):
+        """Validate the forest and derive each descendant's milestone atomically."""
+        cards = {row['id']: dict(row) for row in db.execute('SELECT * FROM tasks')}
+        for card in cards.values():
+            seen, current, milestone = {card['id']}, card, None
+            while current['parent_id'] is not None:
+                parent = cards.get(current['parent_id'])
+                if parent is None or parent['id'] in seen:
+                    raise Problem('A card cannot be nested inside itself or its descendants.')
+                seen.add(parent['id'])
+                if len(seen) > 32:
+                    raise Problem('Task hierarchies support up to 32 levels.')
+                if parent['milestone']:
+                    milestone = parent['id']
+                current = parent
+            if card['milestone'] and card['parent_id'] is not None:
+                raise Problem('Milestones stay at the top level; nest tasks beneath them.')
+            if card['milestone_id'] != milestone:
+                db.execute('UPDATE tasks SET milestone_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=?', (milestone,card['id']))
+
+    @staticmethod
+    def reparent(db, ids, parent):
+        if parent is not None:
+            if type(parent) is not int or parent in ids:
+                raise Problem('Invalid parent card.')
+            target = db.execute('SELECT * FROM tasks WHERE id=? AND archived=0', (parent,)).fetchone()
+            if not target:
+                raise Problem('Choose an active parent card.')
+        position = db.execute('SELECT COALESCE(MAX(outline_position),0) FROM tasks').fetchone()[0]
+        for offset, identifier in enumerate(ids, 1):
+            old = db.execute('SELECT parent_id FROM tasks WHERE id=?', (identifier,)).fetchone()
+            if old['parent_id'] != parent:
+                db.execute('UPDATE tasks SET parent_id=?,outline_position=?,updated_at=CURRENT_TIMESTAMP WHERE id=?', (parent,position+offset,identifier))
 
     @staticmethod
     def snapshot(db):
@@ -91,7 +132,7 @@ class Tasks:
                    (identifier,card_id,kind,author,body,json.dumps(changes or {},ensure_ascii=False)))
 
     def mutate(self, data):
-        allowed = {'title', 'description', 'status', 'milestone', 'milestone_id', 'milestone_number', 'archived'}
+        allowed = {'title', 'description', 'status', 'milestone', 'milestone_id', 'milestone_number', 'archived', 'parent_id'}
         with self.ws.connection() as db:
             db.execute('BEGIN IMMEDIATE')
             action = data.get('action')
@@ -129,6 +170,9 @@ class Tasks:
                 identifier = db.execute('SELECT next_card_id FROM task_board_revision WHERE id=1').fetchone()[0]
                 db.execute('UPDATE task_board_revision SET next_card_id=next_card_id+1 WHERE id=1')
                 db.execute('INSERT INTO tasks(id,title,status,position) VALUES(?,?,?,(SELECT COALESCE(MAX(position),0)+1 FROM tasks))', (identifier,title.strip(),status))
+                db.execute('UPDATE tasks SET outline_position=(SELECT COALESCE(MAX(outline_position),0)+1 FROM tasks) WHERE id=?', (identifier,))
+                if 'parent_id' in data:
+                    self.reparent(db, [identifier], data['parent_id'])
                 self.add_activity(db, identifier, 'update', author, 'Created card.', {'title':{'from':None,'to':title.strip()},'status':{'from':None,'to':status}})
             elif action in ('update', 'delete'):
                 ids = data.get('ids')
@@ -139,6 +183,14 @@ class Tasks:
                 if len(rows) != len(ids):
                     raise Problem('A selected card no longer exists.', 404)
                 if action == 'delete':
+                    # Lift surviving direct children to the closest surviving parent.
+                    for child in previous.values():
+                        if child['id'] in ids or child['parent_id'] not in ids:
+                            continue
+                        parent = child['parent_id']
+                        while parent in ids:
+                            parent = previous[parent]['parent_id']
+                        db.execute('UPDATE tasks SET parent_id=? WHERE id=?', (parent,child['id']))
                     db.execute(f'DELETE FROM tasks WHERE id IN ({marks})', ids)
                 else:
                     changes = data.get('changes')
@@ -161,6 +213,8 @@ class Tasks:
                             raise Problem('Use a milestone number from 1 to 999999.')
                         if len(rows) != 1 or not changes.get('milestone', rows[0]['milestone']):
                             raise Problem('Set the number of one milestone at a time.')
+                    if 'parent_id' in changes and 'milestone_id' in changes:
+                        raise Problem('Set either parent_id or milestone_id, not both.')
                     parent = changes.get('milestone_id')
                     if parent is not None:
                         if type(parent) is not int or parent in ids:
@@ -169,9 +223,16 @@ class Tasks:
                         if not target or any(changes.get('milestone', row['milestone']) for row in rows):
                             raise Problem('Assign tasks to an active milestone; milestones cannot be nested.')
                     if changes.get('milestone'):
-                        changes = {**changes, 'milestone_id': None}
+                        changes = {**changes, 'milestone_id': None, 'parent_id': None}
                     if changes.get('milestone') is False:
-                        db.execute(f'UPDATE tasks SET milestone_id=NULL WHERE milestone_id IN ({marks})', ids)
+                        demoted = [row['id'] for row in rows if row['milestone']]
+                        for identifier in demoted:
+                            db.execute('UPDATE tasks SET parent_id=NULL WHERE parent_id=?', (identifier,))
+                    if 'milestone_id' in changes:
+                        self.reparent(db, ids, changes['milestone_id'])
+                    elif 'parent_id' in changes:
+                        self.reparent(db, ids, changes['parent_id'])
+                    changes = {key:value for key,value in changes.items() if key not in ('parent_id','milestone_id')}
                     used = {row['milestone_number']:row['id'] for row in db.execute('SELECT id,milestone_number FROM tasks WHERE milestone=1')}
                     for row in rows:
                         updates = dict(changes)
@@ -187,12 +248,35 @@ class Tasks:
                             updates['milestone_number'] = number
                         elif row['milestone']:
                             used.pop(row['milestone_number'], None)
-                        db.execute(f'UPDATE tasks SET {",".join(field+"=?" for field in updates)},updated_at=CURRENT_TIMESTAMP WHERE id=?', [*updates.values(),row['id']])
+                        if updates:
+                            db.execute(f'UPDATE tasks SET {",".join(field+"=?" for field in updates)},updated_at=CURRENT_TIMESTAMP WHERE id=?', [*updates.values(),row['id']])
                     if 'status' in changes:
                         position = db.execute('SELECT COALESCE(MAX(position),0) FROM tasks').fetchone()[0]
                         for offset, row in enumerate(rows, 1):
                             if row['status'] != changes['status']:
                                 db.execute('UPDATE tasks SET position=? WHERE id=?', (position + offset, row['id']))
+            elif action == 'outline_move':
+                ids, parent, before = data.get('ids'), data.get('parent_id'), data.get('before')
+                if not isinstance(ids,list) or not ids or len(ids)>1000 or any(type(i) is not int or i not in previous for i in ids) or len(set(ids))!=len(ids):
+                    raise Problem('Choose 1–1,000 distinct existing card IDs.')
+                if any(previous[i]['archived'] for i in ids):
+                    raise Problem('Restore archived cards before moving them.')
+                # A selected subtree travels once even if its children are selected.
+                roots = []
+                for identifier in ids:
+                    ancestor = previous[identifier]['parent_id']
+                    while ancestor is not None and ancestor not in ids:
+                        ancestor = previous[ancestor]['parent_id']
+                    if ancestor is None:
+                        roots.append(identifier)
+                self.reparent(db, roots, parent)
+                order = [r[0] for r in db.execute('SELECT id FROM tasks WHERE parent_id IS ? ORDER BY outline_position,id', (parent,)) if r[0] not in roots]
+                if before is not None and (type(before) is not int or before not in order):
+                    raise Problem('Drop target changed. Refresh and retry.',409)
+                at = order.index(before) if before is not None else len(order)
+                order[at:at] = roots
+                for position, identifier in enumerate(order):
+                    db.execute('UPDATE tasks SET outline_position=? WHERE id=?', (position,identifier))
             elif action == 'move':
                 identifier, before, status = data.get('id'), data.get('before'), data.get('status')
                 if type(identifier) is not int or status not in STATUSES or (before is not None and type(before) is not int):
@@ -208,6 +292,8 @@ class Tasks:
                     db.execute('UPDATE tasks SET position=? WHERE id=?', (position, item))
             else:
                 raise Problem('Invalid board action.')
+            if action not in ('comment','delete_activity'):
+                self.hierarchy(db)
             # Record actual field changes, including implicit child unassignment,
             # in the same transaction as the edit. No-op saves leave no activity.
             if action not in ('comment', 'delete_activity'):
@@ -217,6 +303,12 @@ class Tasks:
                     if old is None:
                         continue
                     changes = {key:{'from':old[key],'to':row[key]} for key in sorted(allowed) if old[key] != row[key]}
+                    if action == 'outline_move' and row['id'] in data['ids']:
+                        def outline_rank(cards):
+                            siblings = sorted((c for c in cards.values() if c['parent_id']==row['parent_id']),key=lambda c:(c['outline_position'],c['id']))
+                            return next((i+1 for i,c in enumerate(siblings) if c['id']==row['id']),None)
+                        if old['parent_id']==row['parent_id'] and outline_rank(previous)!=outline_rank(current):
+                            changes['outline_position'] = {'from':outline_rank(previous),'to':outline_rank(current)}
                     if action == 'move' and row['id'] == data['id'] and old['status'] == row['status']:
                         def rank(cards):
                             lane = sorted((c for c in cards.values() if c['status']==row['status'] and not c['archived']), key=lambda c:(c['position'],c['id']))
