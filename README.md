@@ -169,14 +169,16 @@ and a subtle themed background. Bare square brackets such as `[0, 1]` stay liter
 explicit Markdown links and references with definitions keep their link styling.
 
 For `# TODO`, `#TODO`, `# NOTE` and `#NOTE` comments, enable **Track TODO / NOTE**
-in the right sidebar for each Markdown or source file you want to review. It saves
+using the comment/check icon next to the author pen at the top of the right sidebar
+for each Markdown or source file you want to review. It saves
 an unsaved Edit buffer, creates flagged discussions, and keeps them synchronized
-with later saves and external changes. **Markers only** filters discussions,
+with later saves and external changes. The icon is highlighted while tracking is on.
+**Markers only**, alongside the other discussion filter toggles, filters discussions,
 search and the existing ↑/↓ passage arrows. Replies and original context persist;
 removed or unattached marker threads resolve automatically. Turning tracking off
 pauses imports and keeps existing discussions. New Review markers import on
 approval. Tracking handles up to 1,000 markers per file and shows when that limit
-is reached.
+is reached in the icon’s tooltip.
 
 In Python, **Ctrl+click** (or **Cmd+click**) a name to go to its definition, or
 press **F12** at the cursor. The ↗ button beside the filename exposes the same

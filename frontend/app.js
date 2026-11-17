@@ -849,7 +849,7 @@ function updateToolbar(){
   const markerButton=$('#track-source-markers');
   markerButton.disabled=locked||!e||viewer||e.trackingMarkers||e.workMode==='review'||!['py','pyi','md','markdown','sh','bash','yaml','yml','toml','r','rb','pl','js','mjs','cjs','ts','tsx','jsx','c','h','cpp','hpp','cs','java','go','rs','css','scss','swift','kt','php','html','htm','sql','lua'].includes(type);
   markerButton.setAttribute('aria-pressed',String(!!e?.track_source_markers));
-  markerButton.textContent=e?.source_markers_truncated?'Track TODO / NOTE · 1,000 limit':'Track TODO / NOTE';
+  markerButton.title='Create threads from the first 1,000 saved TODO/NOTE comments in this file; keep them in sync after saves and external edits.'+(e?.source_markers_truncated?' The 1,000-marker limit has been reached.':'');
   $('#python-definition').hidden=!!e?.kind||!['py','pyi'].includes(type);
   if(['py','pyi'].includes(type)&&!e?.kind)$('#file-info').title='Go to definition: Ctrl/Cmd+click a name, or F12 at the cursor. Tab indents.';else $('#file-info').removeAttribute('title');
   outlineController?.setDocument(!e?.kind&&type==='py'?e.path:null,!e?.kind&&type==='py'?view?.state.doc||null:null);
@@ -1721,7 +1721,7 @@ $('#collapse-threads').onclick=guard(async()=>{if(contextVisit)await returnFromO
 $('#expand-threads').onclick=()=>{for(const id of visibleThreadIds())collapsedThreads.delete(id);rememberCollapsed();filterThreads();};
 $('#previous').onclick=guard(()=>navigate(-1));$('#next').onclick=guard(()=>navigate(1));$('#show-resolved').onchange=()=>{cancelSidebarNavigation();appStore.dispatch({type:'FILTERS_CHANGED',filters:{showResolved:$('#show-resolved').checked}});};
 $('#only-unattached').onchange=()=>{cancelSidebarNavigation();appStore.dispatch({type:'FILTERS_CHANGED',filters:{onlyUnattached:$('#only-unattached').checked}});};
-$('#only-source-markers').onclick=()=>{cancelSidebarNavigation();const value=!appStore.state.onlySourceMarkers;$('#only-source-markers').setAttribute('aria-pressed',String(value));appStore.dispatch({type:'FILTERS_CHANGED',filters:{onlySourceMarkers:value}});};
+$('#only-source-markers').onchange=()=>{cancelSidebarNavigation();appStore.dispatch({type:'FILTERS_CHANGED',filters:{onlySourceMarkers:$('#only-source-markers').checked}});};
 $('#track-source-markers').onclick=guard(async()=>{
   const e=entry();if(!e||e.kind||e.workMode==='review'||e.trackingMarkers)return;
   e.trackingMarkers=true;updateToolbar();

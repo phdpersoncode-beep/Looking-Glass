@@ -99,6 +99,11 @@ def test_sidebar_controls_and_author_popover_fit_both_themes_and_narrow_panes(wo
     page.goto(url)
     page.get_by_role('button', name='Expand all folders', exact=True).click()
     open_file(page, 'folder/note.txt')
+    tracking = page.get_by_role('button', name='Track TODO / NOTE', exact=True)
+    expect(tracking).to_be_disabled()
+    assert tracking.inner_text() == ''
+    assert tracking.evaluate("el=>el.previousElementSibling.id") == 'author-edit'
+    expect(page.get_by_role('group', name='Discussion filters').get_by_role('checkbox', name='Markers only', exact=True)).to_be_visible()
     for width in [1440, 900]:
         page.set_viewport_size({'width': width, 'height': 850})
         if width == 900:
@@ -117,6 +122,12 @@ def test_sidebar_controls_and_author_popover_fit_both_themes_and_narrow_panes(wo
                 assert all(first['right'] <= second['left'] or second['right'] <= first['left']
                            or first['bottom'] <= second['top'] or second['bottom'] <= first['top']
                            for i, first in enumerate(boxes) for second in boxes[i+1:])
+            filters = page.locator('.thread-filters')
+            assert filters.evaluate('el=>el.scrollWidth<=el.clientWidth')
+            boxes = filters.locator('label').evaluate_all('els=>els.map(el=>{const r=el.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom}})')
+            assert all(first['right'] <= second['left'] or second['right'] <= first['left']
+                       or first['bottom'] <= second['top'] or second['bottom'] <= first['top']
+                       for i, first in enumerate(boxes) for second in boxes[i+1:])
             # Inspect in the opening task, before the queued toggle event. The
             # first visible frame must not retain the wider viewport's position.
             box = page.locator('#author-edit').evaluate('''button=>{
