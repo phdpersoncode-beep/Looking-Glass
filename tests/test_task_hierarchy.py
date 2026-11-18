@@ -104,7 +104,7 @@ def test_deleting_and_promoting_parents_preserves_nested_cards(tmp_path):
 def test_old_board_migrates_assignment_and_order_without_changing_card_ids(tmp_path):
     tasks, change, cards = planner(tmp_path)
     for title in ('Epic','Child','Other'): change(action='create',title=title)
-    change(action='update',ids=[1],changes={'milestone':True,'milestone_number':7})
+    change(action='update',ids=[1],changes={'milestone':True})
     change(action='update',ids=[2],changes={'milestone_id':1})
     change(action='move',id=3,status='backlog',before=2)
     before=tasks.read()
@@ -116,7 +116,7 @@ def test_old_board_migrates_assignment_and_order_without_changing_card_ids(tmp_p
     for card in migrated['cards']:
         assert card['parent_id']==card['milestone_id']
         assert card['outline_position']==card['position']
-    assert next(c for c in migrated['cards'] if c['id']==1)['reference']=='#M7'
+    assert next(c for c in migrated['cards'] if c['id']==1)['reference']=='#M1'
 
 
 def test_cli_creates_moves_and_reads_card_subtrees(tmp_path, monkeypatch, capsys):

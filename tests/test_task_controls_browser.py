@@ -77,7 +77,7 @@ def test_collapse_expand_lists_are_independent_preserve_drafts_and_survive_polls
     page.goto(url);page.locator('#tasks-open').click()
     sidebar=page.locator('#task-sidebar')
     expect(sidebar.locator('.task-outline-row')).to_have_count(6)
-    expect(sidebar.locator('.task-outline-fold')).to_have_count(0)
+    expect(sidebar.locator('.task-outline-fold:enabled')).to_have_count(4)
     before=ws.tasks.read()['revision']
     sidebar.get_by_role('button',name='Collapse all tasks',exact=True).click()
     expect(sidebar.locator('.task-outline-row')).to_have_count(2)
@@ -87,7 +87,7 @@ def test_collapse_expand_lists_are_independent_preserve_drafts_and_survive_polls
     popup=page.locator('.task-detail');tasks=popup.get_by_role('region',name='Card tasks',exact=True)
     expect(tasks.get_by_role('heading',name='Tasks',exact=True)).to_be_visible()
     expect(tasks.locator('.task-outline-row')).to_have_count(2)
-    expect(tasks.locator('.task-outline-fold')).to_have_count(0)
+    expect(tasks.locator('.task-outline-fold:enabled')).to_have_count(1)
     title=popup.get_by_label('Title',exact=True);title.fill('Keep the parent draft')
     tasks.get_by_role('button',name='Collapse all tasks',exact=True).focus()
     page.keyboard.press('Enter')
@@ -108,12 +108,12 @@ def test_collapse_expand_lists_are_independent_preserve_drafts_and_survive_polls
     expect(title).to_have_value('Keep the parent draft')
     popup.get_by_role('button',name='Close card',exact=True).click()
     # A different card starts expanded; its state does not affect the plan.
-    page.locator('.task-card[data-id="1"]').click()
+    sidebar.locator('.task-outline-row[data-id="1"] .task-outline-reference').click()
     expect(tasks.locator('.task-outline-row')).to_have_count(4)
     popup.get_by_role('button',name='Close card',exact=True).click()
     sidebar.get_by_role('button',name='Expand all tasks',exact=True).click()
     expect(sidebar.locator('.task-outline-row')).to_have_count(7)
-    expect(page.locator('.task-card')).to_have_count(7)
+    expect(page.locator('.task-card')).to_have_count(6)
     page.locator('.file-entry[data-path="notes.md"]').click()
     page.locator('.tab-name',has_text='Tasks').click()
     expect(sidebar.locator('.task-outline-row')).to_have_count(7)
@@ -126,24 +126,31 @@ def test_icon_toolbar_and_metadata_fit_light_dark_and_narrow_popups(workspace_pa
     from playwright.sync_api import expect
     root,page,url,ws=workspace_page
     seed(ws)
-    page.goto(url);page.locator('#tasks-open').click();page.locator('.task-card[data-id="1"]').click()
+    page.goto(url);page.locator('#tasks-open').click()
+    page.locator('#task-sidebar .task-outline-row[data-id="1"] .task-outline-reference').click()
     popup=page.locator('.task-detail')
+    title=popup.get_by_label('Title',exact=True)
+    title.fill('Get cc-step scaling and translation functionality implemented ' * 2)
     for theme in ('light','dark'):
         page.evaluate('(theme)=>document.documentElement.dataset.theme=theme',theme)
         for width in (1440,800,390):
             page.set_viewport_size({'width':width,'height':800})
-            popup.evaluate('e=>e.scrollTop=0')
+            content=popup.locator('.task-detail-content')
+            content.evaluate('e=>e.scrollTop=0')
             toolbar=popup.get_by_role('toolbar',name='Card actions')
             boxes=toolbar.locator('button').evaluate_all('(buttons)=>buttons.map(b=>{const r=b.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height};})')
             edge=popup.bounding_box()
             for index,box in enumerate(boxes):
-                assert box['width']>=26 and box['height']>=26
+                assert box['width']==24 and box['height']==24
                 assert box['left']>=edge['x'] and box['right']<=edge['x']+edge['width']
                 assert box['top']>=edge['y'] and box['bottom']<edge['y']+65
                 if index:assert boxes[index-1]['right']<=box['left']
+            expect(title).to_be_focused()
+            toolbar_box=toolbar.bounding_box()
+            assert title.bounding_box()['y'] >= toolbar_box['y'] + toolbar_box['height'] + 8
             status=popup.get_by_label('Status',exact=True).bounding_box();milestone=popup.get_by_label('Milestone',exact=True).bounding_box()
             assert abs(status['y']-milestone['y'])<2
             assert status['x']+status['width']<milestone['x']
-            assert popup.evaluate('e=>e.scrollWidth<=e.clientWidth+1')
-            expect(popup.get_by_label('Milestone number (#M)',exact=True)).to_have_value('1')
+            assert content.evaluate('e=>e.scrollWidth<=e.clientWidth+1')
+            expect(popup.get_by_label('Milestone number (#M)',exact=True)).to_have_count(0)
             expect(popup.get_by_role('button',name='Collapse all tasks',exact=True)).to_be_visible()

@@ -1,4 +1,9 @@
 import {iconButton} from './icons.mjs';
+import {taskDragType, taskDropItem, taskDropPreview} from './task-drop-preview.mjs';
+
+export const taskColumns = [['backlog', '◌', 'Backlog'], ['in_progress', '◐', 'In progress'],
+  ['to_review', '◎', 'To review'], ['done', '✓', 'Done']];
+const taskStatus = new Map(taskColumns.map(([key, symbol, label]) => [key, {symbol, label}]));
 
 export function cardTitle(card) {
   return card.milestone ? `M${card.milestone_number}: ${card.title}` : card.title;
@@ -6,9 +11,10 @@ export function cardTitle(card) {
 
 // Keep ordering independent of the Kanban columns. Hidden ancestors are retained
 // as context so an archived parent never makes an active descendant disappear.
-export function outlineRows(cards, {rootId = null, archived = false, folded = new Set(), collapsed = false} = {}) {
+export function outlineRows(cards, {rootId = null, archived = false, folded = new Set(),
+  expanded = new Set(), collapsed = false, includeArchived = false} = {}) {
   const byId = new Map(cards.map(c => [c.id, c])), included = new Set();
-  for (const card of cards) if (!!card.archived === archived) {
+  for (const card of cards) if (includeArchived || !!card.archived === archived) {
     let current = card;
     for (let i = 0; current && i < 32; i++, current = byId.get(current.parent_id)) included.add(current.id);
   }
@@ -26,8 +32,9 @@ export function outlineRows(cards, {rootId = null, archived = false, folded = ne
   function visit(parent, depth) {
     if (depth > 31) return;
     for (const card of children.get(parent) || []) {
-      rows.push({card, depth, children: children.get(card.id)?.length || 0, context: !!card.archived !== archived});
-      if (!collapsed && !folded.has(card.id)) visit(card.id, depth+1);
+      rows.push({card, depth, children: children.get(card.id)?.length || 0,
+        context: !includeArchived && !!card.archived !== archived});
+      if (collapsed ? expanded.has(card.id) : !folded.has(card.id)) visit(card.id, depth+1);
     }
   }
   visit(rootId, 0);
@@ -36,7 +43,7 @@ export function outlineRows(cards, {rootId = null, archived = false, folded = ne
 
 export function shiftTarget(cards, id, outdent = false) {
   const card = cards.find(c => c.id === id);
-  if (!card || card.milestone) return null;
+  if (!card || card.milestone || card.archived) return null;
   if (outdent) {
     const parent = cards.find(c => c.id === card.parent_id);
     if (!parent) return null;
@@ -50,6 +57,16 @@ export function shiftTarget(cards, id, outdent = false) {
   return previous ? {parent_id:previous.id, before:null} : null;
 }
 
+export function milestoneInsertion(cards, id, after, exclude = null) {
+  const anchor = cards.find(card => card.id === id);
+  const milestone = anchor?.milestone ? anchor : cards.find(card => card.id === anchor?.milestone_id);
+  if (!milestone) return null;
+  return cards.filter(card => card.milestone && !card.archived && card.id !== exclude &&
+    (after || !anchor.milestone ? card.milestone_number > milestone.milestone_number
+      : card.milestone_number >= milestone.milestone_number))
+    .sort((a, b) => a.milestone_number - b.milestone_number)[0]?.id ?? null;
+}
+
 const element = (tag, text, className) => {
   const node = document.createElement(tag);
   if (text !== undefined) node.textContent = text;
@@ -58,9 +75,12 @@ const element = (tag, text, className) => {
 };
 
 export function mountTaskOutline(host, options) {
-  const {getBoard, state, picked, write, open, contextMenu, changed, create, rootId = null} = options;
+  const {getBoard, state, picked, write, open, contextMenu, changed, create, createMilestone, startDrag, getDrag, rootId = null} = options;
   const drafts = state.outlineDrafts ??= new Map(), views = state.outlineViews ??= new Map();
-  const key=rootId??'plan', view=views.get(key)||{collapsed:false};views.set(key,view);
+  const key = rootId ?? 'plan', view = views.get(key) ?? {collapsed: false, toggled: new Set()};
+  views.set(key, view);
+  const isExpanded = id => view.collapsed === view.toggled.has(id);
+  let cursor = null, openTimer = null;
   const section = element('section', undefined, 'task-outline'), list = element('div', undefined, 'task-outline-list'), status = element('div', undefined, 'task-outline-status');
   section.setAttribute('aria-label', rootId ? 'Card tasks' : 'Task hierarchy');
   list.setAttribute('role','list');
@@ -69,14 +89,136 @@ export function mountTaskOutline(host, options) {
   add.type='button';add.onclick=()=>create(rootId);
   const controls=element('div',undefined,'task-outline-controls');
   controls.setAttribute('role','group');controls.setAttribute('aria-label','Task list display');
-  const collapse=iconButton('Collapse all tasks','collapse',()=>{view.collapsed=true;render();});
-  const expand=iconButton('Expand all tasks','expand',()=>{view.collapsed=false;render();});
+  function setCollapsed(collapsed) {
+    view.collapsed = collapsed;
+    view.toggled.clear();
+    render();
+  }
+  const collapse=iconButton('Collapse all tasks','collapse',()=>setCollapsed(true));
+  const expand=iconButton('Expand all tasks','expand',()=>setCollapsed(false));
+  if (createMilestone) {
+    controls.append(iconButton('Add milestone', 'addMilestone', () => {
+      createMilestone(milestoneInsertion(getBoard().cards, cursor?.id, cursor?.after));
+    }));
+  }
   controls.append(collapse,expand);
   if(rootId){const heading=element('div',undefined,'task-outline-heading');heading.append(element('h3','Tasks'),controls);section.append(heading);}
   else (options.controlsHost||section).append(controls);
   section.append(list, add, status);host.append(section);
   const nodes = new Map();
-  let rows = [], drag = null, disposed = false, rendering = false, saving = Promise.resolve();
+  const preview = taskDropPreview(() => nodes.values());
+  const dragEvents = new AbortController();
+  let rows = [], disposed = false, rendering = false, saving = Promise.resolve();
+  let drop = null, savingDrop = false, moving = null;
+
+  function clearDrop(animate = true) {
+    drop?.row.removeAttribute('data-drop');
+    drop = null;
+    preview.clear(animate);
+  }
+  function movingRows(source) {
+    if (moving?.source === source) return moving;
+    const cards = new Map(getBoard().cards.map(card => [card.id, card]));
+    const ids = new Set(source.ids);
+    function contains(id) {
+      for (let card = cards.get(id); card; card = cards.get(card.parent_id)) {
+        if (ids.has(card.id)) return true;
+      }
+      return false;
+    }
+    const origins = rows.filter(({card}) => contains(card.id)).map(({card}) => nodes.get(card.id));
+    const height = origins.reduce((total, row) => total + row.offsetHeight, 0) + Math.max(0, origins.length - 1) * 2;
+    moving = {source, contains, origins, height: height || 34};
+    return moving;
+  }
+  function dropTarget(id, mode, source) {
+    const cards = getBoard().cards;
+    const card = cards.find(c => c.id === id);
+    if (!card) return null;
+    if (source.id === id) {
+      return mode === 'inside' || mode === 'outside' ? shiftTarget(cards, id, mode === 'outside') : null;
+    }
+    if (mode === 'inside') return {parent_id: id, before: null};
+    if (mode === 'outside') return shiftTarget(cards, id, true);
+    const before = mode === 'after' ? rows.slice(rows.findIndex(r => r.card.id === id) + 1)
+      .find(r => r.card.parent_id === card.parent_id && !movingRows(source).contains(r.card.id))?.card.id : id;
+    return {parent_id: card.parent_id, before: before ?? null};
+  }
+  function milestoneDropTarget(id, mode, source) {
+    if (movingRows(source).contains(id)) return null;
+    const before = milestoneInsertion(getBoard().cards, id, mode === 'after', source.id);
+    return {action: 'milestone_move', id: source.id, before};
+  }
+  function showDrop(target, source) {
+    const {parent_id: parent = null, before} = target;
+    const group = movingRows(source);
+    const parentAt = rows.findIndex(r => r.card.id === parent);
+    const depth = parent === rootId ? 0 : rows[parentAt]?.depth + 1;
+    if (!Number.isFinite(depth) || (depth > 0 && !isExpanded(parent))) {
+      preview.clear();
+      return;
+    }
+    let anchor = nodes.get(before);
+    if (target.action === 'milestone_move' && !anchor) {
+      anchor = nodes.get(rows.find(r => r.depth === 0 && !r.card.milestone)?.card.id);
+    } else if (depth > 0 && !anchor) {
+      anchor = nodes.get(rows.slice(parentAt + 1).find(r => r.depth < depth && !group.contains(r.card.id))?.card.id);
+    }
+    preview.show(list, anchor || null, group.origins, group.height, depth * 16);
+  }
+  list.ondragover = event => {
+    if (!event.dataTransfer.types.includes(taskDragType) || savingDrop) return;
+    const source = getDrag();
+    const hovered = taskDropItem(list, event.clientY, '.task-outline-row, .task-drop-preview');
+    const row = hovered === preview.gap ? drop?.row : hovered;
+    if (!row) { clearDrop(); return; }
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = 'move';
+    const id = Number(row.dataset.id);
+    const localDrag = source && list.contains(source.element);
+    const milestoneDrag = localDrag && source.element.classList.contains('task-outline-milestone');
+    const delta = localDrag ? event.clientX - source.x : 0;
+    const midpoint = list.getBoundingClientRect().top + list.clientTop + row.offsetTop + row.offsetHeight / 2;
+    let mode = hovered === preview.gap ? drop.mode : event.clientY > midpoint ? 'after' : 'before';
+    if (!milestoneDrag) {
+      if (delta > 24 || row.classList.contains('task-outline-milestone')) mode = 'inside';
+      else if (delta < -24) mode = 'outside';
+    }
+    if (drop?.row === row && drop.mode === mode) return;
+    const target = source && (milestoneDrag ? milestoneDropTarget(id, mode, source) : dropTarget(id, mode, source));
+    if (source && (!target || movingRows(source).contains(target.parent_id) || movingRows(source).contains(target.before))) {
+      clearDrop();
+      return;
+    }
+    drop?.row.removeAttribute('data-drop');
+    drop = {row, mode, target};
+    row.dataset.drop = mode;
+    if (target) showDrop(target, source);
+  };
+  list.ondragleave = event => {
+    if (!savingDrop && !list.contains(event.relatedTarget)) clearDrop();
+  };
+  list.ondrop = async event => {
+    if (!drop || savingDrop) return;
+    event.preventDefault();
+    event.stopPropagation();
+    let source = getDrag();
+    if (!source) {
+      try { source = JSON.parse(event.dataTransfer.getData(taskDragType)); } catch { clearDrop(); return; }
+    }
+    if (!Array.isArray(source?.ids)) { clearDrop(); return; }
+    const target = drop.target || dropTarget(Number(drop.row.dataset.id), drop.mode, source);
+    if (!target) { clearDrop(); return; }
+    savingDrop = true;
+    await mutate(target.action ? target : {action: 'outline_move', ids: source.ids, ...target});
+    savingDrop = false;
+    clearDrop();
+  };
+  document.addEventListener('dragend', () => {
+    if (!savingDrop) clearDrop();
+    moving = null;
+  }, {signal: dragEvents.signal});
 
   async function mutate(data, revision) {
     await saving;
@@ -131,14 +273,33 @@ export function mountTaskOutline(host, options) {
     focusRow(rows[index+direction]?.card.id);
   }
   function makeRow(id) {
-    const row=element('div',undefined,'task-outline-row');row.dataset.id=id;row.setAttribute('role','listitem');row.draggable=true;
+    const row=element('div',undefined,'task-outline-row');row.dataset.id=id;row.setAttribute('role','listitem');row.tabIndex=-1;
+    const fold = iconButton('', 'triangle', () => {
+      if (view.toggled.has(id)) view.toggled.delete(id);
+      else view.toggled.add(id);
+      render();
+    });
+    fold.classList.add('task-outline-fold');
+    const completion = element('span', undefined, 'task-outline-completion');
+    const symbol = element('span', undefined, 'task-outline-symbol');
+    symbol.setAttribute('aria-hidden', 'true');
     const check=element('input');check.type='checkbox';check.className='task-outline-check';
+    completion.append(symbol, check);
     check.onchange=async()=>{check.disabled=true;if(!await mutate({action:'update',ids:[id],changes:{status:check.checked?'done':'backlog'}}))check.checked=!check.checked;check.disabled=false;};
     const reference=element('button',undefined,'task-outline-reference');reference.type='button';reference.onclick=()=>openCard(id);
     const prefix=element('span',undefined,'task-outline-prefix'), name=element('input',undefined,'task-outline-name');
     name.type='text';name.maxLength=500;name.draggable=false;
     name.oninput=()=>{const previous=drafts.get(id);drafts.set(id,{value:name.value,revision:previous?.revision??getBoard().revision});};
-    name.onblur=()=>{if(!rendering)saveName(id);};
+    name.onfocus=()=>{
+      if (name.readOnly) return;
+      row.classList.add('task-outline-editing');
+      row.draggable = false;
+    };
+    name.onblur=()=>{
+      row.classList.remove('task-outline-editing');
+      row.draggable = row.dataset.archived !== 'true';
+      if(!rendering)saveName(id);
+    };
     name.onkeydown=async event=>{
       if(event.key==='Tab') {
         if(!name.readOnly && shiftTarget(getBoard().cards,id,event.shiftKey)) {
@@ -158,66 +319,79 @@ export function mountTaskOutline(host, options) {
       if(['ArrowUp','ArrowDown'].includes(event.key)) {
         event.preventDefault();const direction=event.key==='ArrowUp'?-1:1;
         if(!await saveName(id))return;
-        if(event.altKey) {
-          const card=getBoard().cards.find(c=>c.id===id),siblings=rows.filter(r=>r.card.parent_id===card.parent_id).map(r=>r.card);
+        if(event.altKey && row.dataset.archived !== 'true') {
+          const card=getBoard().cards.find(c=>c.id===id);
+          const siblings=rows.map(r=>r.card).filter(c=>c.parent_id===card.parent_id &&
+            !!c.milestone===!!card.milestone && (!card.milestone || !c.archived));
           const at=siblings.findIndex(c=>c.id===id), target=direction<0?siblings[at-1]:siblings[at+2];
-          if(!card.milestone && (direction>0?at<siblings.length-1:at>0))await mutate({action:'outline_move',ids:[id],parent_id:card.parent_id,before:target?.id??null});
+          if (direction>0 ? at<siblings.length-1 : at>0) {
+            const before = target?.id ?? null;
+            await mutate(card.milestone ? {action:'milestone_move',id,before}
+              : {action:'outline_move',ids:[id],parent_id:card.parent_id,before});
+          }
           focusRow(id);
         } else nextFocus(id,direction);
       }
     };
-    const pen=iconButton('Edit card '+id,'pen',()=>openCard(id));
-    pen.classList.add('task-outline-pen');
-    row.append(check,reference,prefix,name,pen);
+    const progress = element('span', undefined, 'task-outline-progress');
+    row.append(fold,completion,reference,prefix,name,progress);
+    if (createMilestone) {
+      row.onpointermove = event => {
+        const bounds = row.getBoundingClientRect();
+        cursor = {id, after: event.clientY >= bounds.top + bounds.height / 2};
+      };
+      row.onfocusin = () => { cursor = {id, after: true}; };
+    }
     row.addEventListener('click',event=>{
       if(event.ctrlKey||event.metaKey) {event.preventDefault();event.stopPropagation();picked.has(id)?picked.delete(id):picked.add(id);changed();}
     },true);
+    row.onclick = event => {
+      clearTimeout(openTimer);
+      if (event.target.closest('button,input') || event.detail > 1) return;
+      openTimer = setTimeout(() => {
+        if (!row.isConnected) return;
+        row.focus({preventScroll: true});
+        openCard(id);
+      }, 300);
+    };
+    row.ondblclick = event => {
+      if (event.target.closest('button,input') || name.readOnly) return;
+      clearTimeout(openTimer);
+      name.focus({preventScroll: true});
+    };
     row.oncontextmenu=event=>contextMenu(event,id);
     row.ondragstart=event=>{
-      if(event.target===name){event.preventDefault();return;}
-      const ids=picked.has(id)?[...picked]:[id];
-      drag={id,ids,x:event.clientX};
-      event.dataTransfer.setData('application/x-looking-glass-cards',JSON.stringify(drag));
-      event.dataTransfer.setData('text/plain',String(id));event.dataTransfer.effectAllowed='move';
-      row.classList.add('task-outline-dragging');
-    };
-    row.ondragend=()=>{drag=null;clearDrop();row.classList.remove('task-outline-dragging');};
-    row.ondragover=event=>{
-      if(!event.dataTransfer.types.includes('application/x-looking-glass-cards'))return;
-      event.preventDefault();event.stopPropagation();clearDrop();
-      const card=getBoard().cards.find(c=>c.id===id), source=drag||{};
-      const delta=event.clientX-(source.x??event.clientX);
-      row.dataset.drop=delta>24||card.milestone?'inside':delta < -24?'outside':event.clientY>row.getBoundingClientRect().top+row.offsetHeight/2?'after':'before';
-      event.dataTransfer.dropEffect='move';
-    };
-    row.ondrop=async event=>{
-      event.preventDefault();event.stopPropagation();
-      let source;try{source=JSON.parse(event.dataTransfer.getData('application/x-looking-glass-cards'));}catch{return;}
-      const mode=row.dataset.drop;clearDrop();
-      const card=getBoard().cards.find(c=>c.id===id);if(!card||!Array.isArray(source.ids))return;
-      let target;
-      if(source.id===id)target=shiftTarget(getBoard().cards,id,mode==='outside');
-      else if(mode==='inside')target={parent_id:id,before:null};
-      else if(mode==='outside')target=shiftTarget(getBoard().cards,id,true);
-      else {
-        const siblings=rows.filter(r=>r.card.parent_id===card.parent_id).map(r=>r.card);
-        target={parent_id:card.parent_id,before:mode==='after'?(siblings[siblings.indexOf(card)+1]?.id??null):id};
-      }
-      if(target)await mutate({action:'outline_move',ids:source.ids,...target});
+      clearTimeout(openTimer);
+      if(event.target===name || row.classList.contains('task-outline-editing')){event.preventDefault();return;}
+      startDrag(event,id,row.classList.contains('task-outline-milestone') ? [id] : undefined);
     };
     return row;
   }
-  function clearDrop(){for(const row of nodes.values())delete row.dataset.drop;}
   function render() {
     if(disposed)return;
+    const dropPositions = savingDrop && drop ? preview.capture() : null;
+    clearDrop(false);
+    moving = null;
     rendering=true;
     const focused=section.contains(document.activeElement)?document.activeElement:null;
     const selection=focused?.matches('input[type=text]')?[focused.selectionStart,focused.selectionEnd]:null;
-    rows=outlineRows(getBoard().cards,{rootId,archived:!!state.archived,collapsed:view.collapsed});
-    const allRows=view.collapsed?outlineRows(getBoard().cards,{rootId,archived:!!state.archived}):rows;
-    collapse.disabled=view.collapsed||!allRows.some(r=>r.children);
-    expand.disabled=!view.collapsed;
-    collapse.setAttribute('aria-pressed',String(view.collapsed));expand.setAttribute('aria-pressed',String(!view.collapsed));
+    const cards = getBoard().cards;
+    const scope = {rootId, archived: !!state.archived, includeArchived: rootId === null};
+    rows = outlineRows(cards, {...scope, collapsed: view.collapsed,
+      [view.collapsed ? 'expanded' : 'folded']: view.toggled});
+    const allRows = view.collapsed || view.toggled.size ? outlineRows(cards, scope) : rows;
+    collapse.disabled = !rows.some(({card, children}) => children && isExpanded(card.id));
+    expand.disabled = !allRows.some(({card, children}) => children && !isExpanded(card.id));
+    collapse.setAttribute('aria-pressed', String(view.collapsed && !view.toggled.size));
+    expand.setAttribute('aria-pressed', String(!view.collapsed && !view.toggled.size));
+    const totals = new Map();
+    if (rootId === null) for (const card of cards) {
+      if (card.archived || !card.milestone_id) continue;
+      const count = totals.get(card.milestone_id) ?? {done: 0, total: 0};
+      count.total++;
+      if (card.status === 'done') count.done++;
+      totals.set(card.milestone_id, count);
+    }
     const visible=new Set(rows.map(r=>r.card.id));
     for(const [id,row] of nodes)if(!visible.has(id)){row.remove();nodes.delete(id);}
     for(let index=0;index<rows.length;index++) {
@@ -225,22 +399,41 @@ export function mountTaskOutline(host, options) {
       let row=nodes.get(card.id);if(!row){row=makeRow(card.id);nodes.set(card.id,row);}
       row.style.setProperty('--task-depth',depth);row.dataset.depth=depth;
       row.classList.toggle('task-outline-milestone',!!card.milestone);row.classList.toggle('task-outline-done',card.status==='done');row.classList.toggle('task-outline-context',context);
-      row.setAttribute('aria-selected',String(picked.has(card.id)));row.draggable=!card.archived;
-      const [check,reference,prefix,name,pen]=row.children;
-      if(children)row.setAttribute('aria-expanded',String(!view.collapsed));else row.removeAttribute('aria-expanded');
-      check.checked=card.status==='done';check.disabled=context;check.setAttribute('aria-label','Complete '+card.title);
+      row.dataset.archived = !!card.archived;
+      row.setAttribute('aria-selected',String(picked.has(card.id)));
+      row.draggable = !card.archived && !row.classList.contains('task-outline-editing');
+      const [fold, completion, reference, prefix, name, progress] = row.children;
+      const [symbol, check] = completion.children;
+      const expanded = isExpanded(card.id);
+      if (children) row.setAttribute('aria-expanded', String(expanded)); else row.removeAttribute('aria-expanded');
+      const foldAction = (expanded ? 'Collapse ' : 'Expand ') + card.title;
+      fold.disabled = !children;
+      fold.title = foldAction;
+      fold.setAttribute('aria-label', foldAction);
+      fold.setAttribute('aria-expanded', String(expanded));
+      const itemStatus = taskStatus.get(card.status);
+      symbol.textContent = itemStatus.symbol;
+      completion.title = itemStatus.label;
+      completion.dataset.status = card.status;
+      check.checked = card.status === 'done';
+      check.disabled = context || !!card.archived;
+      check.setAttribute('aria-label', 'Complete ' + card.title);
+      check.setAttribute('aria-description', itemStatus.label);
       reference.textContent=card.milestone?'◇':'#C'+String(card.id).padStart(2,'0');reference.title='Open '+cardTitle(card);reference.setAttribute('aria-label','Open '+(card.milestone?'#M'+card.milestone_number:reference.textContent));
       prefix.textContent=card.milestone?'M'+card.milestone_number+':':'';prefix.hidden=!card.milestone;
       if(!drafts.has(card.id))name.value=card.title;
       else if(document.activeElement!==name)name.value=drafts.get(card.id).value;
       name.readOnly=context;name.setAttribute('aria-label','Task name '+card.id);name.title=cardTitle(card);
-      pen.setAttribute('aria-label','Edit '+card.title);pen.title='Edit '+card.title;
+      const total = totals.get(card.id);
+      progress.textContent = card.milestone && total ? `${total.done}/${total.total}` : '';
+      progress.title = total ? `${total.done} of ${total.total} tasks done` : '';
       if(list.children[index]!==row)list.insertBefore(row,list.children[index]||null);
     }
     for(const id of drafts.keys())if(!getBoard().cards.some(c=>c.id===id))drafts.delete(id);
     if(focused?.isConnected&&document.activeElement!==focused){focused.focus({preventScroll:true});if(selection)focused.setSelectionRange(...selection);}
+    preview.settle(dropPositions);
     rendering=false;
   }
   render();
-  return {render,dispose(){disposed=true;controls.remove();section.remove();},focus:focusRow};
+  return {render,dispose(){disposed=true;clearTimeout(openTimer);dragEvents.abort();clearDrop(false);controls.remove();section.remove();},focus:focusRow};
 }

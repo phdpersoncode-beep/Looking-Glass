@@ -11,8 +11,8 @@ def seed(ws):
         return ws.tasks.mutate(dict(revision=ws.tasks.read()['revision'],author='Agent',**data))
     for title in ('Later epic','First epic','Build board','Review changes','Write docs'):
         change(action='create',title=title)
-    change(action='update',ids=[1],changes={'milestone':True,'milestone_number':9})
-    change(action='update',ids=[2],changes={'milestone':True,'milestone_number':2})
+    change(action='update',ids=[2],changes={'milestone':True})
+    change(action='update',ids=[1],changes={'milestone':True})
     change(action='outline_move',ids=[3,4],parent_id=2)
     change(action='create',title='Keyboard flow',parent_id=3)
     return change
@@ -31,8 +31,8 @@ def test_outline_keyboard_edits_hierarchy_details_and_sidebar_restore(workspace_
     expect(sidebar).to_be_visible()
     expect(page.locator('#thread-search')).to_be_hidden()
     assert sidebar.locator('.task-outline-row').evaluate_all('(rows)=>rows.map(r=>+r.dataset.id)')==[2,3,6,4,1,5]
-    expect(page.locator('.task-card[data-id="2"] .task-card-title')).to_have_text('M2: First epic')
-    expect(page.locator('.task-card[data-id="2"] .task-reference')).to_have_count(0)
+    expect(sidebar.locator('.task-outline-row[data-id="2"] .task-outline-prefix')).to_have_text('M1:')
+    expect(page.locator('.task-card[data-id="2"]')).to_have_count(0)
     name=sidebar.get_by_label('Task name 4',exact=True)
     name.fill('Review the changes');name.press('Enter')
     expect(page.locator('.task-card[data-id="4"]')).to_contain_text('Review the changes')
@@ -52,9 +52,8 @@ def test_outline_keyboard_edits_hierarchy_details_and_sidebar_restore(workspace_
     assert name.evaluate('(e)=>e===window.keptTaskName && e.selectionStart===7 && document.activeElement===e')
     name.press('Escape')
     expect(name).to_have_value('Review the changes')
-    # Pen opens a centered card popup above the visible board and outline.
-    sidebar.locator('.task-outline-row[data-id="3"]').hover()
-    sidebar.get_by_role('button',name='Edit Build board',exact=True).click()
+    # A row click opens the centered card popup above the board and outline.
+    sidebar.locator('.task-outline-row[data-id="3"]').click(position={'x':110,'y':16})
     detail=page.locator('.task-detail')
     expect(detail).to_be_visible();expect(sidebar).to_be_visible()
     assert detail.evaluate('e=>e.matches(":modal")')
@@ -106,7 +105,7 @@ def test_outline_dragging_reassigns_reorders_nests_and_shares_multiselection(wor
     # Drop a task under a milestone: its entire subtree follows.
     row(3).drag_to(row(1),source_position={'x':8,'y':16},target_position={'x':90,'y':16})
     expect(row(3)).to_have_attribute('data-depth','1')
-    expect(page.locator('.task-card[data-id="3"] .task-assignment')).to_contain_text('#M9')
+    expect(page.locator('.task-card[data-id="3"] .task-assignment')).to_contain_text('#M2')
     assert next(c for c in ws.tasks.read()['cards'] if c['id']==6)['milestone_id']==1
     # Drag vertically to reorder direct siblings, then horizontally to nest/outdent.
     row(5).drag_to(row(1),source_position={'x':8,'y':16},target_position={'x':90,'y':16})
@@ -120,7 +119,7 @@ def test_outline_dragging_reassigns_reorders_nests_and_shares_multiselection(wor
     row(3).drag_to(row(3),source_position={'x':100,'y':16},target_position={'x':30,'y':16})
     expect(row(3)).to_have_attribute('data-depth','1')
     # Checklists reuse draggable blades and clickable permanent card references.
-    row(1).hover();sidebar.get_by_role('button',name='Edit Later epic',exact=True).click()
+    row(1).locator('.task-outline-reference').click()
     checklist=page.locator('.task-checklist')
     first=checklist.locator('.task-outline-row[data-id="5"]');second=checklist.locator('.task-outline-row[data-id="3"]')
     second.drag_to(first,source_position={'x':8,'y':16},target_position={'x':8,'y':4})
@@ -136,12 +135,13 @@ def test_outline_dragging_reassigns_reorders_nests_and_shares_multiselection(wor
     expect(page.locator('.task-card[data-id="3"]')).to_have_attribute('aria-selected','true')
     row(3).click(button='right',position={'x':8,'y':16})
     menu=page.get_by_role('menu',name='Selected task actions')
-    menu.get_by_role('menuitem',name='Assign to M2: First epic',exact=True).click()
-    expect(page.locator('.task-card[data-id="5"] .task-assignment')).to_contain_text('#M2')
+    menu.get_by_role('menuitem',name='Assign to M1: First epic',exact=True).click()
+    expect(page.locator('.task-card[data-id="5"] .task-assignment')).to_contain_text('#M1')
     assert next(c for c in ws.tasks.read()['cards'] if c['id']==6)['milestone_id']==2
     row(5).click(button='right',position={'x':8,'y':16})
     menu.get_by_role('menuitem',name='Archive',exact=True).click()
-    expect(row(5)).to_have_count(0)
+    expect(row(5)).to_have_attribute('data-archived','true')
+    expect(page.locator('.task-card[data-id="5"]')).to_have_count(0)
     page.get_by_label('Show archive',exact=True).check()
     expect(row(5)).to_be_visible()
     row(5).click(button='right',position={'x':8,'y':16})
@@ -151,7 +151,7 @@ def test_outline_dragging_reassigns_reorders_nests_and_shares_multiselection(wor
 
 
 @pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
-def test_outline_conflicts_archived_context_and_theme_layout(workspace_page):
+def test_outline_conflicts_archived_visibility_and_theme_layout(workspace_page):
     from playwright.sync_api import expect
     root,page,url,ws=workspace_page
     change=seed(ws)
@@ -166,15 +166,150 @@ def test_outline_conflicts_archived_context_and_theme_layout(workspace_page):
     sidebar.get_by_role('button',name='Keep my title using this revision',exact=True).click()
     expect(page.locator('.task-card[data-id="3"]')).to_contain_text('My unsent title')
     change(action='update',ids=[2],changes={'archived':True})
-    expect(sidebar.locator('.task-outline-row[data-id="2"]')).to_have_class('task-outline-row task-outline-milestone task-outline-context')
+    expect(sidebar.locator('.task-outline-row[data-id="2"]')).to_have_attribute('data-archived','true')
     expect(name).to_be_visible()
-    assert sidebar.get_by_label('Task name 2',exact=True).get_attribute('readonly') is not None
     for theme in ('light','dark'):
         page.evaluate('(theme)=>document.documentElement.dataset.theme=theme',theme)
         page.set_viewport_size({'width':800,'height':800})
         expect(sidebar).to_be_visible()
-        row=sidebar.locator('.task-outline-row[data-id="6"]');row.hover()
-        pen=row.get_by_role('button',name='Edit Keyboard flow',exact=True)
-        expect(pen).to_be_visible()
+        row=sidebar.locator('.task-outline-row[data-id="3"]')
+        fold=row.get_by_role('button',name='Collapse My unsent title',exact=True)
+        expect(fold).to_be_visible()
         assert row.bounding_box()['height']<=38
-        assert pen.bounding_box()['x']+pen.bounding_box()['width']<=sidebar.bounding_box()['x']+sidebar.bounding_box()['width']
+        assert fold.bounding_box()['width'] == 24
+        assert fold.bounding_box()['x']+fold.bounding_box()['width']<=sidebar.bounding_box()['x']+sidebar.bounding_box()['width']
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+@pytest.mark.parametrize('surface', ['kanban', 'sidebar', 'checklist'])
+def test_drag_preview_slides_neighbors_and_saves_only_on_drop(workspace_page, surface):
+    from playwright.sync_api import expect
+    _, page, url, ws = workspace_page
+    for title, status, parent in (
+        ('Plan', 'backlog', None), ('First', 'in_progress', 1),
+        ('Second', 'in_progress', 1), ('Move me', 'backlog', 1), ('Next', 'backlog', None),
+    ):
+        ws.tasks.mutate(dict(action='create', title=title, status=status, parent_id=parent,
+                             revision=ws.tasks.read()['revision']))
+    page.goto(url)
+    page.locator('#tasks-open').click()
+    if surface == 'kanban':
+        group = page.locator('.task-lane[data-status="in_progress"]')
+        source = page.locator('.task-card[data-id="4"]')
+        row = '.task-card'
+    elif surface == 'sidebar':
+        group = page.locator('#task-sidebar .task-outline-list')
+        source = group.locator('[data-id="4"]')
+        row = '.task-outline-row'
+    else:
+        with page.expect_response(lambda response: '/api/tasks/1/activity' in response.url):
+            page.locator('.task-card[data-id="1"]').click()
+        group = page.locator('.task-checklist .task-outline-list')
+        source = group.locator('[data-id="4"]')
+        row = '.task-outline-row'
+    first = group.locator('[data-id="2"]')
+    gap = group.locator('.task-drop-preview')
+    start = source.bounding_box()
+    destination = first.bounding_box()
+    x, y = destination['x'] + 8, destination['y'] + 7
+
+    def start_drag():
+        page.mouse.move(start['x'] + 8, start['y'] + 17)
+        page.mouse.down()
+        page.mouse.move(start['x'] + 8, start['y'] + 5, steps=3)
+
+    def hover_destination():
+        page.mouse.move(x, y)
+        page.mouse.move(x, y)
+        expect(gap).to_be_visible()
+
+    before = ws.tasks.read()
+    start_drag()
+    group.evaluate("""(group) => {
+        const items = [...group.querySelectorAll('[data-id="2"],[data-id="3"]')];
+        const positions = () => items.map(item => item.getBoundingClientRect().top);
+        const settled = () => !items.some(item => item.getAnimations().length);
+        const initial = positions();
+        window.dragMotion = {initial, frames: [], end: null};
+        const sample = () => {
+            const current = positions();
+            window.dragMotion.frames.push(current);
+            if (settled() && current[0] > initial[0] + 5) window.dragMotion.end = current;
+            else if (window.dragMotion.frames.length < 180) requestAnimationFrame(sample);
+        };
+        requestAnimationFrame(sample);
+    }""")
+    hover_destination()
+    page.wait_for_function('() => window.dragMotion.end', timeout=5000)
+    motion = page.evaluate('window.dragMotion')
+    for index in (0, 1):
+        assert motion['end'][index] > motion['initial'][index] + 20
+        assert any(motion['initial'][index] + 1 < frame[index] < motion['end'][index] - 1
+                   for frame in motion['frames'])
+    assert ws.tasks.read() == before
+
+    page.mouse.move(8, 36)
+    page.mouse.up()
+    expect(gap).to_have_count(0)
+    expect(source).to_be_visible()
+    page.wait_for_function('() => !document.getAnimations().some(a => a.effect.target?.matches?.(".task-card,.task-outline-row"))')
+    assert ws.tasks.read() == before
+
+    page.emulate_media(reduced_motion='reduce')
+    start_drag()
+    hover_destination()
+    assert first.evaluate('item => item.getAnimations().length') == 0
+    page.mouse.up()
+    expect(gap).to_have_count(0)
+    expect(group.locator(row).nth(1 if surface == 'sidebar' else 0)).to_have_attribute('data-id', '4')
+    assert ws.tasks.read()['revision'] == before['revision'] + 1
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+@pytest.mark.parametrize('surface', ['sidebar', 'checklist'])
+def test_task_list_click_rename_caret_and_branch_toggle(workspace_page, surface):
+    from playwright.sync_api import expect
+    _, page, url, ws = workspace_page
+    for title, parent_id in (('Plan', None), ('Editable name', 1), ('Nested work', 2)):
+        ws.tasks.mutate(dict(action='create', title=title, parent_id=parent_id,
+                             revision=ws.tasks.read()['revision']))
+    page.goto(url)
+    page.locator('#tasks-open').click()
+    parent = page.get_by_role('article', name='Plan', exact=True)
+    if surface == 'checklist':
+        parent.click()
+        group = page.get_by_role('region', name='Card tasks')
+    else:
+        group = page.locator('#task-sidebar')
+    row = group.locator('.task-outline-row[data-id="2"]')
+    descendant = group.locator('.task-outline-row[data-id="3"]')
+    title_position = {'x': 135, 'y': 17}
+    row.click(position=title_position)
+    detail = page.get_by_role('dialog', name='Editable name', exact=True)
+    expect(detail).to_be_visible()
+    detail.get_by_role('button', name='Close card').click()
+    if surface == 'checklist':
+        parent.click()
+
+    fold = row.get_by_role('button', name='Collapse Editable name', exact=True)
+    assert fold.bounding_box()['width'] == 24
+    assert fold.locator('svg').bounding_box()['width'] <= 12
+    fold.click()
+    expect(descendant).to_have_count(0)
+    row.get_by_role('button', name='Expand Editable name', exact=True).click()
+    expect(descendant).to_be_visible()
+    expect(detail).to_have_count(0)
+    assert ws.tasks.read()['revision'] == 3
+
+    row.dblclick(position=title_position)
+    name = row.get_by_label('Task name 2', exact=True)
+    expect(name).to_be_focused()
+    assert row.get_attribute('draggable') == 'false'
+    name.evaluate('input => input.setSelectionRange(input.value.length, input.value.length)')
+    name.click(position={'x': 1, 'y': 8})
+    assert name.evaluate('input => input.selectionStart') == 0
+    page.keyboard.insert_text('New ')
+    expect(name).to_have_value('New Editable name')
+    name.press('Enter')
+    expect(page.get_by_role('article', name='New Editable name')).to_have_count(1)
+    expect(detail).to_have_count(0)

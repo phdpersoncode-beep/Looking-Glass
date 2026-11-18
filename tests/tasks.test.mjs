@@ -30,7 +30,7 @@ test('milestone display and search retain a separate permanent card reference',(
  assert.equal(fuzzyCard(demoted,'C12'),true);
 });
 
-test('manually chosen milestone numbers work independently of card identity',()=>{
+test('saved milestone numbers work independently of card identity',()=>{
  const card={id:7,milestone:1,reference:'#M42',milestone_reference:'#M42',card_reference:'#C07',title:'Plan',description:''};
  assert.equal(displayReference(card),'#M42');
  assert.equal(fuzzyCard(card,'M42'),true);

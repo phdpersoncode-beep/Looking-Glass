@@ -1,9 +1,9 @@
 import {mountTaskActivity} from './task-activity.mjs';
-import {cardTitle, mountTaskOutline} from './task-outline.mjs';
+import {cardTitle, mountTaskOutline, taskColumns as columns} from './task-outline.mjs';
 import {bindTaskDismiss} from './task-dialog.mjs';
 import {iconButton} from './icons.mjs';
 import {fileReferences} from './file-references.mjs';
-const columns = [["backlog", "\u25CC", "Backlog"], ["in_progress", "\u25D0", "In progress"], ["to_review", "\u25CE", "To review"], ["done", "\u2713", "Done"]];
+import {taskDragType, taskDropItem, taskDropPreview} from './task-drop-preview.mjs';
 export function cardReference(id) { return `#C${String(id).padStart(2, "0")}`; }
 export function displayReference(card) { return card.reference || cardReference(card.id); }
 function fuzzyCard(card, query) {
@@ -35,20 +35,89 @@ function button(text, action, title = text) {
   return b;
 }
 function mountTasks(host, state, api, options = {}) {
-  let board = { cards: [], revision: 0 }, disposed = false, busy = false, refreshing = null, dragged = null, editor = null, outline = null, context = null;
+  let board = { cards: [], revision: 0 }, disposed = false, busy = false, refreshing = null, editor = null, outline = null, context = null;
+  let dragSource = null, laneDrop = null, savingDrop = false;
   const drafts = state.drafts ??= new Map();
   const resume = state.documentReturn;
-  const picked = new Set(), root = el("section", void 0, "task-board"), tools = el("div", void 0, "task-tools"), search = el("input"), filter = el("select"), archived = el("input"), bulk = el("div", void 0, "task-bulk"), lanes = el("div", void 0, "task-lanes"), notice = el("p", void 0, "task-notice");
+  const picked = new Set(), root = el("section", void 0, "task-board"), tools = el("div", void 0, "task-tools"), search = el("input"), archived = el("input"), bulk = el("div", void 0, "task-bulk"), lanes = el("div", void 0, "task-lanes"), notice = el("p", void 0, "task-notice");
+  const filterWrap = el('div', undefined, 'task-filter');
+  const filter = button('', () => toggleFilter(filterMenu.hidden), 'Filter by milestone');
+  const filterLabel = el('span');
+  const filterMenu = el('div', undefined, 'task-filter-menu');
+  filterMenu.id = 'task-milestone-filter-' + crypto.randomUUID();
+  filterMenu.setAttribute('role', 'group');
+  filterMenu.setAttribute('aria-label', 'Milestone filters');
+  filter.setAttribute('aria-controls', filterMenu.id);
+  filter.append(el('span', '◇'), filterLabel);
+  filter.firstChild.setAttribute('aria-hidden', 'true');
+  filterWrap.append(filter, filterMenu);
+  toggleFilter(false);
+  filterWrap.onkeydown = event => {
+    if (event.key !== 'Escape' || filterMenu.hidden) return;
+    event.preventDefault();
+    event.stopPropagation();
+    toggleFilter(false);
+    filter.focus();
+  };
+  function toggleFilter(open) {
+    filterMenu.hidden = !open;
+    filter.setAttribute('aria-expanded', String(open));
+  }
+  function renderMilestoneFilter() {
+    const choices = board.cards.filter(card => card.milestone).sort((a, b) => a.milestone_number - b.milestone_number);
+    const selected = choices.find(card => card.id === Number(state.filter));
+    if (!selected) state.filter = '';
+    const label = selected ? cardTitle(selected) : 'Milestones';
+    filterLabel.textContent = label;
+    filter.title = selected ? label : 'Filter by milestone';
+    filter.classList.toggle('active', !!selected);
+    filter.disabled = !choices.length;
+    if (!choices.length) toggleFilter(false);
+    const focused = filterMenu.contains(document.activeElement) ? document.activeElement.dataset.milestone : undefined;
+    const makeChoice = (id, text) => {
+      const item = button(text, () => {
+        state.filter = selected?.id === id || id === 0 ? '' : String(id);
+        toggleFilter(false);
+        render();
+        filter.focus();
+      }, text);
+      item.dataset.milestone = id;
+      item.setAttribute('aria-pressed', String((selected?.id ?? 0) === id));
+      return item;
+    };
+    filterMenu.replaceChildren(makeChoice(0, 'All milestones'), ...choices.map(card =>
+      makeChoice(card.id, cardTitle(card) + (card.archived ? ' (archived)' : ''))));
+    if (focused !== undefined) filterMenu.querySelector(`[data-milestone="${focused}"]`)?.focus({preventScroll: true});
+  }
+  const lanePreview = taskDropPreview(() => lanes.querySelectorAll('.task-card'));
+  function startDrag(event, id, ids = picked.has(id) ? [...picked] : [id]) {
+    const data = {id, ids, x: event.clientX};
+    event.dataTransfer.setData('text/plain', String(id));
+    event.dataTransfer.setData(taskDragType, JSON.stringify(data));
+    event.dataTransfer.effectAllowed = 'move';
+    const boardCard = lanes.querySelector(`.task-card[data-id="${id}"]`);
+    dragSource = {...data, element: event.currentTarget, cardHeight: boardCard?.offsetHeight || 65};
+    dragSource.element.classList.add('task-drag-source');
+    document.body.classList.add('task-drag-active');
+  }
+  function endDrag() {
+    dragSource?.element.classList.remove('task-drag-source');
+    dragSource = null;
+    document.body.classList.remove('task-drag-active');
+  }
+  function clearLaneDrop(animate = true) {
+    laneDrop = null;
+    lanePreview.clear(animate);
+  }
   search.placeholder = "Search cards\u2026";
   search.setAttribute("aria-label", "Search cards");
   search.value = state.query || "";
-  filter.setAttribute("aria-label", "Filter by milestone");
   archived.type = "checkbox";
   archived.checked = !!state.archived;
   const archiveLabel = el("label", "Show archive ");
   archiveLabel.append(archived);
   notice.setAttribute("role", "status");
-  tools.append(search, filter, archiveLabel, button("+ Task", () => editNew("backlog"), "Create task"));
+  tools.append(search, filterWrap, archiveLabel, button("+ Task", () => editNew("backlog"), "Create task"));
   const muted = el("input");
   muted.type = "checkbox";
   muted.checked = !!state.muted;
@@ -66,14 +135,15 @@ function mountTasks(host, state, api, options = {}) {
   if(options.sidebar){
     const heading=el('div',undefined,'panel-heading'), label=el('span','TASKS'), count=el('span','0');
     label.append(' ',count);heading.append(label);
-    const help=el('p','Tab / Shift+Tab nest · Alt+↑↓ reorder','task-outline-help');
-    help.title='Edit names directly. Enter saves; Shift+Enter adds a sibling; Ctrl/Cmd+Enter adds a subitem. Drag vertically to reorder and right/left to nest or outdent. Ctrl/Cmd+click selects; right-click opens actions. Milestones follow their numbers.';
+    const help=el('p','Click to open · Double-click to rename','task-outline-help');
+    help.title='Enter saves; Shift+Enter adds a sibling; Ctrl/Cmd+Enter adds a subitem. Tab / Shift+Tab nest; Alt+Up/Down reorders. Drag vertically to reorder and right/left to nest or outdent. Ctrl/Cmd+click selects; right-click opens actions.';
     options.sidebar.append(heading,help);
-    outline=mountTaskOutline(options.sidebar,outlineOptions({controlsHost:heading}));
-    outline.updateCount=()=>count.textContent=String(board.cards.filter(c=>!!c.archived===!!state.archived).length);
+    outline=mountTaskOutline(options.sidebar,outlineOptions({controlsHost:heading,
+      createMilestone: before => editNew('backlog', null, {milestone: true, before})}));
+    outline.updateCount=()=>count.textContent=String(board.cards.length);
   }
   function outlineOptions(extra={}){
-    return {getBoard:()=>board,state,picked,write:change,open:card=>{if(card)edit(card);},contextMenu:openContext,changed:render,create:parent=>editNew('backlog',parent),error:()=>notice.textContent,...extra};
+    return {getBoard:()=>board,state,picked,write:change,open:card=>{if(card)edit(card);},contextMenu:openContext,changed:render,create:parent=>editNew('backlog',parent),error:()=>notice.textContent,startDrag,getDrag:()=>dragSource,...extra};
   }
   function closeContext(){context?.remove();context=null;}
   function openContext(event,id){
@@ -100,7 +170,17 @@ function mountTasks(host, state, api, options = {}) {
     context.firstChild?.focus({preventScroll:true});
   }
   const contextAbort=new AbortController();
-  document.addEventListener('pointerdown',e=>{if(context&&!context.contains(e.target))closeContext();},{signal:contextAbort.signal});
+  document.addEventListener('pointerdown', event => {
+    if (context && !context.contains(event.target)) closeContext();
+    if (!filterWrap.contains(event.target)) toggleFilter(false);
+  }, {signal: contextAbort.signal});
+  document.addEventListener('dragend', () => {
+    endDrag();
+    if (!savingDrop) clearLaneDrop();
+  }, {signal: contextAbort.signal});
+  lanes.ondragleave = event => {
+    if (!savingDrop && !lanes.contains(event.relatedTarget)) clearLaneDrop();
+  };
   function fail(error) {
     if (!disposed) notice.textContent = error.message;
   }
@@ -171,7 +251,7 @@ function mountTasks(host, state, api, options = {}) {
       fail(error);
       if (error.status === 409) {
         await refreshing;
-        await refresh();
+        await refresh(true);
       }
       return false;
     } finally {
@@ -179,12 +259,12 @@ function mountTasks(host, state, api, options = {}) {
     }
   }
   // Unchanged polls do not touch the DOM or read card payloads.
-  function refresh() {
-    if (disposed || refreshing) return refreshing;
+  function refresh(duringDrag = false) {
+    if (disposed || refreshing || (dragSource && !duringDrag)) return refreshing;
     refreshing = (async () => {
       try {
         const next = await api("tasks" + (lanes.children.length ? "?revision=" + board.revision : ""));
-        if (!disposed && next && (next.revision > board.revision || !lanes.children.length)) {
+        if (!disposed && (!dragSource || duringDrag) && next && (next.revision > board.revision || !lanes.children.length)) {
           board = next;
           render();
           if (resume && state.documentReturn === resume) {
@@ -203,24 +283,11 @@ function mountTasks(host, state, api, options = {}) {
     return refreshing;
   }
   function render() {
+    const dropPositions = savingDrop && laneDrop ? lanePreview.capture() : null;
+    clearLaneDrop(false);
     const scroll = lanes.scrollLeft, focused = document.activeElement, focusedCard = focused?.closest(".task-card"), focusedId = focusedCard?.dataset.id, focusedAction = focusedCard && focused !== focusedCard ? focused.getAttribute("aria-label") : null, assignment = bulk.querySelector("select")?.value || "", bulkFocused = bulk.contains(focused) ? focused?.getAttribute("aria-label") : null;
-    const value = state.filter || "";
-    milestones(filter, value);
-    filter.firstChild.textContent = "All milestones";
-    if (![...filter.options].some((o) => o.value === value)) {
-      state.filter = "";
-      filter.value = "";
-    }
-    const byId = new Map(), progress = new Map();
-    for (const card of board.cards) {
-      byId.set(card.id, card);
-      if (card.milestone_id && !card.archived) {
-        if (!progress.has(card.milestone_id)) progress.set(card.milestone_id, {done:0, total:0});
-        const count = progress.get(card.milestone_id);
-        count.total++;
-        if (card.status === 'done') count.done++;
-      }
-    }
+    renderMilestoneFilter();
+    const byId = new Map(board.cards.map(card => [card.id, card]));
     for (const id of picked) if (!byId.has(id)) picked.delete(id);
     for (const id of drafts.keys()) if (!byId.has(id)) drafts.delete(id);
     bulk.replaceChildren();
@@ -235,58 +302,67 @@ function mountTasks(host, state, api, options = {}) {
       }));
     }
     lanes.replaceChildren();
-    const milestoneId = Number(filter.value), query = search.value.trim();
+    const milestoneId = Number(state.filter), query = search.value.trim();
+    const milestoneQuery = /^#?m\d+$/i.test(query);
     for (const [status, symbol, label] of columns) {
       const lane = el("section", void 0, "task-lane");
       lane.dataset.status = status;
       lane.setAttribute("aria-label", label);
-      const cards = board.cards.filter(c => c.status === status && !!c.archived === archived.checked &&
-        (!milestoneId || c.id === milestoneId || c.milestone_id === milestoneId) && (!query || fuzzyCard(c, query)));
+      const cards = board.cards.filter(c => !c.milestone && c.status === status && !!c.archived === archived.checked &&
+        (!milestoneId || c.milestone_id === milestoneId) &&
+        (!query || fuzzyCard(milestoneQuery ? (byId.get(c.milestone_id) ?? c) : c, query)));
       const heading = el("header");
       heading.append(el("h3", symbol + " " + label), el("span", String(cards.length)), button("+", () => editNew(status), "Add task to " + label));
+      if (status === 'done' && !archived.checked) {
+        const archiveAll = iconButton('Archive all done tasks', 'archive', () =>
+          change({action: 'archive_done', ids: cards.map(card => card.id)}));
+        archiveAll.classList.add('task-archive-done');
+        archiveAll.disabled = !cards.length;
+        heading.append(archiveAll);
+      }
       lane.append(heading);
       lane.ondragover = (e) => {
-        if (dragged !== null || e.dataTransfer.types.includes('application/x-looking-glass-cards')) {
-          e.preventDefault();
-          e.dataTransfer.dropEffect = "move";
-        }
-      };
-      lane.ondrop = (e) => {
+        if (!e.dataTransfer.types.includes(taskDragType) || savingDrop) return;
         e.preventDefault();
-        let id = dragged;
-        if(id===null){try{id=JSON.parse(e.dataTransfer.getData('application/x-looking-glass-cards')).id;}catch{}}
-        dragged = null;
-        if (id === null) return;
-        const target = e.target.closest(".task-card");
-        if (target && Number(target.dataset.id) === id) return;
-        change({ action: "move", id, status, before: target ? Number(target.dataset.id) : null });
+        e.dataTransfer.dropEffect = 'move';
+        if (!dragSource) return;
+        const hovered = taskDropItem(lane, e.clientY, '.task-card, .task-drop-preview');
+        if (hovered === lanePreview.gap) return;
+        const source = lanes.querySelector(`.task-card[data-id="${dragSource.id}"]`);
+        if (hovered && hovered === source) {
+          clearLaneDrop();
+          return;
+        }
+        laneDrop = {lane, before: hovered ? Number(hovered.dataset.id) : null};
+        lanePreview.show(lane, hovered || lane.querySelector('.task-empty'), source ? [source] : [], dragSource.cardHeight);
+      };
+      lane.ondrop = async (e) => {
+        if (!e.dataTransfer.types.includes(taskDragType) || savingDrop) return;
+        e.preventDefault();
+        let id;
+        try { ({id} = JSON.parse(e.dataTransfer.getData(taskDragType))); } catch { return; }
+        const hovered = dragSource ? taskDropItem(lane, e.clientY, '.task-card') : e.target.closest('.task-card');
+        const before = laneDrop?.lane === lane ? laneDrop.before : hovered ? Number(hovered.dataset.id) : null;
+        if (!Number.isSafeInteger(id) || id === before) return;
+        savingDrop = true;
+        await change({action: 'move', id, status, before});
+        savingDrop = false;
+        clearLaneDrop();
       };
       for (const card of cards) {
         const item = el("article", void 0, "task-card");
         item.dataset.id = card.id;
-        item.classList.toggle("task-milestone", !!card.milestone);
         item.tabIndex = 0;
         item.setAttribute("aria-label", card.title);
         item.setAttribute("aria-selected", String(picked.has(card.id)));
         item.draggable = !card.archived;
-        item.ondragstart = (e) => {
-          dragged = card.id;
-          e.dataTransfer.setData("text/plain", String(card.id));
-          e.dataTransfer.setData('application/x-looking-glass-cards',JSON.stringify({id:card.id,ids:picked.has(card.id)?[...picked]:[card.id],x:e.clientX}));
-          e.dataTransfer.effectAllowed = "move";
-        };
-        item.ondragend = () => {
-          dragged = null;
-        };
+        item.ondragstart = (e) => startDrag(e, card.id);
         const title = el("div", cardTitle(card), "task-card-title");
         item.append(title);
         const reference=el("span", displayReference(card), "task-reference");
         reference.title="Permanent card ID: " + cardReference(card.id);
-        if(!card.milestone)item.append(reference);
-        if (card.milestone) {
-          const {done = 0, total = 0} = progress.get(card.id) || {};
-          item.append(el("small", `${done}/${total} tasks`));
-        } else if (card.milestone_id) {
+        item.append(reference);
+        if (card.milestone_id) {
           const parent = byId.get(card.milestone_id);
           if (parent) { const assignment=el("small", "\u25C7 " + displayReference(parent) + " " + parent.title, "task-assignment"); assignment.title="Milestone: " + parent.title; item.append(assignment); }
         }
@@ -310,7 +386,7 @@ function mountTasks(host, state, api, options = {}) {
             render();
           }
         };
-        const promote = button("\u25C7", () => change({ action: "update", ids: [card.id], changes: { milestone: !card.milestone } }), card.milestone ? "Convert to task" : "Promote to milestone");
+        const promote = button("\u25C7", () => change({action: "update", ids: [card.id], changes: {milestone: true}}), "Promote to milestone");
         promote.className = "task-promote";
         item.append(promote);
         lane.append(item);
@@ -324,6 +400,7 @@ function mountTasks(host, state, api, options = {}) {
     });
     outline?.render();outline?.updateCount();
     lanes.scrollLeft = scroll;
+    lanePreview.settle(dropPositions);
     if (focusedId) {
       const card = lanes.querySelector('[data-id="' + focusedId + '"]');
       (focusedAction ? [...card?.querySelectorAll("button") || []].find((b) => b.getAttribute("aria-label") === focusedAction) : card)?.focus({ preventScroll: true });
@@ -337,6 +414,8 @@ function mountTasks(host, state, api, options = {}) {
     if(detail&&previous){previous.retainDraft?.();previous.close();previous.remove();}
     const d = el("dialog", void 0, "task-dialog"), heading = el("h2", title);
     if(detail)d.classList.add('task-detail');
+    heading.id = 'task-heading-' + crypto.randomUUID();
+    d.setAttribute('aria-labelledby', heading.id);
     d.append(heading);
     document.body.append(d);
     editor = d;
@@ -362,8 +441,8 @@ function mountTasks(host, state, api, options = {}) {
     form.append(wrap);
     return node;
   }
-  function editNew(status, parentId=null) {
-    const d = dialog("New task"), form = el("form"), title = field(form, "Title", el("input"));
+  function editNew(status, parentId = null, {milestone = false, before = null} = {}) {
+    const d = dialog(milestone ? 'New milestone' : 'New task'), form = el("form"), title = field(form, "Title", el("input"));
     title.name = "title";
     title.required = true;
     title.maxLength = 500;
@@ -374,7 +453,8 @@ function mountTasks(host, state, api, options = {}) {
     form.onsubmit = async (e) => {
       e.preventDefault();
       save.disabled = true;
-      if (await change({ action: "create", title: title.value, status, parent_id:parentId })) d.close();
+      const placement = milestone ? {milestone, before} : {parent_id: parentId};
+      if (await change({action: "create", title: title.value, status, ...placement})) d.close();
       else {
         save.disabled = false;
         error.textContent = notice.textContent;
@@ -391,8 +471,7 @@ function mountTasks(host, state, api, options = {}) {
     if(editor?.open&&editor.cardId===card.id){editor.querySelector('[aria-label=Title]')?.focus();return;}
     const draft = drafts.get(card.id);
     const original = draft?.original ?? {
-      title: card.title, description: card.description, status: card.status, milestone_id: card.milestone_id,
-      ...(card.milestone ? {milestone_number:String(card.milestone_number)} : {})
+      title: card.title, description: card.description, status: card.status, milestone_id: card.milestone_id
     };
     let revision = draft?.revision ?? board.revision;
     const d = dialog(cardTitle(card),true), form = el("form"), title = el("textarea",undefined,'task-detail-title'), metadata=el('div',undefined,'task-detail-metadata'), status = field(metadata, "Status", el("select")), parent = field(metadata, "Milestone", el("select")), description = field(form, "Description", el("textarea"));
@@ -400,11 +479,13 @@ function mountTasks(host, state, api, options = {}) {
     status.parentElement.classList.add('task-status-field');parent.parentElement.classList.add('task-milestone-field');
     status.title='Status';parent.title='Milestone';
     d.cardId=card.id;
-    const actions=el('div',undefined,'task-detail-actions'),close=iconButton('Close card','close',()=>{retainDraft();d.close();});
-    actions.setAttribute('role','toolbar');actions.setAttribute('aria-label','Card actions');close.classList.add('task-detail-close');d.prepend(actions);
+    const actions=el('div',undefined,'task-detail-actions'), content=el('div',undefined,'task-detail-content');
+    const close=iconButton('Close card','close',()=>{retainDraft();d.close();});
+    actions.setAttribute('role','toolbar');actions.setAttribute('aria-label','Card actions');close.classList.add('task-detail-close');
     const heading=d.querySelector('h2'), prefix=el('span',undefined,'task-detail-prefix');
-    heading.className='task-detail-heading';heading.id='task-heading-'+crypto.randomUUID();
-    d.setAttribute('aria-labelledby',heading.id);
+    content.append(heading);
+    d.append(actions,content);
+    heading.className='task-detail-heading';
     heading.replaceChildren(prefix,title);
     form.id='task-edit-'+crypto.randomUUID();title.setAttribute('form',form.id);
     title.setAttribute('aria-label','Title');title.title='Edit card title';title.rows=1;
@@ -449,12 +530,6 @@ function mountTasks(host, state, api, options = {}) {
     milestones(parent, (draft ? draft.milestone_id : card.milestone_id) || "", [card.id]);
     parent.firstChild.textContent='◇ No milestone';
     parent.disabled = !!card.milestone;
-    const number=card.milestone ? field(form,"Milestone number (#M)",el("input")) : null;
-    if(number){
-      number.type="number";number.min="1";number.max="999999";number.step="1";number.required=true;
-      number.value=draft?.milestone_number ?? card.milestone_number;
-      number.title="Choose a unique milestone number. Saved numbers stay fixed until you edit them.";
-    }
     const permanent=el("p", "Card " + cardReference(card.id), "task-permanent-reference");
     d.querySelector("h2").after(permanent);
     d.refreshReference=()=>{
@@ -474,8 +549,7 @@ function mountTasks(host, state, api, options = {}) {
     const save=iconButton('Save','save');save.classList.add('task-save');
     save.type = "submit";save.setAttribute('form',form.id);
     const readFields = () => ({
-      title:title.value, description:description.value, status:status.value, milestone_id:Number(parent.value)||null,
-      ...(number ? {milestone_number:number.value} : {})
+      title:title.value, description:description.value, status:status.value, milestone_id:Number(parent.value)||null
     });
     const editedFields = fields => Object.fromEntries(Object.entries(fields).filter(([key,value]) => value !== original[key]));
     const retainDraft = () => {
@@ -523,7 +597,6 @@ function mountTasks(host, state, api, options = {}) {
       e.preventDefault();
       const changes = editedFields(readFields());
       if (!Object.keys(changes).length) { drafts.delete(card.id); d.close(); return; }
-      if ('milestone_number' in changes) changes.milestone_number = Number(changes.milestone_number);
       save.disabled = true;
       if (await change({ action: "update", ids: [card.id], changes }, revision)) { drafts.delete(card.id); d.close(); }
       else {
@@ -544,8 +617,8 @@ function mountTasks(host, state, api, options = {}) {
         }
       }
     };
-    d.append(form);
-    const checklistHost=el('div',undefined,'task-checklist');d.append(checklistHost);
+    content.append(form);
+    const checklistHost=el('div',undefined,'task-checklist');content.append(checklistHost);
     const checklist=mountTaskOutline(checklistHost,outlineOptions({rootId:card.id,write:async(data,base)=>{
       const before=board.revision,saved=await change(data,base??revision);
       if(saved&&revision===before&&board.revision===before+1){revision=board.revision;if(drafts.has(card.id))retainDraft();}
@@ -554,7 +627,7 @@ function mountTasks(host, state, api, options = {}) {
     const refreshReference=d.refreshReference;
     d.refreshReference=()=>{refreshReference();checklist.render();};
     d.addEventListener('close',checklist.dispose);
-    const activity = mountTaskActivity(d, card.id, {
+    const activity = mountTaskActivity(content, card.id, {
       api, state, getRevision:()=>board.revision,
       write:async data=>{
         const before=board.revision, saved=await change(data);
@@ -606,6 +679,7 @@ function mountTasks(host, state, api, options = {}) {
   }, 2200);
   return () => {
     disposed = true;
+    endDrag();
     clearInterval(timer);
     closeContext();contextAbort.abort();outline?.dispose();
     options.sidebar?.replaceChildren();options.onSidebarMode?.(false);

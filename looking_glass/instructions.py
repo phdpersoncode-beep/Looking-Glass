@@ -34,7 +34,6 @@ Plan with the shared Tasks board:
 {task_command} delete-activity C01 ENTRY_ID
 {task_command} update CARD_ID --revision BOARD_REVISION --status in_progress
 {task_command} update CARD_ID --revision BOARD_REVISION --milestone
-{task_command} update CARD_ID --revision BOARD_REVISION --milestone-number 12
 {task_command} update CARD_ID --revision BOARD_REVISION --milestone-id MILESTONE_ID
 {task_command} update CARD_ID --revision BOARD_REVISION --description-file plan.md
 {task_command} move CARD_ID --revision BOARD_REVISION --status done
@@ -48,10 +47,9 @@ Subtrees inherit their root milestone; cycles are rejected. read includes the
 card's subtree. Deleting a task lifts surviving children to its parent.
 Completing children does not automatically complete the milestone.
 Every card keeps a stable #C01 identity (quote shell arguments containing #).
-Milestones have saved, editable #M1 numbers; use tasks list --query M1 to look one up,
-then use its permanent card_reference for read/write commands. Change the number
-with update --milestone-number N (1–999999). Numbers must be unique, including
-archived milestones, and remain fixed until explicitly edited.
+Milestone numbers follow the order set in the right sidebar. Use tasks list
+--query M1 to look up a milestone, then use its permanent card_reference for
+read/write commands. Archived milestone numbers stay reserved.
 Field changes generate named updates in each card conversation. Comments and updates
 can be deleted without reverting card changes; activity can be paged with --before.
 Board writes plan work; they never execute tasks or change project files.

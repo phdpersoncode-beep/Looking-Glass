@@ -15,6 +15,8 @@ const paths={
   save:'M4 3h10l3 3v11H3V3h1M6 3v5h8V3M6 17v-6h8v6',
   archive:'M3 3h14v4H3zM4 7v10h12V7M8 10h4',
   milestone:'m10 2 8 8-8 8-8-8z',
+  addMilestone:'m8 3 5 5-5 5-5-5zM13 15h6m-3-3v6',
+  triangle:'m7 4 7 6-7 6z',
   collapse:'M6 3H4a1 1 0 0 0-1 1v10M7 6h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1M9 11.5h5',
   expand:'M6 3H4a1 1 0 0 0-1 1v10M7 6h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1M9 11.5h5m-2.5-2.5v5',
 };

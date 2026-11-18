@@ -129,14 +129,13 @@ journey forces the discussion heading across its wrap threshold, then checks tha
 search keeps the same vertical position during keyboard resizing in both engines;
 this covers platform font differences without relaxing the geometry assertion.
 
-Task board checks cover saved, editable `#M` numbers separately from permanent
-`#C` identity. Fast Python/JavaScript checks exercise number edits, uniqueness and
-range validation, migration preserving old labels, archive/restart/snapshot
-persistence, exact reference search, stale edits, and unchanged assignment/history
-targets. Chromium/Firefox journeys cover manual edits and conflict recovery,
-number changes in open editors without clearing drafts, restoring card IDs after
-demotion, the larger Tasks SVG, and compact update rows with working deletion in
-light/dark themes and a narrow window.
+Task board checks cover saved `#M` numbers separately from permanent `#C` identity.
+Fast Python/JavaScript checks exercise sidebar ordering, reserved archived numbers,
+migration preserving old labels, archive/restart/snapshot persistence, exact
+reference search, stale edits, and stable assignment/history targets.
+Chromium/Firefox journeys cover milestone drag and keyboard ordering, number
+changes in open editors with drafts, restoring card IDs after demotion, the
+larger Tasks SVG, and compact update rows in light/dark themes and a narrow window.
 
 Hierarchy checks (`test_task_hierarchy.py`, `task-outline.test.mjs`, and
 `test_task_hierarchy_browser.py`) cover old-board migration, subtree assignment,
@@ -147,6 +146,14 @@ polls, explicit conflict review, Tab/Shift+Tab indentation, Alt+arrow ordering,
 keyboard/checklist creation, vertical/horizontal drag, milestone drop assignment,
 shared Ctrl+click/context actions, clickable references/card popups, and
 discussion/task sidebar resize/collapse/restoration in both themes and narrow panes.
+Task list journeys also exercise click to open, double-click to rename, mouse
+caret placement, and folding an individual branch in both lists. The board
+journey verifies insertion at the sidebar cursor, sidebar-only milestones,
+truncated filter labels with full hover text, status symbols, and filtered Done
+archiving with archived rows still visible and restorable in the plan.
+Drag previews are checked in Kanban, the sidebar, and card checklists. Browser
+checks sample moving neighbors and verify cancellation, reduced motion, and
+saved placement.
 
 `task-dialog.test.mjs` protects complete backdrop-click gestures, all four edges,
 text-selection gestures, pointer cancellation, and Escape dismissal. The
@@ -162,7 +169,7 @@ the previous detail to close and scopes its Title locator to the create dialog.
 `test_task_controls_browser.py` exercises compact symbol-bearing metadata below
 the editable heading and above Description, header icon Save/archive/restore/delete
 behavior, confirmation and surviving-child handling, independent per-card/plan
-collapse state, removal of row triangles, preserved drafts and collapse through
+collapse state, branch controls, preserved drafts and collapse through
 agent polling and tab switches, and toolbar/control geometry in both themes down
 to 390px. Fast outline tests cover local top-level collapse without mutating data
 or order, newly added descendants, and archived ancestor context.

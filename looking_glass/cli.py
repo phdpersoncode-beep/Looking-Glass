@@ -131,7 +131,6 @@ def build_parser():
             task_op.add_argument('--description-file', type=Path, help='UTF-8 description; - reads stdin.')
             task_op.add_argument('--status', choices=('backlog','in_progress','to_review','done'))
             task_op.add_argument('--milestone', action=argparse.BooleanOptionalAction, default=None)
-            task_op.add_argument('--milestone-number', type=int, help='Set a unique milestone number (1–999999).')
             task_op.add_argument('--milestone-id', type=card_id, help='Use 0 to unassign.')
             task_op.add_argument('--parent-id', type=card_id, help='Nest under a card; use 0 for the top level.')
             task_op.add_argument('--archived', action=argparse.BooleanOptionalAction, default=None)
@@ -342,7 +341,7 @@ def main(argv=None):
             else:
                 data = dict(action=args.operation, ids=args.ids, revision=args.revision, author=args.author)
                 if args.operation == 'update':
-                    changes = {key:getattr(args,key) for key in ('title','status','milestone','milestone_id','milestone_number','archived','parent_id') if getattr(args,key) is not None}
+                    changes = {key:getattr(args,key) for key in ('title','status','milestone','milestone_id','archived','parent_id') if getattr(args,key) is not None}
                     for key in ('milestone_id','parent_id'):
                         if key in changes:
                             changes[key] = changes[key] or None

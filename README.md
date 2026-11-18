@@ -347,16 +347,13 @@ tabs. Unsaved tabs ask before discarding edits. Pinned tabs are protected by
 
 Open **Tasks** beside **Commit history** for a pinnable Kanban tab with draggable
 cards, fuzzy search, milestone filtering, and bulk selection. Cards have stable
-`#C01` identities and a conversation with comments and compact change updates.
-Milestone titles display editable `M1: Title` numbers while retaining their permanent card identities.
-Milestones have a purple left bar. Promote a card with
-**◇** to give it a milestone checklist. People and agents share the same persisted
-board through `looking-glass tasks`. The right sidebar becomes an editable task
-hierarchy: inline names, Tab/Shift+Tab nesting, drag ordering, shared selection,
-and full card subitems. Every card has a draggable checklist; its `#Cxx` links open
-centered detail popups with editable title headings and a click-to-dismiss
-backdrop. See [Tasks](docs/TASKS.md) for interactions,
-CLI examples, API contracts, and assumptions.
+`#C01` identities and conversations with comments and change updates. The right
+sidebar holds milestones, active tasks, and archived tasks in one hierarchy.
+Drag a milestone to reorder its branch and update its number. Use the Done
+column's archive icon to archive the completed tasks currently shown.
+Click a row in the sidebar or a card checklist to open details, double-click
+to rename it, and use its triangle to fold the branch. People and agents share
+the same persisted board through `looking-glass tasks`. [Task board guide](docs/TASKS.md)
 
 ## Work alongside a coding agent
 

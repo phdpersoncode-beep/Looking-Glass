@@ -149,8 +149,26 @@ class Tasks:
                           key=lambda card: (card['outline_position'], card['id']))
         return {card['id']: rank for rank, card in enumerate(siblings, 1)}
 
+    @staticmethod
+    def reorder_milestone(db, identifier, before):
+        milestones = db.execute('SELECT id,milestone_number FROM tasks WHERE milestone=1 AND archived=0 ORDER BY milestone_number').fetchall()
+        order = [card['id'] for card in milestones]
+        if not is_row_id(identifier) or identifier not in order:
+            raise Problem('Choose an active milestone to reorder.')
+        order.remove(identifier)
+        if before is not None and (not is_row_id(before) or before not in order):
+            raise Problem('Choose another active milestone as the drop target.')
+        order.insert(order.index(before) if before is not None else len(order), identifier)
+        updates = [(slot['milestone_number'], card_id) for slot, card_id in zip(milestones, order)
+                   if slot['id'] != card_id]
+        # Release the occupied numbers together so swaps satisfy the unique index.
+        db.executemany('UPDATE tasks SET milestone_number=NULL WHERE id=?',
+                       ((card_id,) for _, card_id in updates))
+        db.executemany('UPDATE tasks SET milestone_number=?,updated_at=CURRENT_TIMESTAMP WHERE id=?', updates)
+        return bool(updates)
+
     def mutate(self, data):
-        allowed = {'title', 'description', 'status', 'milestone', 'milestone_id', 'milestone_number', 'archived', 'parent_id'}
+        allowed = {'title', 'description', 'status', 'milestone', 'milestone_id', 'archived', 'parent_id'}
         with self.ws.connection() as db:
             db.execute('BEGIN IMMEDIATE')
             action = data.get('action')
@@ -189,13 +207,38 @@ class Tasks:
                 status = data.get('status', 'backlog')
                 if status not in STATUSES:
                     raise Problem('Invalid task status.')
+                milestone = data.get('milestone', False)
+                if type(milestone) is not bool or (milestone and data.get('parent_id') is not None):
+                    raise Problem('Milestones must stay at the top level.')
                 identifier = db.execute('SELECT next_card_id FROM task_board_revision WHERE id=1').fetchone()[0]
                 db.execute('UPDATE task_board_revision SET next_card_id=next_card_id+1 WHERE id=1')
                 db.execute('INSERT INTO tasks(id,title,status,position) VALUES(?,?,?,(SELECT COALESCE(MAX(position),0)+1 FROM tasks))', (identifier,title.strip(),status))
                 db.execute('UPDATE tasks SET outline_position=(SELECT COALESCE(MAX(outline_position),0)+1 FROM tasks) WHERE id=?', (identifier,))
-                if 'parent_id' in data:
+                changes = {'title': {'from': None, 'to': title.strip()}, 'status': {'from': None, 'to': status}}
+                if milestone:
+                    used = {card['milestone_number'] for card in previous.values() if card['milestone']}
+                    number = max((card['milestone_number'] for card in previous.values()
+                                  if card['milestone'] and not card['archived']), default=0) + 1
+                    while number in used:
+                        number += 1
+                    if number > 999999:
+                        number = self.free_number(used)
+                    db.execute('UPDATE tasks SET milestone=1,milestone_number=? WHERE id=?', (number, identifier))
+                    self.reorder_milestone(db, identifier, data.get('before'))
+                    number = db.execute('SELECT milestone_number FROM tasks WHERE id=?', (identifier,)).fetchone()[0]
+                    changes.update(milestone={'from': False, 'to': True}, milestone_number={'from': None, 'to': number})
+                elif 'parent_id' in data:
                     self.reparent(db, [identifier], data['parent_id'])
-                self.add_activity(db, identifier, 'update', author, 'Created card.', {'title':{'from':None,'to':title.strip()},'status':{'from':None,'to':status}})
+                self.add_activity(db, identifier, 'update', author, 'Created card.', changes)
+            elif action == 'archive_done':
+                ids = data.get('ids')
+                if not isinstance(ids, list) or not ids or any(not is_row_id(i) or i not in previous
+                        or previous[i]['status'] != 'done' or previous[i]['archived'] or previous[i]['milestone'] for i in ids):
+                    raise Problem('Choose active tasks from the Done column.')
+                if len(set(ids)) != len(ids):
+                    raise Problem('Choose distinct task IDs.')
+                db.executemany('UPDATE tasks SET archived=1,updated_at=CURRENT_TIMESTAMP WHERE id=?',
+                               ((identifier,) for identifier in ids))
             elif action in ('update', 'delete'):
                 ids = data.get('ids')
                 if not isinstance(ids, list) or not ids or len(ids) > 1000 or any(type(i) is not int for i in ids) or len(set(ids)) != len(ids):
@@ -229,12 +272,6 @@ class Tasks:
                     for field in ('milestone', 'archived'):
                         if field in changes and type(changes[field]) is not bool:
                             raise Problem(f'{field} must be a boolean.')
-                    if 'milestone_number' in changes:
-                        number = changes['milestone_number']
-                        if type(number) is not int or not 1 <= number <= 999999:
-                            raise Problem('Use a milestone number from 1 to 999999.')
-                        if len(rows) != 1 or not changes.get('milestone', rows[0]['milestone']):
-                            raise Problem('Set the number of one milestone at a time.')
                     if 'parent_id' in changes and 'milestone_id' in changes:
                         raise Problem('Set either parent_id or milestone_id, not both.')
                     parent = changes.get('milestone_id')
@@ -259,9 +296,7 @@ class Tasks:
                     for row in rows:
                         updates = dict(changes)
                         if updates.get('milestone', row['milestone']):
-                            number = updates.get('milestone_number', row['milestone_number'])
-                            if 'milestone_number' in updates and number in used and used[number] != row['id']:
-                                raise Problem(f'Milestone #M{number} is already in use. Choose an unused number.', 409)
+                            number = row['milestone_number']
                             if number is None or (number in used and used[number] != row['id']):
                                 number = self.free_number(used)
                             if row['milestone']:
@@ -277,6 +312,9 @@ class Tasks:
                         for offset, row in enumerate(rows, 1):
                             if row['status'] != changes['status']:
                                 db.execute('UPDATE tasks SET position=? WHERE id=?', (position + offset, row['id']))
+            elif action == 'milestone_move':
+                if not self.reorder_milestone(db, data.get('id'), data.get('before')):
+                    return self.snapshot(db)
             elif action == 'outline_move':
                 ids, parent, before = data.get('ids'), data.get('parent_id'), data.get('before')
                 if not isinstance(ids,list) or not ids or len(ids)>1000 or any(type(i) is not int or i not in previous for i in ids) or len(set(ids))!=len(ids):
@@ -333,7 +371,7 @@ class Tasks:
                 new_rank = order.index(identifier) + 1
                 if old_rank != new_rank:
                     order_changes[identifier] = {'position': {'from': old_rank, 'to': new_rank}}
-            fields = sorted(allowed)
+            fields = sorted(allowed | {'milestone_number'})
             for identifier, row in current.items():
                 old = previous.get(identifier)
                 if old is None:

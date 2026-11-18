@@ -75,9 +75,6 @@ def test_cli_shared_tasks(tmp_path, monkeypatch, capsys):
     cli.main(['tasks','list','--query','M01'])
     milestone=json.loads(capsys.readouterr().out)['cards'][0]
     assert milestone['reference']=='#M1' and milestone['card_reference']=='#C01'
-    cli.main(['tasks','update','C01','--revision',str(tasks.read()['revision']),'--milestone-number','12'])
-    capsys.readouterr()
-    assert tasks.read()['cards'][0]['reference']=='#M12'
     cli.main(['tasks','list','--query','missing'])
     assert json.loads(capsys.readouterr().out)['cards'] == []
 
@@ -266,36 +263,39 @@ def test_milestone_renumbering_does_not_rewrite_activity_or_assignments(tmp_path
     with pytest.raises(Problem):
         tasks.mutate(dict(action='update',ids=[1],changes={'milestone':False},revision=0))
     assert tasks.read()==before
-    change(action='update',ids=[2],changes={'milestone_number':9})
-    assert next(c for c in tasks.read()['cards'] if c['id']==2)['reference']=='#M9'
+    change(action='milestone_move',id=2,before=1)
+    assert next(c for c in tasks.read()['cards'] if c['id']==2)['reference']=='#M1'
     assert next(c for c in tasks.read()['cards'] if c['id']==3)['milestone_id']==2
     assert tasks.activity(3)['entries']==history
     assert history[-1]['changes']['milestone_id']['to']==2
 
 
-def test_manual_milestone_number_validation_conflicts_and_history(tmp_path):
+def test_milestone_reordering_reuses_active_numbers_and_rejects_invalid_moves(tmp_path):
     tasks=Workspace(tmp_path).tasks
-    def change(**data):return tasks.mutate(dict(revision=tasks.read()['revision'],author='Planner',**data))
-    for title in ('First','Second','Task'):change(action='create',title=title)
-    change(action='update',ids=[1,2],changes={'milestone':True})
-    change(action='update',ids=[1],changes={'milestone_number':12})
-    assert tasks.read()['cards'][0]['reference']=='#M12'
-    assert tasks.activity(1)['entries'][-1]['changes']['milestone_number']=={'from':1,'to':12}
-    change(action='update',ids=[1],changes={'archived':True})
-    for ids,number in (([2],12),([2],0),([2],-1),([2],True),([2],1.5),([2],None),([2],1000000),([1,2],8),([3],9)):
-        before=tasks.read()
-        with pytest.raises(Problem):change(action='update',ids=ids,changes={'milestone_number':number})
-        assert tasks.read()==before
+    def change(**data):
+        return tasks.mutate(dict(revision=tasks.read()['revision'], author='Planner', **data))
+    for title in ('First', 'Archived', 'Third', 'Fourth', 'Task'):
+        change(action='create', title=title)
+    change(action='update', ids=[1, 2, 3, 4], changes={'milestone': True})
+    change(action='update', ids=[2], changes={'archived': True})
     before=tasks.read()
-    with pytest.raises(Problem):tasks.mutate(dict(action='update',revision=0,ids=[2],changes={'milestone_number':20}))
-    assert tasks.read()==before
-    change(action='update',ids=[1],changes={'milestone':False})
-    change(action='update',ids=[2],changes={'milestone_number':12})
-    result=change(action='update',ids=[1],changes={'milestone':True})
-    first=next(c for c in result['cards'] if c['id']==1)
-    second=next(c for c in result['cards'] if c['id']==2)
-    assert first['reference']=='#M1' and first['card_reference']=='#C01'
-    assert second['reference']=='#M12'
+    for source, target in ((2, 1), (5, 1), (1, 1), (1, 2), (1, 5), (1, True), (1, 999)):
+        with pytest.raises(Problem):
+            change(action='milestone_move', id=source, before=target)
+        assert tasks.read() == before
+    with pytest.raises(Problem):
+        change(action='update', ids=[1], changes={'milestone_number': 12})
+    with pytest.raises(Problem) as error:
+        tasks.mutate(dict(action='milestone_move', revision=0, id=4, before=1))
+    assert error.value.status == 409
+    assert tasks.read() == before
+
+    result = change(action='milestone_move', id=4, before=1)
+    assert [card['reference'] for card in result['cards']] == ['#M3', '#M2', '#M4', '#M1', '#C05']
+    assert tasks.activity(4)['entries'][-1]['changes']['milestone_number'] == {'from': 4, 'to': 1}
+    assert tasks.activity(1)['entries'][-1]['changes']['milestone_number'] == {'from': 1, 'to': 3}
+    assert change(action='milestone_move', id=4, before=1) == result
+    assert Workspace(tmp_path).tasks.read() == result
 
 
 def test_number_migration_and_database_snapshot_preserve_plan(tmp_path):
@@ -308,10 +308,57 @@ def test_number_migration_and_database_snapshot_preserve_plan(tmp_path):
         db.execute("INSERT INTO tasks(id,title,milestone) VALUES(4,'Earlier milestone',1),(9,'Later milestone',1)")
     tasks=Workspace(tmp_path).tasks
     assert [c['reference'] for c in tasks.read()['cards']]==['#M1','#M2']
-    tasks.mutate(dict(action='update',revision=0,ids=[9],changes={'milestone_number':42}))
-    assert Workspace(tmp_path).tasks.read()['cards'][1]['reference']=='#M42'
+    with ws.connection() as db:
+        db.execute('UPDATE tasks SET milestone_number=42 WHERE id=9')
+    tasks.mutate(dict(action='milestone_move',revision=0,id=9,before=4))
+    assert [c['reference'] for c in Workspace(tmp_path).tasks.read()['cards']]==['#M42','#M1']
     output=io.StringIO();database.dump(tmp_path,output)
     restored=tmp_path/'restored';restored.mkdir();database.restore(restored,output.getvalue())
     assert Workspace(restored).tasks.read()==tasks.read()
-    result=tasks.mutate(dict(action='update',revision=1,ids=[4],changes={'milestone':False}))
-    assert next(c for c in result['cards'] if c['id']==9)['reference']=='#M42'
+    result=tasks.mutate(dict(action='update',revision=1,ids=[9],changes={'milestone':False}))
+    assert next(c for c in result['cards'] if c['id']==4)['reference']=='#M42'
+
+
+def test_done_column_archive_is_atomic_and_preserves_outline_assignments(tmp_path):
+    tasks = Workspace(tmp_path).tasks
+
+    def change(**data):
+        return tasks.mutate({'revision': tasks.read()['revision'], **data})
+
+    change(action='create', title='Milestone', milestone=True, status='done')
+    change(action='create', title='Done parent', parent_id=1, status='done')
+    change(action='create', title='Active child', parent_id=2, status='in_progress')
+    change(action='create', title='Other done task', status='done')
+    before = tasks.read()
+    for ids in ([2, 1], [2, 3], [2, 2], [2, 99], [True]):
+        with pytest.raises(Problem):
+            change(action='archive_done', ids=ids)
+        assert tasks.read() == before
+    after = change(action='archive_done', ids=[2])
+    parent, child, other = after['cards'][1:]
+    assert (parent['archived'], child['archived'], other['archived']) == (1, 0, 0)
+    assert (parent['status'], child['parent_id'], child['milestone_id']) == ('done', 2, 1)
+    assert tasks.activity(2)['entries'][-1]['changes']['archived'] == {'from': 0, 'to': 1}
+
+
+def test_milestone_creation_inserts_at_the_requested_position(tmp_path):
+    tasks = Workspace(tmp_path).tasks
+
+    def change(**data):
+        return tasks.mutate({'revision': tasks.read()['revision'], **data})
+
+    change(action='create', title='First', milestone=True)
+    change(action='create', title='Reserved', milestone=True)
+    change(action='update', ids=[2], changes={'archived': True})
+    change(action='create', title='Later', milestone=True)
+    change(action='create', title='Task under Later', parent_id=3)
+    before = tasks.read()
+    for placement in ({'before': 2}, {'before': 4}, {'parent_id': 3}):
+        with pytest.raises(Problem):
+            change(action='create', title='Invalid', milestone=True, **placement)
+        assert tasks.read() == before
+    result = change(action='create', title='Inserted', milestone=True, before=3)
+    assert [card['reference'] for card in result['cards']] == ['#M1', '#M2', '#M4', '#C04', '#M3']
+    assert result['cards'][3]['milestone_id'] == 3
+    assert tasks.activity(3)['entries'][-1]['changes']['milestone_number'] == {'from': 3, 'to': 4}
+    assert tasks.activity(5)['entries'][-1]['changes']['milestone_number'] == {'from': None, 'to': 3}
