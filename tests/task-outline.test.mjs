@@ -28,3 +28,20 @@ test('Tab nests under the previous sibling and Shift+Tab lifts after the parent'
  assert.deepEqual(shiftTarget(cards,5),{parent_id:1,before:null});
  assert.equal(shiftTarget(cards,2),null);assert.equal(shiftTarget(cards,3),null);assert.equal(shiftTarget(cards,5,true),null);
 });
+
+test('collapse all shows only local top-level tasks without changing hierarchy or order',()=>{
+ const before=structuredClone(cards);
+ assert.deepEqual(outlineRows(cards,{collapsed:true}).map(r=>r.card.id),[2,1,5]);
+ assert.deepEqual(outlineRows(cards,{rootId:2,collapsed:true}).map(r=>r.card.id),[3,6]);
+ assert.deepEqual(outlineRows(cards,{rootId:3,collapsed:true}).map(r=>r.card.id),[4]);
+ assert.deepEqual(outlineRows(cards,{rootId:2}).map(r=>r.card.id),[3,4,6]);
+ assert.deepEqual(cards,before);
+});
+
+test('collapsed outlines keep newly polled descendants hidden and archived context visible',()=>{
+ const updated=[...cards,{id:7,title:'New child',parent_id:5,outline_position:7}];
+ assert.deepEqual(outlineRows(updated,{collapsed:true}).map(r=>r.card.id),[2,1,5]);
+ assert.deepEqual(outlineRows(updated).map(r=>r.card.id),[2,3,4,6,1,5,7]);
+ const archived=updated.map(c=>c.id===2?{...c,archived:1}:c);
+ assert.equal(outlineRows(archived,{collapsed:true})[0].context,true);
+});

@@ -6,7 +6,7 @@ export function cardTitle(card) {
 
 // Keep ordering independent of the Kanban columns. Hidden ancestors are retained
 // as context so an archived parent never makes an active descendant disappear.
-export function outlineRows(cards, {rootId = null, archived = false, folded = new Set()} = {}) {
+export function outlineRows(cards, {rootId = null, archived = false, folded = new Set(), collapsed = false} = {}) {
   const byId = new Map(cards.map(c => [c.id, c])), included = new Set();
   for (const card of cards) if (!!card.archived === archived) {
     let current = card;
@@ -27,7 +27,7 @@ export function outlineRows(cards, {rootId = null, archived = false, folded = ne
     if (depth > 31) return;
     for (const card of children.get(parent) || []) {
       rows.push({card, depth, children: children.get(card.id)?.length || 0, context: !!card.archived !== archived});
-      if (!folded.has(card.id)) visit(card.id, depth+1);
+      if (!collapsed && !folded.has(card.id)) visit(card.id, depth+1);
     }
   }
   visit(rootId, 0);
@@ -59,13 +59,21 @@ const element = (tag, text, className) => {
 
 export function mountTaskOutline(host, options) {
   const {getBoard, state, picked, write, open, contextMenu, changed, create, rootId = null} = options;
-  const drafts = state.outlineDrafts ??= new Map(), folded = state.outlineFolded ??= new Set();
+  const drafts = state.outlineDrafts ??= new Map(), views = state.outlineViews ??= new Map();
+  const key=rootId??'plan', view=views.get(key)||{collapsed:false};views.set(key,view);
   const section = element('section', undefined, 'task-outline'), list = element('div', undefined, 'task-outline-list'), status = element('div', undefined, 'task-outline-status');
-  section.setAttribute('aria-label', rootId ? 'Card checklist' : 'Task hierarchy');
+  section.setAttribute('aria-label', rootId ? 'Card tasks' : 'Task hierarchy');
   list.setAttribute('role','list');
   status.setAttribute('role','status');
   const add = element('button', '+ Add ' + (rootId ? 'subitem' : 'task'), 'task-outline-add');
   add.type='button';add.onclick=()=>create(rootId);
+  const controls=element('div',undefined,'task-outline-controls');
+  controls.setAttribute('role','group');controls.setAttribute('aria-label','Task list display');
+  const collapse=iconButton('Collapse all tasks','collapse',()=>{view.collapsed=true;render();});
+  const expand=iconButton('Expand all tasks','expand',()=>{view.collapsed=false;render();});
+  controls.append(collapse,expand);
+  if(rootId){const heading=element('div',undefined,'task-outline-heading');heading.append(element('h3','Tasks'),controls);section.append(heading);}
+  else (options.controlsHost||section).append(controls);
   section.append(list, add, status);host.append(section);
   const nodes = new Map();
   let rows = [], drag = null, disposed = false, rendering = false, saving = Promise.resolve();
@@ -122,8 +130,6 @@ export function mountTaskOutline(host, options) {
   }
   function makeRow(id) {
     const row=element('div',undefined,'task-outline-row');row.dataset.id=id;row.setAttribute('role','listitem');row.draggable=true;
-    const fold=element('button','', 'task-outline-fold');fold.type='button';
-    fold.onclick=()=>{folded.has(id)?folded.delete(id):folded.add(id);render();};
     const check=element('input');check.type='checkbox';check.className='task-outline-check';
     check.onchange=async()=>{check.disabled=true;if(!await mutate({action:'update',ids:[id],changes:{status:check.checked?'done':'backlog'}}))check.checked=!check.checked;check.disabled=false;};
     const reference=element('button',undefined,'task-outline-reference');reference.type='button';reference.onclick=()=>openCard(id);
@@ -154,7 +160,7 @@ export function mountTaskOutline(host, options) {
     };
     const pen=iconButton('Edit card '+id,'pen',()=>openCard(id));
     pen.classList.add('task-outline-pen');
-    row.append(fold,check,reference,prefix,name,pen);
+    row.append(check,reference,prefix,name,pen);
     row.addEventListener('click',event=>{
       if(event.ctrlKey||event.metaKey) {event.preventDefault();event.stopPropagation();picked.has(id)?picked.delete(id):picked.add(id);changed();}
     },true);
@@ -199,7 +205,11 @@ export function mountTaskOutline(host, options) {
     rendering=true;
     const focused=section.contains(document.activeElement)?document.activeElement:null;
     const selection=focused?.matches('input[type=text]')?[focused.selectionStart,focused.selectionEnd]:null;
-    rows=outlineRows(getBoard().cards,{rootId,archived:!!state.archived,folded});
+    rows=outlineRows(getBoard().cards,{rootId,archived:!!state.archived,collapsed:view.collapsed});
+    const allRows=view.collapsed?outlineRows(getBoard().cards,{rootId,archived:!!state.archived}):rows;
+    collapse.disabled=view.collapsed||!allRows.some(r=>r.children);
+    expand.disabled=!view.collapsed;
+    collapse.setAttribute('aria-pressed',String(view.collapsed));expand.setAttribute('aria-pressed',String(!view.collapsed));
     const visible=new Set(rows.map(r=>r.card.id));
     for(const [id,row] of nodes)if(!visible.has(id)){row.remove();nodes.delete(id);}
     for(let index=0;index<rows.length;index++) {
@@ -208,8 +218,8 @@ export function mountTaskOutline(host, options) {
       row.style.setProperty('--task-depth',depth);row.dataset.depth=depth;
       row.classList.toggle('task-outline-milestone',!!card.milestone);row.classList.toggle('task-outline-done',card.status==='done');row.classList.toggle('task-outline-context',context);
       row.setAttribute('aria-selected',String(picked.has(card.id)));row.draggable=!card.archived;
-      const [fold,check,reference,prefix,name,pen]=row.children;
-      fold.textContent=children?(folded.has(card.id)?'›':'⌄'):'';fold.disabled=!children;fold.setAttribute('aria-label',(folded.has(card.id)?'Expand ':'Collapse ')+card.title);fold.setAttribute('aria-expanded',String(!folded.has(card.id)));
+      const [check,reference,prefix,name,pen]=row.children;
+      if(children)row.setAttribute('aria-expanded',String(!view.collapsed));else row.removeAttribute('aria-expanded');
       check.checked=card.status==='done';check.disabled=context;check.setAttribute('aria-label','Complete '+card.title);
       reference.textContent=card.milestone?'◇':'#C'+String(card.id).padStart(2,'0');reference.title='Open '+cardTitle(card);reference.setAttribute('aria-label','Open '+(card.milestone?'#M'+card.milestone_number:reference.textContent));
       prefix.textContent=card.milestone?'M'+card.milestone_number+':':'';prefix.hidden=!card.milestone;
@@ -224,5 +234,5 @@ export function mountTaskOutline(host, options) {
     rendering=false;
   }
   render();
-  return {render,dispose(){disposed=true;section.remove();},focus:focusRow};
+  return {render,dispose(){disposed=true;controls.remove();section.remove();},focus:focusRow};
 }

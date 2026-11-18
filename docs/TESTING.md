@@ -158,3 +158,11 @@ multiline Unicode headings, required-name validation, checklist context menus an
 completion feedback in the modal layer, and internal scrolling above a stable
 visible board. Hierarchy creation waits for
 the previous detail to close and scopes its Title locator to the create dialog.
+
+`test_task_controls_browser.py` exercises compact symbol-bearing metadata below
+the editable heading and above Description, header icon Save/archive/restore/delete
+behavior, confirmation and surviving-child handling, independent per-card/plan
+collapse state, removal of row triangles, preserved drafts and collapse through
+agent polling and tab switches, and toolbar/control geometry in both themes down
+to 390px. Fast outline tests cover local top-level collapse without mutating data
+or order, newly added descendants, and archived ancestor context.

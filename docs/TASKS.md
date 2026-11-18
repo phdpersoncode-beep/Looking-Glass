@@ -9,9 +9,16 @@ Drag a card onto another card to insert before it, or onto a column to append.
 Click a card (or press Enter while focused) to open its centered detail popup.
 The card's name is its heading: edit it directly in place, then Save with the
 other fields. There is no separate Title box. Milestones keep their M-number
-prefix beside the editable name; #C identity remains underneath. Description,
-status, and milestone are editable below. Changing status in the editor is the keyboard alternative
+prefix beside the editable name; #C identity remains underneath. Compact status
+and milestone dropdowns sit side by side directly below the heading, above the
+description. Status symbols match the board columns (◌, ◐, ◎, ✓); ◇ marks milestone
+assignment. Changing status in the editor is the keyboard alternative
 to dragging. All titles and descriptions are treated as plain text.
+
+The upper-right toolbar beside × uses line icons for Save, discard edits (Cancel),
+promotion/demotion, archive/restore, and delete. Each has a hover tooltip and
+accessible name. Save commits all fields, including the heading; Delete keeps its
+confirmation step. Actions stay available while scrolling the popup.
 
 Milestone cards have a purple left bar; task assignment labels stay small and muted.
 Every card keeps a permanent reference such as **#C01**, including while promoted.
@@ -36,7 +43,7 @@ underlying relationships or clearing unsent fields.
 
 Use the **◇** button, with its hover tooltip, to promote a task to a milestone.
 Milestones remain movable cards with their own status and description. Their
-completion counts include all descendant tasks. Every card has a nested checklist;
+completion counts include all descendant tasks. Every card has a nested **Tasks** list;
 each subitem is itself a full card with a permanent ID, status, and conversation.
 Click its **#Cxx** reference or pen to open its detail popup. Parent
 field drafts remain available when following these links or returning to the board.
@@ -63,6 +70,14 @@ creates a subitem; **+ Add task/subitem** is the pointer equivalent. Milestones
 remain at the top level. The pen opens the full editor as a centered popup above
 the board and sidebar. Close it to resume interacting with the outline. Inline drafts and caret survive unrelated polling;
 stale names require explicit review before overwriting the latest saved title.
+
+Both the plan sidebar and each card's **Tasks** list have compact **Collapse all
+tasks** and **Expand all tasks** buttons in their heading. Row triangles are
+removed. Collapse shows the current list's top-level items; Expand reveals every
+descendant. Each card and the plan keep independent display state for the tab
+session. Folding never changes task data, order, selection, or drafts, and polling
+does not expand collapsed lists when agents add children. A blank left gutter
+remains available for dragging rows.
 
 The popup leaves the board visible through a dimmed backdrop. Clicking that
 backdrop, pressing Escape, or choosing **Close card** exits focus mode and keeps

@@ -12,6 +12,11 @@ const paths={
   send:'m3 3 14 7-14 7 3-7zM6 10h11',
   code:'m7 5-5 5 5 5M13 5l5 5-5 5',
   resize:'M17 10v7h-7M17 17l-8-8',
+  save:'M4 3h10l3 3v11H3V3h1M6 3v5h8V3M6 17v-6h8v6',
+  archive:'M3 3h14v4H3zM4 7v10h12V7M8 10h4',
+  milestone:'m10 2 8 8-8 8-8-8z',
+  collapse:'M6 3H4a1 1 0 0 0-1 1v10M7 6h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1M9 11.5h5',
+  expand:'M6 3H4a1 1 0 0 0-1 1v10M7 6h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1M9 11.5h5m-2.5-2.5v5',
 };
 export function icon(name){
   const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');

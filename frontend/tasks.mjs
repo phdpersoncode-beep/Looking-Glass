@@ -1,6 +1,7 @@
 import {mountTaskActivity} from './task-activity.mjs';
 import {cardTitle, mountTaskOutline} from './task-outline.mjs';
 import {bindTaskDismiss} from './task-dialog.mjs';
+import {iconButton} from './icons.mjs';
 const columns = [["backlog", "\u25CC", "Backlog"], ["in_progress", "\u25D0", "In progress"], ["to_review", "\u25CE", "To review"], ["done", "\u2713", "Done"]];
 export function cardReference(id) { return `#C${String(id).padStart(2, "0")}`; }
 export function displayReference(card) { return card.reference || cardReference(card.id); }
@@ -64,7 +65,7 @@ function mountTasks(host, state, api, options = {}) {
     const help=el('p','Tab / Shift+Tab nest · Alt+↑↓ reorder','task-outline-help');
     help.title='Edit names directly. Enter saves; Shift+Enter adds a sibling; Ctrl/Cmd+Enter adds a subitem. Drag vertically to reorder and right/left to nest or outdent. Ctrl/Cmd+click selects; right-click opens actions. Milestones follow their numbers.';
     options.sidebar.append(heading,help);
-    outline=mountTaskOutline(options.sidebar,outlineOptions());
+    outline=mountTaskOutline(options.sidebar,outlineOptions({controlsHost:heading}));
     outline.updateCount=()=>count.textContent=String(board.cards.filter(c=>!!c.archived===!!state.archived).length);
   }
   function outlineOptions(extra={}){
@@ -355,9 +356,13 @@ function mountTasks(host, state, api, options = {}) {
     if(editor?.open&&editor.cardId===card.id){editor.querySelector('[aria-label=Title]')?.focus();return;}
     const draft = drafts.get(card.id);
     let revision = draft?.revision ?? board.revision;
-    const d = dialog(cardTitle(card),true), form = el("form"), title = el("textarea",undefined,'task-detail-title'), description = field(form, "Description", el("textarea")), status = field(form, "Status", el("select")), parent = field(form, "Milestone", el("select"));
+    const d = dialog(cardTitle(card),true), form = el("form"), title = el("textarea",undefined,'task-detail-title'), metadata=el('div',undefined,'task-detail-metadata'), status = field(metadata, "Status", el("select")), parent = field(metadata, "Milestone", el("select")), description = field(form, "Description", el("textarea"));
+    form.prepend(metadata);
+    status.parentElement.classList.add('task-status-field');parent.parentElement.classList.add('task-milestone-field');
+    status.title='Status';parent.title='Milestone';
     d.cardId=card.id;
-    const close=button('×',()=>{retainDraft();d.close();},'Close card');close.className='task-detail-close';d.prepend(close);
+    const actions=el('div',undefined,'task-detail-actions'),close=iconButton('Close card','close',()=>{retainDraft();d.close();});
+    actions.setAttribute('role','toolbar');actions.setAttribute('aria-label','Card actions');close.classList.add('task-detail-close');d.prepend(actions);
     const heading=d.querySelector('h2'), prefix=el('span',undefined,'task-detail-prefix');
     heading.className='task-detail-heading';heading.id='task-heading-'+crypto.randomUUID();
     d.setAttribute('aria-labelledby',heading.id);
@@ -371,13 +376,14 @@ function mountTasks(host, state, api, options = {}) {
     const sizeTitle=()=>{title.style.height='0px';title.style.height=title.scrollHeight+'px';};
     title.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();title.blur();}};
     description.value = draft?.description ?? card.description;
-    for (const [value, , label] of columns) {
-      const o = el("option", label);
+    for (const [value, symbol, label] of columns) {
+      const o = el("option", symbol+' '+label);
       o.value = value;
       status.append(o);
     }
     status.value = draft?.status ?? card.status;
     milestones(parent, (draft ? draft.milestone_id : card.milestone_id) || "", [card.id]);
+    parent.firstChild.textContent='◇ No milestone';
     parent.disabled = !!card.milestone;
     const number=card.milestone ? field(form,"Milestone number (#M)",el("input")) : null;
     if(number){
@@ -401,8 +407,8 @@ function mountTasks(host, state, api, options = {}) {
       }
     };
     d.refreshReference();
-    const actions = el("div", void 0, "task-edit-actions"), save = el("button", "Save");
-    save.type = "submit";
+    const save=iconButton('Save','save');save.classList.add('task-save');
+    save.type = "submit";save.setAttribute('form',form.id);
     const retainDraft = () => drafts.set(card.id, {revision, title:title.value, description:description.value, status:status.value, milestone_id:Number(parent.value)||null,...(number?{milestone_number:number.value}: {})});
     title.oninput=()=>{retainDraft();d.refreshReference();sizeTitle();};
     d.retainDraft=retainDraft;
@@ -415,16 +421,17 @@ function mountTasks(host, state, api, options = {}) {
       }
     };
     form.oninput = form.onchange = retainDraft;
-    actions.append(save, button("Cancel", () => { drafts.delete(card.id); d.close(); }), button(card.milestone ? "Convert to task" : "\u25C7 Promote to milestone", async () => {
+    const cancel=iconButton('Cancel','undo',()=>{drafts.delete(card.id);d.close();});cancel.title='Discard edits (Cancel)';
+    actions.append(save, cancel, iconButton(card.milestone ? "Convert to task" : "Promote to milestone", 'milestone',async () => {
       if (await change({ action: "update", ids: [card.id], changes: { milestone: !card.milestone } }, revision)) d.close();
       else error.textContent = notice.textContent;
-    }), button(card.archived ? "Restore" : "Archive", async () => {
+    }), iconButton(card.archived ? "Restore" : "Archive", card.archived?'restore':'archive',async () => {
       if (await change({ action: "update", ids: [card.id], changes: { archived: !card.archived } }, revision)) d.close();
       else error.textContent = notice.textContent;
-    }), button("Delete", () => confirmDelete([card.id], d)));
+    }), iconButton("Delete", 'trash',() => confirmDelete([card.id], d)),close);
     const error = el("p");
     error.setAttribute("role", "alert");
-    form.append(actions, error);
+    form.append(error);
     form.onsubmit = async (e) => {
       e.preventDefault();
       save.disabled = true;
@@ -448,7 +455,7 @@ function mountTasks(host, state, api, options = {}) {
       }
     };
     d.append(form);
-    const checklistHost=el('div',undefined,'task-checklist');d.append(el('h3',card.milestone?'Tasks':'Checklist'),checklistHost);
+    const checklistHost=el('div',undefined,'task-checklist');d.append(checklistHost);
     const checklist=mountTaskOutline(checklistHost,outlineOptions({rootId:card.id,write:async(data,base)=>{
       const before=board.revision,saved=await change(data,base??revision);
       if(saved&&revision===before&&board.revision===before+1){revision=board.revision;if(drafts.has(card.id))retainDraft();}
