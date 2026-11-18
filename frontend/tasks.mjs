@@ -2,6 +2,7 @@ import {mountTaskActivity} from './task-activity.mjs';
 import {cardTitle, mountTaskOutline} from './task-outline.mjs';
 import {bindTaskDismiss} from './task-dialog.mjs';
 import {iconButton} from './icons.mjs';
+import {fileReferences} from './file-references.mjs';
 const columns = [["backlog", "\u25CC", "Backlog"], ["in_progress", "\u25D0", "In progress"], ["to_review", "\u25CE", "To review"], ["done", "\u2713", "Done"]];
 export function cardReference(id) { return `#C${String(id).padStart(2, "0")}`; }
 export function displayReference(card) { return card.reference || cardReference(card.id); }
@@ -36,6 +37,7 @@ function button(text, action, title = text) {
 function mountTasks(host, state, api, options = {}) {
   let board = { cards: [], revision: 0 }, disposed = false, busy = false, refreshing = null, dragged = null, editor = null, outline = null, context = null;
   const drafts = state.drafts ??= new Map();
+  const resume = state.documentReturn;
   const picked = new Set(), root = el("section", void 0, "task-board"), tools = el("div", void 0, "task-tools"), search = el("input"), filter = el("select"), archived = el("input"), bulk = el("div", void 0, "task-bulk"), lanes = el("div", void 0, "task-lanes"), notice = el("p", void 0, "task-notice");
   search.placeholder = "Search cards\u2026";
   search.setAttribute("aria-label", "Search cards");
@@ -185,6 +187,12 @@ function mountTasks(host, state, api, options = {}) {
         if (!disposed && next && (next.revision > board.revision || !lanes.children.length)) {
           board = next;
           render();
+          if (resume && state.documentReturn === resume) {
+            const card = board.cards.find(c => c.id === resume.id);
+            delete state.documentReturn;
+            if (card) edit(card);
+            else notice.textContent = "The card was deleted while you were viewing the file.";
+          }
         }
       } catch (error) {
         fail(error);
@@ -407,6 +415,31 @@ function mountTasks(host, state, api, options = {}) {
     const sizeTitle=()=>{title.style.height='0px';title.style.height=title.scrollHeight+'px';};
     title.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();title.blur();}};
     description.value = draft?.description ?? card.description;
+    description.maxLength = 100000;
+    description.dataset.taskFileMentions = '';
+    const related = el('div',undefined,'task-related-files');
+    const fileLinks = el('div',undefined,'task-file-links');
+    const hint = el('p','Type @ to link a workspace file.','task-file-hint');
+    hint.id = description.id + '-hint';
+    description.setAttribute('aria-describedby',hint.id);
+    related.append(el('h3','Related files'),fileLinks);
+    form.append(hint,related);
+    let linkedPaths = [];
+    const refreshRelatedFiles = () => {
+      const paths = [...new Set(fileReferences(description.value).map(ref => ref.path))].filter(path => !path.includes('//'));
+      if (paths.length === linkedPaths.length && paths.every((path,index) => path === linkedPaths[index])) return;
+      linkedPaths = paths;
+      related.hidden = !paths.length;
+      fileLinks.replaceChildren(...paths.map(path => {
+        const link = el('a',path);
+        link.href = '#file-' + encodeURIComponent(path);
+        link.dataset.fileReference = path;
+        link.title = 'Open ' + path;
+        return link;
+      }));
+    };
+    related.hidden = true;
+    refreshRelatedFiles();
     for (const [value, symbol, label] of columns) {
       const o = el("option", symbol+' '+label);
       o.value = value;
@@ -472,6 +505,20 @@ function mountTasks(host, state, api, options = {}) {
     const error = el("p");
     error.setAttribute("role", "alert");
     form.append(error);
+    description.addEventListener('input',refreshRelatedFiles);
+    d.addEventListener('click', async event => {
+      const link = event.target.closest('a[data-file-reference]');
+      if (!link) return;
+      event.preventDefault();
+      event.stopPropagation();
+      retainDraft();
+      try {
+        await options.openDocument(link.dataset.fileReference,card.id);
+      } catch (problem) {
+        error.textContent = problem.message;
+        error.scrollIntoView({block:'nearest'});
+      }
+    });
     form.onsubmit = async (e) => {
       e.preventDefault();
       const changes = editedFields(readFields());

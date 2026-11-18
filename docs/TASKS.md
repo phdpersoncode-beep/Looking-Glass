@@ -85,6 +85,13 @@ backdrop, pressing Escape, or choosing **Close card** exits focus mode and keeps
 unsaved field/comment drafts for reopening; **Cancel** discards field changes.
 Saving sends only the fields you edited. If another writer changed the board,
 review and acknowledge the latest revision before retrying your field edits.
+
+Type `@` in a card description or comment to find a workspace file. Description
+references appear under **Related files**, and references in posted comments
+open from the conversation. For a path with spaces, use `@"research notes.md"`.
+Open a reference to read or discuss the document in its normal tab. The return
+button beside the document name reopens the same card with its description and
+comment drafts intact.
 Clicking inside the card or dragging a text selection outside it does not dismiss
 the popup. Keyboard focus stays inside while open and returns to the originating
 card/control on close, including after background polling replaces board cards.

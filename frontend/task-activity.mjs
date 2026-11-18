@@ -1,4 +1,5 @@
 import { iconButton } from "./icons.mjs";
+import { linkFileReferences } from "./file-references.mjs";
 const statuses = { backlog: "Backlog", in_progress: "In progress", to_review: "To review", done: "Done" };
 const labels = { title: "Title", description: "Description", status: "Status", milestone: "Milestone", milestone_id: "Assignment", milestone_number:"Milestone number", archived: "Archive", position: "Order", parent_id:"Parent", outline_position:"Checklist order" };
 const node = (tag, text, className) => {
@@ -31,6 +32,7 @@ function mountTaskActivity(dialog, id, { api, state, write, getRevision, error }
   input.id = "task-comment-" + id;
   label.htmlFor = input.id;
   input.placeholder = "Write a comment…";
+  input.dataset.taskFileMentions = '';
   input.maxLength = 1e5;
   input.value = drafts.get(id) || "";
   input.oninput = () => drafts.set(id, input.value);
@@ -63,7 +65,11 @@ function mountTaskActivity(dialog, id, { api, state, write, getRevision, error }
       if (entry.kind === "update") meta.append(node("span", "Update", "task-activity-kind"));
       meta.append(author, time, remove);
       item.append(meta);
-      if (entry.kind === "comment") item.append(node("p", entry.body));
+      if (entry.kind === "comment") {
+        const body = node("p", entry.body);
+        linkFileReferences(body);
+        item.append(body);
+      }
       else {
         const updates = node("div", void 0, "task-update-fields");
         if (entry.body) updates.append(node("p", entry.body));

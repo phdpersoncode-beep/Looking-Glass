@@ -22,7 +22,7 @@ import {apply as applyReview,accepted as acceptedReview,ranges as reviewRanges,l
 import {reviewTracking,reviewEffect,remoteReview,operationsFor} from './review-editor.mjs';
 import {prepareHTMLPreview,sourceOffsets} from './html-source.mjs';
 import {createComposers} from './composer.mjs';
-import {mountTasks} from './tasks.mjs';
+import {cardReference,mountTasks} from './tasks.mjs';
 import {mountHistory} from './history.mjs';
 import {formatJSON} from './json-format.mjs';
 import {mountMappedMarkdown,renderMarkdown} from './markdown-render.mjs';
@@ -646,6 +646,19 @@ function cancelSidebarNavigation(){
   appStore.dispatch({type:'THREAD_NAVIGATION_CANCELLED'});
 }
 function openFile(path){cancelSidebarNavigation();return navigation.open(path);}
+async function openTaskDocument(session,path,id){
+  if(path.includes('//'))throw new Error('Choose a workspace file.');
+  const previous=session.tasks.documentReturn, jump={path,id};
+  session.tasks.documentReturn=jump;
+  try{
+    const result=await openFile(path);
+    if(result.status==='ready')return;
+  }finally{
+    if(session.tasks.documentReturn===jump && appStore.state.displayedDocument!==path){
+      session.tasks.documentReturn=previous;
+    }
+  }
+}
 let definitionRequest=0;
 async function goToPythonDefinition(editor,at){
   const e=entry();if(!e||view!==editor||e.kind||changingWorkMode||fileMutation)return;
@@ -739,7 +752,7 @@ async function loadFile(path,request){
 }
 
 async function mountFileSurface(e){
-  if(e.kind==='tasks')cleanup=mountTasks($('#surface'),e.tasks??={},api,{author:()=>authorName,sidebar:$('#task-sidebar'),onSidebarMode:active=>{
+  if(e.kind==='tasks')cleanup=mountTasks($('#surface'),e.tasks??={},api,{openDocument:(path,id)=>openTaskDocument(e,path,id),author:()=>authorName,sidebar:$('#task-sidebar'),onSidebarMode:active=>{
     document.body.classList.toggle('tasks-view',active);
     $('#discussion-sidebar').setAttribute('aria-label',active?'Task hierarchy':'Discussions');
     $('#discussion-resize').setAttribute('aria-label',active?'Resize task list':'Resize discussions');
@@ -878,6 +891,9 @@ function updateToolbar(){
   $('#json-fold-controls').hidden=type!=='json';
   $('#download-file').hidden=!['html','htm','jsonl'].includes(type);
   $('#copy-filepath').hidden=!e||['history','tasks'].includes(e.kind);
+  const taskReturn=$('#task-document-return'), jump=tabs.get(TASKS)?.tasks?.documentReturn;
+  taskReturn.hidden=!jump||e?.path!==jump.path;
+  if(!taskReturn.hidden)taskReturn.textContent='↩ '+cardReference(jump.id);
   $('#go-to-top').hidden=!e||['history','tasks','oversized'].includes(e.kind)||type==='stl'||isImage(e.path);
   $('#document-name').textContent=e?.kind==='tasks'?'Tasks':e?.kind==='history'?'Commit history':e?.kind==='original'?'Original · '+e.sourcePath:e?.path||'Open a file';$('#dirty').textContent=e?.dirty&&e.workMode!=='review'?' · Unsaved':'';
   $('#save').disabled=!e||viewer||!e.dirty||saving;$('#annotate').disabled=!e||(viewer&&type!=='pdf')||!(type==='pdf'?cleanup.selection?.():renderedPreview?renderedSelection:removedSelection()||markdownSelection()||view&&!view.state.selection.main.empty);
@@ -1902,6 +1918,7 @@ $('#copy-draft').onclick=guard(async()=>{await navigator.clipboard.writeText(ent
 $('#merge-disk').onclick=guard(async()=>{const e=entry();const disk=await api('file?'+new URLSearchParams({path:e.path}));pending={mergePath:e.path,disk};$('#disk-text').textContent=disk.content;$('#merge-text').value=e.content;$('#merge-dialog').showModal();});
 $('#accept-merge').onclick=guard(async()=>{const e=entry();if(pending?.mergePath!==e.path)throw new Error('Open the original file to finish merging.');e.version=pending.disk.version;e.diskContent=pending.disk.content;e.content=$('#merge-text').value;e.dirty=e.content!==e.diskContent;e.conflict=null;e.state=null;view?.destroy();view=null;mountDocument(e);$('#merge-dialog').close();pending=null;renderTabs();updateToolbar();notify('Merged draft ready. Save to write it to disk.');});
 $('#tasks-open').onclick=guard(()=>openFile(TASKS));
+$('#task-document-return').onclick=guard(()=>openFile(TASKS));
 $('#history-open').onclick=guard(()=>openFile(HISTORY));
 $('#git-open').onclick=guard(showGit);$('#inspect-diff').onclick=guard(async()=>{const result=await api('git/diff','POST',{paths:selectedGit()});$('#git-diff').textContent=result.diff;});
 $('#checkpoint').onclick=guard(async()=>{const paths=selectedGit();if(paths.some(p=>tabs.get(p)?.dirty))throw new Error('Save your edits in the selected files before checkpointing.');const result=await api('git/checkpoint','POST',{paths,message:$('#checkpoint-name').value});await refreshBaseline();$('#git-dialog').close();notify('Checkpoint '+result.commit.slice(0,8)+' created');});
