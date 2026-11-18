@@ -32,6 +32,14 @@ def cli(root, *arguments, input=None, cwd=None):
                           capture_output=True, env=environment, cwd=cwd, timeout=15)
 
 
+def cli_bytes(root, *arguments, input=None, stream_encoding='cp1252'):
+    environment = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[1]),
+                       PYTHONIOENCODING=stream_encoding)
+    return subprocess.run([sys.executable, '-m', 'looking_glass.cli', 'database',
+                           '--root', str(root), *arguments], input=input,
+                          capture_output=True, env=environment, timeout=15)
+
+
 @pytest.fixture
 def populated(tmp_path):
     root = tmp_path / 'machine A #? 🪞'
@@ -99,6 +107,43 @@ def test_cli_round_trip_between_machines_preserves_all_state_and_local_identity(
     assert result['ok'] and result['integrity_check'] == ['ok'] and result['foreign_key_check'] == []
     assert result['tables']['review_edits'] == 1
     assert result['warnings'] == ['1 attachment file(s) missing or size mismatched; upload bytes are not in SQL dumps.']
+
+
+@pytest.mark.parametrize('stream_encoding', ['cp1252', 'ascii', 'cp1252:replace'])
+def test_sql_stdout_is_utf8_independent_of_locale(populated, tmp_path, stream_encoding):
+    path = tmp_path / 'snapshot.sql'
+    database.dump_file(populated.root, path)
+    dumped = cli_bytes(populated.root, 'dump', stream_encoding=stream_encoding)
+    assert dumped.returncode == 0, dumped.stderr
+    assert dumped.stdout == path.read_bytes()
+    assert 'München' in dumped.stdout.decode('utf-8')
+
+
+@pytest.mark.parametrize('stream_encoding', ['cp1252', 'ascii', 'cp1252:replace'])
+def test_sql_stdin_and_restore_json_are_utf8_independent_of_locale(populated, tmp_path, stream_encoding):
+    path = tmp_path / 'snapshot.sql'
+    database.dump_file(populated.root, path)
+    destination = tmp_path / 'receiving 🪞'
+    destination.mkdir()
+    Workspace(destination)
+    restored = cli_bytes(destination, 'restore', '--force', '-', input=path.read_bytes(),
+                         stream_encoding=stream_encoding)
+    assert restored.returncode == 0, restored.stderr
+    result = json.loads(restored.stdout.decode('utf-8'))
+    assert Path(result['backup']).parent == destination / '.looking-glass'
+    assert sql_dump(destination).encode('utf-8') == path.read_bytes()
+
+
+def test_sql_stdin_rejects_non_utf8_without_creating_database(populated, tmp_path):
+    sql = sql_dump(populated.root).encode('utf-8')
+    assert b'M\xc3\xbcnchen' in sql
+    invalid = sql.replace(b'M\xc3\xbcnchen', b'M\xfcnchen')
+    destination = tmp_path / 'clone'
+    destination.mkdir()
+    restored = cli_bytes(destination, 'restore', '-', input=invalid)
+    assert restored.returncode != 0
+    assert b'utf-8' in restored.stderr
+    assert not database.state_path(destination).exists()
 
 
 def test_deterministic_dump_ignores_insertion_order_vacuum_and_has_one_line_per_row(populated):
