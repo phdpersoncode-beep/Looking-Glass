@@ -54,8 +54,8 @@ descendants. Every card has a nested **Tasks** list;
 each subitem is itself a full card with a permanent ID, status, and conversation.
 Click the row or its **#Cxx** reference to open its detail popup. Parent
 field drafts remain available when following these links or returning to the board.
-Check a child to finish it; unchecking returns it to backlog. Completion never
-automatically changes a parent's status. Milestones cannot be nested; task
+Checking a task moves its card to **Done**. Unchecking returns it to **Backlog**.
+Completion never automatically changes a parent's status. Milestones cannot be nested; task
 hierarchies support up to 32 levels and inherit the top milestone's assignment.
 
 ## Task outline and keyboard editing
@@ -65,8 +65,8 @@ It uses the same resize and minimize controls; returning to a file restores the
 discussion controls. Milestones appear first, in ascending number order, followed
 by unassigned tasks. Drag milestone rows or use Alt+Up/Down to reorder them with
 their branches. Other siblings have their own saved outline order. The sidebar
-shows active and archived tasks regardless of the board filters. Its status
-controls use the same symbols as the board columns.
+shows active and archived tasks regardless of the board filters. Both task lists
+have a checkbox on the left and a small status symbol to the right of each name.
 
 Double-click a row to edit its name in place. Click within the field to position
 the caret while editing. Enter saves and moves to the next row; Up/Down

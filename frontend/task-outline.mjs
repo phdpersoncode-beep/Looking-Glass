@@ -280,12 +280,18 @@ export function mountTaskOutline(host, options) {
       render();
     });
     fold.classList.add('task-outline-fold');
-    const completion = element('span', undefined, 'task-outline-completion');
     const symbol = element('span', undefined, 'task-outline-symbol');
     symbol.setAttribute('aria-hidden', 'true');
-    const check=element('input');check.type='checkbox';check.className='task-outline-check';
-    completion.append(symbol, check);
-    check.onchange=async()=>{check.disabled=true;if(!await mutate({action:'update',ids:[id],changes:{status:check.checked?'done':'backlog'}}))check.checked=!check.checked;check.disabled=false;};
+    const check = element('input', undefined, 'task-outline-check');
+    check.type = 'checkbox';
+    check.onchange = async () => {
+      const status = check.checked ? 'done' : 'backlog';
+      check.disabled = true;
+      if (!await mutate({action: 'update', ids: [id], changes: {status}})) {
+        check.checked = getBoard().cards.find(card => card.id === id)?.status === 'done';
+        check.disabled = row.dataset.archived === 'true' || row.classList.contains('task-outline-context');
+      }
+    };
     const reference=element('button',undefined,'task-outline-reference');reference.type='button';reference.onclick=()=>openCard(id);
     const prefix=element('span',undefined,'task-outline-prefix'), name=element('input',undefined,'task-outline-name');
     name.type='text';name.maxLength=500;name.draggable=false;
@@ -334,7 +340,7 @@ export function mountTaskOutline(host, options) {
       }
     };
     const progress = element('span', undefined, 'task-outline-progress');
-    row.append(fold,completion,reference,prefix,name,progress);
+    row.append(fold, check, reference, prefix, name, progress, symbol);
     if (createMilestone) {
       row.onpointermove = event => {
         const bounds = row.getBoundingClientRect();
@@ -402,8 +408,7 @@ export function mountTaskOutline(host, options) {
       row.dataset.archived = !!card.archived;
       row.setAttribute('aria-selected',String(picked.has(card.id)));
       row.draggable = !card.archived && !row.classList.contains('task-outline-editing');
-      const [fold, completion, reference, prefix, name, progress] = row.children;
-      const [symbol, check] = completion.children;
+      const [fold, check, reference, prefix, name, progress, symbol] = row.children;
       const expanded = isExpanded(card.id);
       if (children) row.setAttribute('aria-expanded', String(expanded)); else row.removeAttribute('aria-expanded');
       const foldAction = (expanded ? 'Collapse ' : 'Expand ') + card.title;
@@ -413,8 +418,7 @@ export function mountTaskOutline(host, options) {
       fold.setAttribute('aria-expanded', String(expanded));
       const itemStatus = taskStatus.get(card.status);
       symbol.textContent = itemStatus.symbol;
-      completion.title = itemStatus.label;
-      completion.dataset.status = card.status;
+      symbol.title = itemStatus.label;
       check.checked = card.status === 'done';
       check.disabled = context || !!card.archived;
       check.setAttribute('aria-label', 'Complete ' + card.title);

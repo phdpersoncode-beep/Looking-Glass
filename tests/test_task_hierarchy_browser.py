@@ -313,3 +313,51 @@ def test_task_list_click_rename_caret_and_branch_toggle(workspace_page, surface)
     name.press('Enter')
     expect(page.get_by_role('article', name='New Editable name')).to_have_count(1)
     expect(detail).to_have_count(0)
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+@pytest.mark.parametrize(('surface', 'status', 'symbol', 'column'), [
+    ('sidebar', 'in_progress', '◐', 'In progress'),
+    ('checklist', 'to_review', '◎', 'To review'),
+])
+def test_task_list_checkbox_moves_card_to_done(workspace_page, surface, status, symbol, column):
+    from playwright.sync_api import expect
+    _, page, url, ws = workspace_page
+    ws.tasks.mutate(dict(action='create', title='Plan', revision=0))
+    ws.tasks.mutate(dict(action='create', title='Child task', parent_id=1, status=status, revision=1))
+    page.goto(url)
+    page.locator('#tasks-open').click()
+    if surface == 'checklist':
+        page.get_by_role('article', name='Plan', exact=True).click()
+        group = page.get_by_role('region', name='Card tasks')
+    else:
+        group = page.locator('#task-sidebar')
+    row = group.locator('.task-outline-row[data-id="2"]')
+    check = row.get_by_role('checkbox', name='Complete Child task')
+    indicator = row.locator('.task-outline-symbol')
+    expect(check).to_have_css('opacity', '1')
+    expect(indicator).to_have_text(symbol)
+    expect(indicator).to_have_attribute('title', column)
+    assert row.evaluate("""row => {
+        const name = row.querySelector('.task-outline-name');
+        const checkbox = row.querySelector('input[type=checkbox]');
+        const indicator = row.querySelector('.task-outline-symbol');
+        const label = row.querySelector('.task-outline-reference');
+        return checkbox.getBoundingClientRect().right < name.getBoundingClientRect().left &&
+            indicator.getBoundingClientRect().left >= name.getBoundingClientRect().right &&
+            getComputedStyle(indicator).color === getComputedStyle(label).color &&
+            parseFloat(getComputedStyle(indicator).fontSize) < parseFloat(getComputedStyle(name).fontSize);
+    }""")
+    card = page.locator('.task-card[data-id="2"]')
+    done = page.locator('.task-lane[data-status="done"]')
+    expect(done.locator(card)).to_have_count(0)
+    check.check()
+    expect(done.locator(card)).to_have_count(1)
+    expect(check).to_be_enabled()
+    expect(check).to_be_checked()
+    expect(indicator).to_have_text('✓')
+    assert [c['status'] for c in ws.tasks.read()['cards']] == ['backlog', 'done']
+
+    check.uncheck()
+    expect(page.locator('.task-lane[data-status="backlog"]').locator(card)).to_have_count(1)
+    expect(indicator).to_have_text('◌')
