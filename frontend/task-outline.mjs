@@ -87,17 +87,19 @@ export function mountTaskOutline(host, options) {
     return result;
   }
   async function saveName(id) {
-    const draft=drafts.get(id), card=getBoard().cards.find(c=>c.id===id);
-    if (!draft || !card || draft.value===card.title) { drafts.delete(id); return true; }
-    const value=draft.value, revision=draft.revision;
     const operation=async()=>{
+      if (disposed) return false;
+      const draft=drafts.get(id), card=getBoard().cards.find(c=>c.id===id);
+      if (!draft || !card || draft.value===card.title) { drafts.delete(id); return true; }
+      const {value, revision} = draft;
       const result=await write({action:'update',ids:[id],changes:{title:value}},revision);
-      if(disposed)return result;
       if(result) {
         if(drafts.get(id)?.value===value) drafts.delete(id);
-        else if(drafts.has(id)) drafts.get(id).revision=getBoard().revision;
-        status.replaceChildren();render();
-      } else {
+        else if(drafts.get(id)?.revision===revision && getBoard().revision===revision+1) {
+          drafts.get(id).revision=revision+1;
+        }
+        if (!disposed) { status.replaceChildren();render(); }
+      } else if (!disposed) {
         status.textContent=options.error();
         const latest=getBoard().cards.find(c=>c.id===id);
         if(latest && revision!==getBoard().revision) {
@@ -138,7 +140,13 @@ export function mountTaskOutline(host, options) {
     name.oninput=()=>{const previous=drafts.get(id);drafts.set(id,{value:name.value,revision:previous?.revision??getBoard().revision});};
     name.onblur=()=>{if(!rendering)saveName(id);};
     name.onkeydown=async event=>{
-      if(event.key==='Tab') {event.preventDefault();await shift(id,event.shiftKey);return;}
+      if(event.key==='Tab') {
+        if(!name.readOnly && shiftTarget(getBoard().cards,id,event.shiftKey)) {
+          event.preventDefault();await shift(id,event.shiftKey);
+        }
+        return;
+      }
+      if (name.readOnly || event.isComposing) return;
       if(event.key==='Escape') {event.preventDefault();event.stopPropagation();drafts.delete(id);status.replaceChildren();render();name.blur();return;}
       if(event.key==='Enter') {
         event.preventDefault();

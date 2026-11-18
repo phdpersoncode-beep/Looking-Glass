@@ -6,11 +6,13 @@ const columns = [["backlog", "\u25CC", "Backlog"], ["in_progress", "\u25D0", "In
 export function cardReference(id) { return `#C${String(id).padStart(2, "0")}`; }
 export function displayReference(card) { return card.reference || cardReference(card.id); }
 function fuzzyCard(card, query) {
-  if (/^#?m\d+$/i.test(query.trim())) return !!card.milestone && Number((card.milestone_reference || card.reference || "").replace(/^#m/i,"")) === Number(query.trim().replace(/^#?m/i,""));
-  if (/^#?c\d+$/i.test(query.trim())) return Number(query.trim().replace(/^#?c/i,"")) === card.id;
+  query = query.trim();
+  if (!query) return true;
+  if (/^#?m\d+$/i.test(query)) return !!card.milestone && Number((card.milestone_reference || card.reference || "").replace(/^#m/i,"")) === Number(query.replace(/^#?m/i,""));
+  if (/^#?c\d+$/i.test(query)) return Number(query.replace(/^#?c/i,"")) === card.id;
   let at = 0;
   const text = (card.title + " " + card.description).toLocaleLowerCase();
-  for (const char of query.toLocaleLowerCase().trim()) {
+  for (const char of query.toLocaleLowerCase()) {
     at = text.indexOf(char, at);
     if (at < 0) return false;
     at++;
@@ -32,7 +34,7 @@ function button(text, action, title = text) {
   return b;
 }
 function mountTasks(host, state, api, options = {}) {
-  let board = { cards: [], revision: 0 }, disposed = false, busy = false, refreshing = false, dragged = null, editor = null, outline = null, context = null;
+  let board = { cards: [], revision: 0 }, disposed = false, busy = false, refreshing = null, dragged = null, editor = null, outline = null, context = null;
   const drafts = state.drafts ??= new Map();
   const picked = new Set(), root = el("section", void 0, "task-board"), tools = el("div", void 0, "task-tools"), search = el("input"), filter = el("select"), archived = el("input"), bulk = el("div", void 0, "task-bulk"), lanes = el("div", void 0, "task-lanes"), notice = el("p", void 0, "task-notice");
   search.placeholder = "Search cards\u2026";
@@ -84,13 +86,16 @@ function mountTasks(host, state, api, options = {}) {
     action('Restore',()=>change({action:'update',ids,changes:{archived:false}}));
     action('Delete',()=>confirmDelete(ids));
     action('Clear selection',()=>{picked.clear();render();});
-    context.style.left=Math.min(event.clientX,innerWidth-250)+'px';context.style.top=Math.min(event.clientY,innerHeight-280)+'px';
+    (document.querySelector('.task-detail[open]')||document.body).append(context);
+    const bounds = context.getBoundingClientRect();
+    context.style.left=Math.max(4,Math.min(event.clientX,innerWidth-bounds.width-4))+'px';
+    context.style.top=Math.max(4,Math.min(event.clientY,innerHeight-bounds.height-4))+'px';
     context.onkeydown=e=>{
       const buttons=[...context.querySelectorAll('button')],at=buttons.indexOf(document.activeElement);
       if(e.key==='Escape'){e.preventDefault();closeContext();}
       else if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();buttons[(at+(e.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length].focus();}
     };
-    (document.querySelector('.task-detail[open]')||document.body).append(context);context.firstChild?.focus();
+    context.firstChild?.focus({preventScroll:true});
   }
   const contextAbort=new AbortController();
   document.addEventListener('pointerdown',e=>{if(context&&!context.contains(e.target))closeContext();},{signal:contextAbort.signal});
@@ -142,42 +147,52 @@ function mountTasks(host, state, api, options = {}) {
     }
   }
   async function change(data, revision = board.revision) {
-    if (busy) return false;
+    if (busy) {
+      notice.textContent = "Another task change is saving. Try again in a moment.";
+      return false;
+    }
     busy = true;
     notice.textContent = "";
     try {
       const old = board;
       const next = await api("tasks", "POST", { ...data, revision, author:options.author?.() || "User" });
       if (disposed) return false;
-      board = next;
       document.querySelectorAll('.task-detail[open]').forEach(d=>d.acknowledge?.(old.revision,next.revision,data));
-      render();
-      if (board.cards.some((c) => !c.milestone && c.status === "done" && old.cards.some((o) => o.id === c.id && o.status !== "done"))) celebrate();
+      if (next.revision > board.revision || !lanes.children.length) {
+        board = next;
+        render();
+      }
+      const incomplete = new Set(old.cards.filter(c => c.status !== 'done').map(c => c.id));
+      if (next.cards.some(c => !c.milestone && c.status === 'done' && incomplete.has(c.id))) celebrate();
       return true;
     } catch (error) {
       fail(error);
-      if (error.status === 409) await refresh();
+      if (error.status === 409) {
+        await refreshing;
+        await refresh();
+      }
       return false;
     } finally {
       busy = false;
     }
   }
   // Unchanged polls do not touch the DOM or read card payloads.
-  async function refresh() {
-    if (refreshing) return;
-    refreshing = true;
-    try {
-      const next = await api("tasks" + (lanes.children.length ? "?revision=" + board.revision : ""));
-      if (disposed || !next) return;
-      if (next.revision > board.revision || !lanes.children.length) {
-        board = next;
-        render();
+  function refresh() {
+    if (disposed || refreshing) return refreshing;
+    refreshing = (async () => {
+      try {
+        const next = await api("tasks" + (lanes.children.length ? "?revision=" + board.revision : ""));
+        if (!disposed && next && (next.revision > board.revision || !lanes.children.length)) {
+          board = next;
+          render();
+        }
+      } catch (error) {
+        fail(error);
+      } finally {
+        refreshing = null;
       }
-    } catch (error) {
-      fail(error);
-    } finally {
-      refreshing = false;
-    }
+    })();
+    return refreshing;
   }
   function render() {
     const scroll = lanes.scrollLeft, focused = document.activeElement, focusedCard = focused?.closest(".task-card"), focusedId = focusedCard?.dataset.id, focusedAction = focusedCard && focused !== focusedCard ? focused.getAttribute("aria-label") : null, assignment = bulk.querySelector("select")?.value || "", bulkFocused = bulk.contains(focused) ? focused?.getAttribute("aria-label") : null;
@@ -188,8 +203,18 @@ function mountTasks(host, state, api, options = {}) {
       state.filter = "";
       filter.value = "";
     }
-    for (const id of picked) if (!board.cards.some((c) => c.id === id)) picked.delete(id);
-    for (const id of drafts.keys()) if (!board.cards.some((c) => c.id === id)) drafts.delete(id);
+    const byId = new Map(), progress = new Map();
+    for (const card of board.cards) {
+      byId.set(card.id, card);
+      if (card.milestone_id && !card.archived) {
+        if (!progress.has(card.milestone_id)) progress.set(card.milestone_id, {done:0, total:0});
+        const count = progress.get(card.milestone_id);
+        count.total++;
+        if (card.status === 'done') count.done++;
+      }
+    }
+    for (const id of picked) if (!byId.has(id)) picked.delete(id);
+    for (const id of drafts.keys()) if (!byId.has(id)) drafts.delete(id);
     bulk.replaceChildren();
     if (picked.size) {
       bulk.append(el("span", `${picked.size} selected`));
@@ -202,11 +227,13 @@ function mountTasks(host, state, api, options = {}) {
       }));
     }
     lanes.replaceChildren();
+    const milestoneId = Number(filter.value), query = search.value.trim();
     for (const [status, symbol, label] of columns) {
       const lane = el("section", void 0, "task-lane");
       lane.dataset.status = status;
       lane.setAttribute("aria-label", label);
-      const cards = board.cards.filter((c) => c.status === status && !!c.archived === !!archived.checked && (!filter.value || c.id === Number(filter.value) || c.milestone_id === Number(filter.value)) && fuzzyCard(c, search.value));
+      const cards = board.cards.filter(c => c.status === status && !!c.archived === archived.checked &&
+        (!milestoneId || c.id === milestoneId || c.milestone_id === milestoneId) && (!query || fuzzyCard(c, query)));
       const heading = el("header");
       heading.append(el("h3", symbol + " " + label), el("span", String(cards.length)), button("+", () => editNew(status), "Add task to " + label));
       lane.append(heading);
@@ -249,10 +276,10 @@ function mountTasks(host, state, api, options = {}) {
         reference.title="Permanent card ID: " + cardReference(card.id);
         if(!card.milestone)item.append(reference);
         if (card.milestone) {
-          const children = board.cards.filter((c) => c.milestone_id === card.id && !c.archived);
-          item.append(el("small", `${children.filter((c) => c.status === "done").length}/${children.length} tasks`));
+          const {done = 0, total = 0} = progress.get(card.id) || {};
+          item.append(el("small", `${done}/${total} tasks`));
         } else if (card.milestone_id) {
-          const parent = board.cards.find((c) => c.id === card.milestone_id);
+          const parent = byId.get(card.milestone_id);
           if (parent) { const assignment=el("small", "\u25C7 " + displayReference(parent) + " " + parent.title, "task-assignment"); assignment.title="Milestone: " + parent.title; item.append(assignment); }
         }
         item.onclick = (e) => {
@@ -284,7 +311,7 @@ function mountTasks(host, state, api, options = {}) {
       lanes.append(lane);
     }
     document.querySelectorAll(".task-dialog").forEach(d=>{
-      if(d.cardId&&!board.cards.some(c=>c.id===d.cardId)){d.close();d.remove();}
+      if(d.cardId&&!byId.has(d.cardId)){d.close();d.remove();}
       else {d.refreshReference?.();d.refreshActivity?.();}
     });
     outline?.render();outline?.updateCount();
@@ -355,6 +382,10 @@ function mountTasks(host, state, api, options = {}) {
   function edit(card) {
     if(editor?.open&&editor.cardId===card.id){editor.querySelector('[aria-label=Title]')?.focus();return;}
     const draft = drafts.get(card.id);
+    const original = draft?.original ?? {
+      title: card.title, description: card.description, status: card.status, milestone_id: card.milestone_id,
+      ...(card.milestone ? {milestone_number:String(card.milestone_number)} : {})
+    };
     let revision = draft?.revision ?? board.revision;
     const d = dialog(cardTitle(card),true), form = el("form"), title = el("textarea",undefined,'task-detail-title'), metadata=el('div',undefined,'task-detail-metadata'), status = field(metadata, "Status", el("select")), parent = field(metadata, "Milestone", el("select")), description = field(form, "Description", el("textarea"));
     form.prepend(metadata);
@@ -409,7 +440,16 @@ function mountTasks(host, state, api, options = {}) {
     d.refreshReference();
     const save=iconButton('Save','save');save.classList.add('task-save');
     save.type = "submit";save.setAttribute('form',form.id);
-    const retainDraft = () => drafts.set(card.id, {revision, title:title.value, description:description.value, status:status.value, milestone_id:Number(parent.value)||null,...(number?{milestone_number:number.value}: {})});
+    const readFields = () => ({
+      title:title.value, description:description.value, status:status.value, milestone_id:Number(parent.value)||null,
+      ...(number ? {milestone_number:number.value} : {})
+    });
+    const editedFields = fields => Object.fromEntries(Object.entries(fields).filter(([key,value]) => value !== original[key]));
+    const retainDraft = () => {
+      const fields = readFields();
+      if (Object.keys(editedFields(fields)).length) drafts.set(card.id, {revision, original, ...fields});
+      else drafts.delete(card.id);
+    };
     title.oninput=()=>{retainDraft();d.refreshReference();sizeTitle();};
     d.retainDraft=retainDraft;
     d.acknowledge=(before,after,data)=>{
@@ -434,8 +474,11 @@ function mountTasks(host, state, api, options = {}) {
     form.append(error);
     form.onsubmit = async (e) => {
       e.preventDefault();
+      const changes = editedFields(readFields());
+      if (!Object.keys(changes).length) { drafts.delete(card.id); d.close(); return; }
+      if ('milestone_number' in changes) changes.milestone_number = Number(changes.milestone_number);
       save.disabled = true;
-      if (await change({ action: "update", ids: [card.id], changes: { title: title.value, description: description.value, status: status.value, ...(number?{milestone_number:Number(number.value)}:{}), ...(Number(parent.value) || null) !== card.milestone_id ? { milestone_id: Number(parent.value) || null } : {} } }, revision)) { drafts.delete(card.id); d.close(); }
+      if (await change({ action: "update", ids: [card.id], changes }, revision)) { drafts.delete(card.id); d.close(); }
       else {
         save.disabled = false;
         error.textContent = notice.textContent;

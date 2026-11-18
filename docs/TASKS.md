@@ -65,6 +65,7 @@ context, keeping active descendants visible beneath archived parents.
 Edit a name directly in its row. Enter saves and moves to the next row; Up/Down
 move through names. Names also save on blur. Escape discards that inline draft.
 Tab nests a task under its previous sibling; Shift+Tab lifts it after its parent.
+When that move is unavailable, Tab or Shift+Tab moves keyboard focus normally.
 Alt+Up/Down reorders siblings. Shift+Enter creates a sibling and Ctrl/Cmd+Enter
 creates a subitem; **+ Add task/subitem** is the pointer equivalent. Milestones
 remain at the top level. The pen opens the full editor as a centered popup above
@@ -82,6 +83,8 @@ remains available for dragging rows.
 The popup leaves the board visible through a dimmed backdrop. Clicking that
 backdrop, pressing Escape, or choosing **Close card** exits focus mode and keeps
 unsaved field/comment drafts for reopening; **Cancel** discards field changes.
+Saving sends only the fields you edited. If another writer changed the board,
+review and acknowledge the latest revision before retrying your field edits.
 Clicking inside the card or dragging a text selection outside it does not dismiss
 the popup. Keyboard focus stays inside while open and returns to the originating
 card/control on close, including after background polling replaces board cards.

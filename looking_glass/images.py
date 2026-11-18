@@ -13,6 +13,7 @@ from .workspace import Problem
 from .attachments import Attachments
 
 MAX_IMAGE = 32 * 1024 * 1024
+IMAGE_FORMATS = ('PNG', 'JPEG')
 
 
 class Images:
@@ -81,8 +82,8 @@ class Images:
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter('error', Image.DecompressionBombWarning)
-                with Image.open(io.BytesIO(raw)) as image:
-                    if image.format not in ('PNG', 'JPEG') or image.width * image.height > 40_000_000:
+                with Image.open(io.BytesIO(raw), formats=IMAGE_FORMATS) as image:
+                    if image.width * image.height > 40_000_000:
                         raise Problem('Use PNG or JPEG images up to 40 megapixels.', 415)
                     media_type = Image.MIME[image.format]
                     image.load()
@@ -138,7 +139,8 @@ class Images:
                     raise Problem('A file with that name already exists.', 409)
             raw = row['original'] if restore else raw if raw is not None else row['current']
             media_type = self.validate(raw)
-            with Image.open(io.BytesIO(raw)) as updated, Image.open(io.BytesIO(row['original'])) as original:
+            with (Image.open(io.BytesIO(raw), formats=IMAGE_FORMATS) as updated,
+                  Image.open(io.BytesIO(row['original']), formats=IMAGE_FORMATS) as original):
                 if ImageOps.exif_transpose(updated).size != ImageOps.exif_transpose(original).size:
                     raise Problem('Annotations must preserve the image dimensions.')
             # Include metadata and a nonce so concurrent renames/restores conflict too.

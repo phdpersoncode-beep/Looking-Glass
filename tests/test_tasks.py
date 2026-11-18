@@ -163,6 +163,27 @@ def test_activity_scoped_validation_and_snapshots(tmp_path):
     assert Workspace(target).tasks.activity(1)==tasks.activity(1)
 
 
+def test_activity_paginates_by_exclusive_id_and_validates_large_identifiers(tmp_path):
+    tasks = Workspace(tmp_path).tasks
+    tasks.mutate(dict(action='create', title='Plan', revision=0))
+    tasks.mutate(dict(action='create', title='Other', revision=1))
+    for identifier in (1, 2, 1, 2, 1):
+        tasks.mutate(dict(action='comment', id=identifier, body='Progress'))
+    newest = tasks.activity(1, limit=2)
+    assert [entry['id'] for entry in newest['entries']] == [5, 7]
+    assert newest['has_older']
+    earlier = tasks.activity(1, before=5, limit=2)
+    assert [entry['id'] for entry in earlier['entries']] == [1, 3]
+    assert not earlier['has_older']
+    assert tasks.activity(1, before=2**63, limit=2) == newest
+    with pytest.raises(Problem):
+        tasks.activity(2**63)
+    with pytest.raises(Problem):
+        tasks.mutate(dict(action='delete_activity', id=1, entry_id=2**63))
+    with pytest.raises(Problem):
+        tasks.mutate(dict(action='create', title='Invalid parent', parent_id=2**63, revision=7))
+
+
 def test_cli_card_conversation_and_prefixed_ids(tmp_path,monkeypatch,capsys):
     import json
     import looking_glass.cli as cli

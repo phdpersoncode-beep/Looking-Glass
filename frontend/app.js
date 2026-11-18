@@ -410,7 +410,7 @@ async function api(route,method='GET',data) {
 }
 async function binary(path){const r=await fetch('/api/binary?'+new URLSearchParams({path}),{headers:{'X-Looking-Glass-Token':token}});if(!r.ok)throw new Error((await r.json()).error);return r.arrayBuffer();}
 function guard(fn){return (...args)=>Promise.resolve().then(()=>fn(...args)).catch(e=>notify(e.message,true));}
-const selectionPoints=(state,units)=>Array.from(state.sliceDoc(0,units)).length;
+const selectionPoints=(state,units)=>rawUnitsToCodePoints(state.sliceDoc(0,units));
 const ext=path=>path.split('.').pop().toLowerCase();
 const isImage=path=>['png','jpg','jpeg','svg'].includes(ext(path));
 function entry(){return appStore.state.displayedDocument?tabs.get(appStore.state.displayedDocument):null;}
@@ -851,6 +851,15 @@ async function mountPDFDocument(e){
   }
 }
 function supportsReview(e){return !!e&&!e.kind&&!['stl','jsonl','json','html','htm','pdf'].includes(ext(e.path))&&!isImage(e.path);}
+let countedContent, characterSummary;
+function documentSize(content){
+  if(content!==countedContent){
+    countedContent=content;
+    characterSummary=rawUnitsToCodePoints(content).toLocaleString()+' characters · UTF-8';
+  }
+  return characterSummary;
+}
+
 function updateToolbar(){
   const locked=!!changingWorkMode||!!fileMutation||entry()?.reviewSync?.status==='approving'||entry()?.kind==='original';
   if(view&&view.state.readOnly!==locked)view.dispatch({effects:workLockSlot.reconfigure(EditorState.readOnly.of(locked))});
@@ -877,7 +886,8 @@ function updateToolbar(){
   const html=type==='html'||type==='htm', toggle=$('#html-toggle');
   mode.hidden=!e||!!e.kind||modes.length===1||html;if(e)mode.value=e.mode;
   toggle.hidden=!e||!html;toggle.querySelectorAll('span').forEach(s=>s.classList.toggle('active',s.dataset.mode===e?.mode));
-  $('#file-info').textContent=e?(e.kind==='original'?'Read only · '+(e.origin.commit_hash||'No Git commit') :e.kind==='tasks'?'Shared workspace planning':e.kind==='history'?'Local branches and fetched remote branches':viewer?type.toUpperCase()+' viewer':Array.from(e.content).length.toLocaleString()+' characters · UTF-8'):'Choose a file from the sidebar';
+  const fileInfo=$('#file-info'), summary=e?(e.kind==='original'?'Read only · '+(e.origin.commit_hash||'No Git commit') :e.kind==='tasks'?'Shared workspace planning':e.kind==='history'?'Local branches and fetched remote branches':viewer?type.toUpperCase()+' viewer':documentSize(e.content)):'Choose a file from the sidebar';
+  if(fileInfo.textContent!==summary)fileInfo.textContent=summary;
   $('#conflict').hidden=!e?.conflict;
   if(e?.workMode==='review')$('#conflict').hidden=true;
   if(e?.conflict)$('#conflict span').textContent=e.conflict.deleted?'This file was deleted or became unavailable on disk. Copy your draft before closing it.':'Changed on disk. Your unsaved edits are preserved. Compare and merge before saving.';

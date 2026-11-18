@@ -5,6 +5,71 @@ pytestmark = [pytest.mark.browser, pytest.mark.skipif(not os.environ.get('LOOKIN
 
 
 @pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_reopening_clean_card_and_saving_only_edited_fields(workspace_page):
+    from playwright.sync_api import expect
+    _, page, url, ws = workspace_page
+    ws.tasks.mutate(dict(action='create', title='Review plan', revision=0))
+    page.goto(url)
+    page.locator('#tasks-open').click()
+    card = page.get_by_role('article', name='Review plan')
+    card.click()
+    page.get_by_role('button', name='Close card').click()
+    ws.tasks.mutate(dict(action='update', ids=[1], changes={'description':'Agent notes'}, revision=1))
+    expect(card).to_be_visible()
+    with page.expect_response(lambda response: '/api/tasks?revision=1' in response.url and response.ok):
+        pass
+    card.click()
+    description = page.get_by_label('Description', exact=True)
+    expect(description).to_have_value('Agent notes')
+    description.fill('My review notes')
+    ws.tasks.mutate(dict(action='update', ids=[1], changes={'status':'to_review'}, revision=2))
+    save = page.get_by_role('button', name='Save', exact=True)
+    save.click()
+    page.get_by_text('Review latest saved card', exact=True).click()
+    page.get_by_role('button', name='Use this revision and keep my edits').click()
+    save.click()
+    expect(page.locator('.task-dialog')).to_have_count(0)
+    updated = ws.tasks.read()['cards'][0]
+    assert updated['description'] == 'My review notes' and updated['status'] == 'to_review'
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_delayed_save_does_not_replace_newer_poll(workspace_page):
+    from playwright.sync_api import expect
+    _, page, url, ws = workspace_page
+    ws.tasks.mutate(dict(action='create', title='Plan', revision=0))
+    polls, saves = [], []
+
+    def hold(route):
+        if route.request.method == 'POST':
+            saves.append((route, route.fetch()))
+        elif '?' in route.request.url:
+            polls.append(route)
+        else:
+            route.continue_()
+
+    page.route('**/api/tasks*', hold)
+    page.goto(url)
+    page.locator('#tasks-open').click()
+    with page.expect_request(lambda request: '/api/tasks?revision=1' in request.url):
+        page.get_by_role('article', name='Plan').click()
+        page.get_by_label('Description', exact=True).fill('Saved from the UI')
+    with page.expect_request(lambda request: request.method == 'POST' and request.url.endswith('/api/tasks')):
+        page.get_by_role('button', name='Save', exact=True).click()
+    # Drain the route callback so the server's response is held before the agent write.
+    page.wait_for_function('() => document.querySelector(".task-save").disabled')
+    assert saves and polls
+    latest = ws.tasks.mutate(dict(action='create', title='New agent card', revision=2))
+    polls[0].fulfill(json=latest)
+    agent_card = page.get_by_role('article', name='New agent card')
+    expect(agent_card).to_have_count(1)
+    route, response = saves[0]
+    route.fulfill(response=response)
+    expect(page.locator('.task-dialog')).to_have_count(0)
+    expect(agent_card).to_be_visible()
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
 def test_shared_planning_board(workspace_page):
     from playwright.sync_api import expect
     root, page, url, ws = workspace_page
