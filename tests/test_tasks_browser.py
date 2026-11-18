@@ -352,12 +352,14 @@ def test_milestone_aliases_update_without_losing_card_identity_or_drafts(workspa
 
 
 @pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
-def test_compact_updates_and_larger_tasks_symbol(workspace_page):
+def test_compact_activity_rows_and_larger_tasks_symbol(workspace_page):
     from playwright.sync_api import expect
     root,page,url,ws=workspace_page
     ws.tasks.mutate(dict(action='create',revision=0,title='Compact activity'))
     ws.tasks.mutate(dict(action='update',revision=1,ids=[1],changes={'status':'in_progress'},author='Agent'))
     ws.tasks.mutate(dict(action='comment',id=1,body='A readable comment.',author='Reviewer'))
+    multiline = 'First line.\n' + 'Long comments should wrap and remain readable. ' * 6 + 'Last line.'
+    ws.tasks.mutate(dict(action='comment', id=1, body=multiline, author='Coding Agent'))
     page.goto(url)
     symbol=page.locator('#tasks-open svg')
     expect(symbol).to_be_visible()
@@ -366,19 +368,36 @@ def test_compact_updates_and_larger_tasks_symbol(workspace_page):
     page.locator('#tasks-open').click()
     page.get_by_role('article',name='Compact activity',exact=True).click()
     update=page.locator('.task-update',has_text='Status: Backlog → In progress')
-    comment=page.locator('.task-comment')
+    comment=page.locator('.task-comment',has_text='A readable comment.')
     expect(update).to_be_visible();expect(comment).to_be_visible()
     for theme in ('light','dark'):
         page.evaluate('(theme)=>document.documentElement.dataset.theme=theme',theme)
         assert update.bounding_box()['height']<=36
         assert update.bounding_box()['height']<comment.bounding_box()['height']
         assert update.evaluate('e=>parseFloat(getComputedStyle(e).fontSize)')<comment.evaluate('e=>parseFloat(getComputedStyle(e).fontSize)')
+        assert comment.bounding_box()['height'] <= 52
     page.set_viewport_size({'width':800,'height':800})
     expect(update.get_by_role('button',name='Delete update')).to_be_visible()
     assert update.get_by_role('button',name='Delete update').bounding_box()['width']>=22
     update.get_by_role('button',name='Delete update').click()
     expect(update).to_have_count(0)
     expect(comment).to_contain_text('A readable comment.')
+    page.set_viewport_size({'width':390,'height':844})
+    long_comment = page.locator('.task-comment', has_text='First line.')
+    body = long_comment.locator('p')
+    expect(body).to_contain_text('Last line.')
+    assert body.text_content() == multiline
+    assert body.bounding_box()['height'] > 36
+    assert long_comment.evaluate('row => row.scrollWidth <= row.clientWidth')
+    remove = long_comment.get_by_role('button', name='Delete comment')
+    assert remove.bounding_box()['width'] >= 24
+    composer = page.locator('.task-comment-form')
+    field = composer.get_by_role('textbox', name='Comment', exact=True)
+    send = composer.get_by_role('button', name='Comment', exact=True)
+    field_box, send_box = field.bounding_box(), send.bounding_box()
+    assert field_box['height'] <= 54
+    assert send_box['x'] >= field_box['x'] + field_box['width']
+    assert abs((send_box['y'] + send_box['height']) - (field_box['y'] + field_box['height'])) <= 1
 
 
 @pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)

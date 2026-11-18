@@ -136,15 +136,17 @@ are downloaded.
 
 Each task and milestone edit view has **Comments & activity** below its fields
 (and below the child checklist for milestones). People and agents share one
-chronological conversation. Comments show their author and time; automatic updates
-have an **Update** label and a thin grey row with smaller text, compact timestamps,
-and the same delete control. Comments retain their larger reading space. Title,
+chronological conversation. Comments use compact rows with the author and time
+above the message. Long messages wrap in full, and hovering over the timestamp
+shows the full date and time. Automatic updates have an **Update** label and a
+thin grey row with smaller text. Title,
 description, status, parent/assignment, promotion/demotion, archive/restore, and drag order
 changes record their actual before/after values in the same transaction as the edit.
 Milestones also record child assignment/unassignment. Description differences expand
 on demand. Saving unchanged fields does not create an update or reorder the card.
 
-Write a comment and click **Comment** (Ctrl/Cmd+Enter also submits). A trash icon
+Write in the resizable comment box and click **Comment** beside it (Ctrl/Cmd+Enter
+also submits). A trash icon
 on each entry immediately deletes that comment or update. Deletion is permanent
 and does not revert the card change. This is a collaborative activity log that can
 be cleaned up, not an immutable audit trail. Deleting a card removes its timeline;

@@ -1,5 +1,6 @@
 import { iconButton } from "./icons.mjs";
 import { linkFileReferences } from "./file-references.mjs";
+const activityTime = new Intl.DateTimeFormat(undefined, {month:"short", day:"numeric", hour:"2-digit", minute:"2-digit"});
 const statuses = { backlog: "Backlog", in_progress: "In progress", to_review: "To review", done: "Done" };
 const labels = { title: "Title", description: "Description", status: "Status", milestone: "Milestone", milestone_id: "Assignment", milestone_number:"Milestone number", archived: "Archive", position: "Order", parent_id:"Parent", outline_position:"Checklist order" };
 const node = (tag, text, className) => {
@@ -31,7 +32,9 @@ function mountTaskActivity(dialog, id, { api, state, write, getRevision, error }
   };
   input.id = "task-comment-" + id;
   label.htmlFor = input.id;
+  label.className = 'sr-only';
   input.placeholder = "Write a comment…";
+  input.rows = 2;
   input.dataset.taskFileMentions = '';
   input.maxLength = 1e5;
   input.value = drafts.get(id) || "";
@@ -52,7 +55,7 @@ function mountTaskActivity(dialog, id, { api, state, write, getRevision, error }
       time.dateTime = entry.created_at.replace(" ", "T") + "Z";
       const date=new Date(time.dateTime);
       time.title=date.toLocaleString();
-      time.textContent = entry.kind === "update" ? date.toLocaleString(undefined, {month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"}) : date.toLocaleString();
+      time.textContent = Number.isFinite(date.getTime()) ? activityTime.format(date) : entry.created_at;
       author.title=entry.author;
       const remove = iconButton(entry.kind === "update" ? "Delete update" : "Delete comment", "trash", async () => {
         remove.disabled = true;
