@@ -84,7 +84,7 @@ def test_discussion_search_stays_fixed_when_heading_reflows(workspace_page):
         return heading.evaluate("""header => {
             const label = header.firstElementChild.getBoundingClientRect();
             const actions = header.lastElementChild.getBoundingClientRect();
-            return {wrapped: actions.top >= label.bottom, inside: actions.right <= header.getBoundingClientRect().right};
+            return {wrapped: label.top >= actions.bottom, inside: actions.right <= header.getBoundingClientRect().right};
         }""")
     assert rows()['wrapped'] and rows()['inside']
     search = page.locator('#thread-search'); before = search.bounding_box()['y']

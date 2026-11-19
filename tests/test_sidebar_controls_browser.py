@@ -147,3 +147,49 @@ def test_sidebar_controls_and_author_popover_fit_both_themes_and_narrow_panes(wo
             expect(page.locator('.file-entry[data-path="folder/note.txt"]')).not_to_be_visible()
             page.get_by_role('button', name='Expand all folders', exact=True).click()
             expect(page.locator('.file-entry[data-path="folder/note.txt"]')).to_be_visible()
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_toolbar_icons_share_a_horizontal_centerline(workspace_page):
+    root, page, url, ws = workspace_page
+    (root/'note.txt').write_text('A passage')
+    ws.tasks.mutate(dict(action='create', title='Plan a release', revision=0))
+    page.goto(url)
+    open_file(page, 'note.txt')
+
+    def centerline(selector, count):
+        centers = page.locator(selector).evaluate_all('''icons => icons.map(icon => {
+            const {top, height} = icon.getBoundingClientRect();
+            return top + height / 2;
+        })''')
+        assert len(centers) == count
+        assert max(centers) - min(centers) <= 1, (selector, centers)
+        return centers[0]
+
+    for width, theme in [(1440, 'light'), (900, 'dark')]:
+        page.set_viewport_size({'width': width, 'height': 850})
+        page.evaluate('(theme) => document.documentElement.dataset.theme = theme', theme)
+        if width == 900:
+            for separator in ['#file-resize', '#discussion-resize']:
+                page.locator(separator).press('Home')
+
+        left = centerline('.file-sidebar-tools svg', 3)
+        centerline('#file-sidebar .panel-heading button svg', 5)
+        centerline('#file-navigation button svg, #file-history > summary svg', 3)
+        right = centerline('#discussions-toggle svg, #discussion-sidebar > .panel-heading button svg', 7)
+        assert abs(left - right) <= 1
+
+        page.locator('#tasks-open').click()
+        expect(page.locator('#task-sidebar')).to_be_visible()
+        assert centerline('#discussions-toggle svg, #task-sidebar .panel-heading button svg', 4) == right
+        for toggle, top in [('#explorer-toggle', left), ('#discussions-toggle', right)]:
+            page.locator(toggle).click()
+            expect(page.locator(toggle)).to_have_attribute('aria-expanded', 'false')
+            assert centerline(f'{toggle} svg', 1) == top
+            page.locator(toggle).click()
+
+        page.get_by_role('article', name='Plan a release').click()
+        centerline('.task-detail-actions svg', 6)
+        centerline('.task-detail .task-outline-heading button svg', 2)
+        page.get_by_role('button', name='Close card').click()
+        page.get_by_role('button', name='note.txt', exact=True).first.click()

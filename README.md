@@ -218,6 +218,8 @@ copy icon beside each expanded thread number copies its `#123` reference.
 
 Both sidebars use stacked-panel minus/plus icons to collapse/expand all folders
 or threads, and panel icons to hide/show the sidebar itself.
+Sidebar tools share a horizontal centerline with the hide/show control in their
+row. When the right sidebar is narrow, its label moves below the tools.
 Drag the discussions divider to resize it; the width persists. Collapse a thread
 with its chevron and reopen it with its comment icon. The header also has collapse-all
 and expand-all controls. **Zen mode** (top-bar button or **Alt+Z**; the existing
