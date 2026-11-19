@@ -65,8 +65,9 @@ It uses the same resize and minimize controls; returning to a file restores the
 discussion controls. Milestones appear first, in ascending number order, followed
 by unassigned tasks. Drag milestone rows or use Alt+Up/Down to reorder them with
 their branches. Other siblings have their own saved outline order. The sidebar
-shows active and archived tasks regardless of the board filters. Both task lists
-have a checkbox on the left and a small status symbol to the right of each name.
+shows active and archived tasks regardless of the board filters. The sidebar and
+each card's **Tasks** list have a checkbox on the left and a small status symbol
+immediately after the visible task name, even when the name is truncated.
 
 Double-click a row to edit its name in place. Click within the field to position
 the caret while editing. Enter saves and moves to the next row; Up/Down

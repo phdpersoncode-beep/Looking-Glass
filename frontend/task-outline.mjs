@@ -294,8 +294,14 @@ export function mountTaskOutline(host, options) {
     };
     const reference=element('button',undefined,'task-outline-reference');reference.type='button';reference.onclick=()=>openCard(id);
     const prefix=element('span',undefined,'task-outline-prefix'), name=element('input',undefined,'task-outline-name');
+    const title = element('span', undefined, 'task-outline-title');
+    title.append(name);
     name.type='text';name.maxLength=500;name.draggable=false;
-    name.oninput=()=>{const previous=drafts.get(id);drafts.set(id,{value:name.value,revision:previous?.revision??getBoard().revision});};
+    name.oninput = () => {
+      title.dataset.value = name.value;
+      const previous = drafts.get(id);
+      drafts.set(id, {value: name.value, revision: previous?.revision ?? getBoard().revision});
+    };
     name.onfocus=()=>{
       if (name.readOnly) return;
       row.classList.add('task-outline-editing');
@@ -340,7 +346,7 @@ export function mountTaskOutline(host, options) {
       }
     };
     const progress = element('span', undefined, 'task-outline-progress');
-    row.append(fold, check, reference, prefix, name, progress, symbol);
+    row.append(fold, check, reference, prefix, title, symbol, progress);
     if (createMilestone) {
       row.onpointermove = event => {
         const bounds = row.getBoundingClientRect();
@@ -408,7 +414,8 @@ export function mountTaskOutline(host, options) {
       row.dataset.archived = !!card.archived;
       row.setAttribute('aria-selected',String(picked.has(card.id)));
       row.draggable = !card.archived && !row.classList.contains('task-outline-editing');
-      const [fold, check, reference, prefix, name, progress, symbol] = row.children;
+      const [fold, check, reference, prefix, title, symbol, progress] = row.children;
+      const name = title.firstElementChild;
       const expanded = isExpanded(card.id);
       if (children) row.setAttribute('aria-expanded', String(expanded)); else row.removeAttribute('aria-expanded');
       const foldAction = (expanded ? 'Collapse ' : 'Expand ') + card.title;
@@ -427,6 +434,7 @@ export function mountTaskOutline(host, options) {
       prefix.textContent=card.milestone?'M'+card.milestone_number+':':'';prefix.hidden=!card.milestone;
       if(!drafts.has(card.id))name.value=card.title;
       else if(document.activeElement!==name)name.value=drafts.get(card.id).value;
+      if (title.dataset.value !== name.value) title.dataset.value = name.value;
       name.readOnly=context;name.setAttribute('aria-label','Task name '+card.id);name.title=cardTitle(card);
       const total = totals.get(card.id);
       progress.textContent = card.milestone && total ? `${total.done}/${total.total}` : '';

@@ -454,12 +454,16 @@ body.tasks-view .task-sidebar:not([hidden]){display:flex}
 .task-outline-reference{font:9px/1.4 var(--mono);color:var(--muted);cursor:pointer}
 .task-outline-reference:hover{color:var(--purple);text-decoration:underline}
 .task-outline-prefix{font-size:11px;color:var(--purple);flex-shrink:0}
-.task-outline-row>.task-outline-name{border:0;box-shadow:none;background:transparent;padding:3px 1px;font:11px/1.5 var(--font-sans);min-width:30px;width:0;flex:1;color:var(--ink);outline-offset:1px;text-overflow:ellipsis;border-radius:2px}
-.task-outline-row>.task-outline-name:focus{outline:1px solid color-mix(in srgb,var(--purple) 40%,transparent);text-overflow:clip}
-.task-outline-row:not(.task-outline-editing)>.task-outline-name{pointer-events:none}
-.task-outline-milestone{border-left:2px solid var(--purple);margin-top:5px}.task-outline-milestone .task-outline-name{font-weight:500}
+.task-outline-title{position:relative;min-width:0;font:11px/1.5 var(--font-sans)}
+/* Size the single-line editor to its text while letting the row reserve room for the symbol. */
+.task-outline-title::before{content:attr(data-value);display:block;visibility:hidden;white-space:pre;overflow:hidden;min-height:1.5em;box-sizing:content-box;padding:3px 1px}
+.task-outline-title[data-value=""]{min-width:2ch}
+.task-outline-title>.task-outline-name{position:absolute;inset:0;width:100%;height:100%;border:0;box-shadow:none;background:transparent;padding:3px 1px;font:inherit;color:var(--ink);outline-offset:1px;text-overflow:ellipsis;border-radius:2px}
+.task-outline-name:focus{outline:1px solid color-mix(in srgb,var(--purple) 40%,transparent);text-overflow:clip}
+.task-outline-row:not(.task-outline-editing) .task-outline-name{pointer-events:none}
+.task-outline-milestone{border-left:2px solid var(--purple);margin-top:5px}.task-outline-milestone .task-outline-title{font-weight:500}
 .task-outline-done .task-outline-name{color:var(--muted);text-decoration:line-through}.task-outline-context,.task-outline-row[data-archived=true]{opacity:.6}
-.task-outline-progress{font:9px var(--mono);color:var(--muted)}
+.task-outline-progress{flex:none;font:9px var(--mono);color:var(--muted)}
 .task-outline-progress:empty{display:none}
 .task-outline-add{align-self:flex-start;font-size:11px;border:0;background:none;color:var(--muted);padding:5px 10px;margin-top:4px}.task-outline-add:hover{color:var(--purple)}
 .task-outline-status{font-size:10px;color:var(--purple);overflow-wrap:anywhere}.task-outline-status:empty{display:none}.task-outline-status button{font-size:10px;margin-top:4px}

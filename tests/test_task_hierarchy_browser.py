@@ -334,6 +334,7 @@ def test_task_list_checkbox_moves_card_to_done(workspace_page, surface, status, 
         group = page.locator('#task-sidebar')
     row = group.locator('.task-outline-row[data-id="2"]')
     check = row.get_by_role('checkbox', name='Complete Child task')
+    name = row.get_by_role('textbox', name='Task name 2')
     indicator = row.locator('.task-outline-symbol')
     expect(check).to_have_css('opacity', '1')
     expect(indicator).to_have_text(symbol)
@@ -348,6 +349,32 @@ def test_task_list_checkbox_moves_card_to_done(workspace_page, surface, status, 
             getComputedStyle(indicator).color === getComputedStyle(label).color &&
             parseFloat(getComputedStyle(indicator).fontSize) < parseFloat(getComputedStyle(name).fontSize);
     }""")
+
+    def title_gap():
+        return name.evaluate("""input => {
+            const style = getComputedStyle(input);
+            const context = document.createElement('canvas').getContext('2d');
+            context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+            const textEnd = input.getBoundingClientRect().left + parseFloat(style.paddingLeft)
+                + context.measureText(input.value).width;
+            return input.closest('.task-outline-row').querySelector('.task-outline-symbol')
+                .getBoundingClientRect().left - textEnd;
+        }""")
+
+    assert 0 < title_gap() <= 8
+    name.fill('Go')
+    assert 0 < title_gap() <= 8
+    page.evaluate("document.documentElement.dataset.theme = 'dark'")
+    page.set_viewport_size({'width': 800, 'height': 800})
+    name.fill('A long subtask title ' * 20)
+    assert title_gap() < 0
+    assert indicator.bounding_box()['x'] + indicator.bounding_box()['width'] <= (
+        row.bounding_box()['x'] + row.bounding_box()['width']
+    )
+    name.press('Escape')
+    expect(name).to_have_value('Child task')
+    assert 0 < title_gap() <= 8
+
     card = page.locator('.task-card[data-id="2"]')
     done = page.locator('.task-lane[data-status="done"]')
     expect(done.locator(card)).to_have_count(0)
