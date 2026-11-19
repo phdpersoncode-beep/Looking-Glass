@@ -408,10 +408,12 @@ body.outline-resizing,body.outline-resizing *{cursor:col-resize!important;user-s
 .task-card{position:relative;background:var(--paper);border:1px solid var(--border);border-radius:6px;padding:12px 28px 12px 12px;cursor:grab;overflow-wrap:anywhere}.task-card:hover{border-color:var(--muted)}.task-card:focus-visible,.task-card[aria-selected=true]{outline:2px solid var(--purple);outline-offset:1px}.task-card.sidebar-hover{border-color:var(--purple);background:color-mix(in srgb,var(--purple) 10%,var(--paper))}.task-card-title{font-weight:500}.task-card small{display:block;color:var(--muted);margin-top:7px;font-size:10px}.task-promote{position:absolute;right:4px;top:6px;border:0;padding:2px;color:var(--muted);font-size:14px}.task-dialog{width:540px;max-width:calc(100vw - 32px);max-height:85vh;overflow:auto;padding:24px}.task-dialog h2{font-size:18px;margin-bottom:18px}.task-dialog .task-field{display:flex;flex-direction:column;gap:5px;margin-bottom:12px;color:var(--muted);font-size:12px}.task-dialog textarea{min-height:120px;resize:vertical}.task-edit-actions{display:flex;flex-wrap:wrap;gap:7px}.task-checklist{padding:0;list-style:none}.task-checklist li{display:flex;align-items:center;gap:8px;margin:6px 0}.task-checklist button{border:0;text-align:left}.task-dialog [role=alert]{color:var(--purple);font-size:12px;margin-top:10px}.task-confetti{position:absolute;pointer-events:none;left:75%;top:80px}.task-confetti i{position:absolute;width:4px;height:7px;background:var(--purple);animation:task-celebrate .85s ease-out forwards}.task-confetti i:nth-child(even){background:#cba95f}@keyframes task-celebrate{to{transform:translate(var(--x),var(--y)) rotate(var(--r));opacity:0}}
 
 .task-lane-add{position:relative;display:block;width:100%;height:14px;min-height:0;padding:0;border:0;background:transparent;color:transparent;line-height:1}
-.task-lane-add:last-child{display:grid;place-items:end center;flex:1 0 25px;padding-bottom:5px}
+.task-lane-add:last-child{display:grid;place-items:center;flex:0 0 24px}
 .task-card+.task-card{margin-top:8px}
 .task-lane-add:is(:hover,:focus-visible){background:color-mix(in srgb,var(--purple) 10%,var(--paper));color:var(--purple)}
 @media(hover:none){.task-lane-add{color:var(--muted)}}
+.task-lane-add-empty:last-child{align-self:flex-start;width:auto;margin-inline-start:2px;padding-inline:8px;color:var(--muted);font-size:11px}
+.task-lane-add-empty:is(:hover,:focus-visible){color:var(--purple)}
 .task-drag-active .task-lane-add:has(+ .task-drag-origin){display:none}
 .task-lane>header{height:auto;background:transparent;border-bottom:0}.task-dialog pre{white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.6 var(--mono);padding:8px;background:var(--panel)}#tasks-open{display:flex;align-items:center;gap:5px;border:0;padding:8px 4px;color:var(--muted);font-size:11px;flex-shrink:0}#tasks-open:hover{color:var(--purple)}
 /* Milestones have a stronger silhouette; assignments remain supporting text. */
@@ -424,6 +426,8 @@ body.outline-resizing,body.outline-resizing *{cursor:col-resize!important;user-s
 .task-filter-menu{position:absolute;z-index:5;inset-block-start:calc(100% + 4px);inset-inline-start:0;width:min(240px,65vw);max-height:245px;overflow:auto;display:grid;gap:2px;padding:4px;border:1px solid var(--border);border-radius:6px;background:var(--paper);box-shadow:0 4px 16px #0002}
 .task-filter-menu>button{display:block;min-width:0;text-align:start;border-color:transparent}
 .task-filter-menu>button[aria-pressed=true]{color:var(--purple);background:var(--highlight)}
+.task-filter-menu>button::before{content:'✓';display:inline-block;width:1.5em;visibility:hidden}
+.task-filter-menu>button[aria-pressed=true]::before{visibility:visible}
 .task-lane>header .task-archive-done{width:24px;height:24px;padding:4px;color:var(--muted)}
 .task-archive-done svg{width:15px;height:15px}
 .task-activity{border-top:1px solid var(--border);margin-top:16px;padding-top:4px}
@@ -477,7 +481,8 @@ body.tasks-view .task-sidebar:not([hidden]){display:flex}
 .task-outline-fold svg{width:12px;height:12px;fill:currentColor;stroke:none}
 .task-outline-fold[aria-expanded=true] svg{transform:rotate(90deg)}
 .task-outline-check{flex:none;width:14px;height:14px;margin:0 2px;padding:0;accent-color:var(--purple);cursor:pointer}
-.task-outline-symbol{flex:none;width:14px;color:var(--muted);font:10px/1 system-ui;text-align:center}
+.task-outline-symbol{width:22px;height:24px;color:var(--muted);font:10px/1 system-ui;text-align:center}
+.task-outline-symbol:not(:disabled):is(:hover,:focus-visible){color:var(--purple);background:var(--highlight)}
 .task-outline-reference{font:9px/1.4 var(--mono);color:var(--muted);cursor:pointer}
 .task-outline-reference:is(:hover,[aria-pressed=true]){color:var(--purple);text-decoration:underline}
 .task-outline-prefix{font-size:11px;color:var(--purple);flex-shrink:0}
@@ -495,11 +500,12 @@ body.tasks-view .task-sidebar:not([hidden]){display:flex}
 .task-outline-progress:empty{display:none}
 .task-outline-add{align-self:flex-start;font-size:11px;border:0;background:none;color:var(--muted);padding:5px 10px;margin-top:4px}.task-outline-add:hover{color:var(--purple)}
 .task-outline-status{font-size:10px;color:var(--purple);overflow-wrap:anywhere}.task-outline-status:empty{display:none}.task-outline-status button{font-size:10px;margin-top:4px}
-.task-outline-list[data-task-drop-depth]::after{content:"";position:absolute;inset:0 auto 0 3px;width:calc(1px + var(--task-drop-depth)*var(--task-indent));border-inline-end:1px solid var(--purple);background:repeating-linear-gradient(to right,color-mix(in srgb,var(--purple) 34%,transparent) 0 1px,transparent 1px var(--task-indent));pointer-events:none;z-index:1}
-.task-outline-row[data-drop=inside]{background:color-mix(in srgb,var(--purple) 12%,var(--paper));box-shadow:inset 3px 0 var(--purple)}.task-outline-row[data-drop=outside]{box-shadow:inset -3px 0 var(--purple);background:var(--panel)}
+.task-outline-row[data-drop-parent]{background:color-mix(in srgb,var(--purple) 8%,var(--panel));border-block-color:var(--border);border-inline-end-color:var(--border)}
 .task-lane,.task-outline-list{position:relative;overflow-anchor:none}
 :is(.task-card,.task-outline-row).task-drag-origin{position:absolute;inset:0 auto auto 0;width:0;height:0;min-height:0;margin:0;padding:0;border:0;overflow:hidden;opacity:0;pointer-events:none}
 .task-drop-preview{flex:none;border:1px dashed color-mix(in srgb,var(--purple) 65%,var(--border));border-radius:5px;background:color-mix(in srgb,var(--purple) 8%,var(--paper))}
+.task-outline-list>.task-drop-preview{position:relative;--task-guide:color-mix(in srgb,var(--muted) 65%,var(--border));border-color:var(--task-guide);background:color-mix(in srgb,var(--muted) 6%,transparent)}
+.task-outline-list:not([data-task-drop-depth="0"])>.task-drop-preview::before{content:"";position:absolute;inset-block-start:3px;inset-inline-end:100%;width:calc(var(--task-indent) - 4px);height:12px;border-inline-start:1px solid var(--task-guide);border-block-end:1px solid var(--task-guide);border-end-start-radius:4px}
 /* Keep the native drop target stable while the preview moves its children. */
 .task-drag-active :is(.task-lane,.task-outline-list)>:not(.task-drag-source){pointer-events:none}
 .task-lane>.task-drop-preview{margin-bottom:14px}

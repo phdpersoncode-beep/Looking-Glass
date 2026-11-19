@@ -476,8 +476,8 @@ def test_sidebar_milestone_creation_filter_and_done_archive(workspace_page):
     expect(page.locator('.task-card')).to_have_count(5)
     expect(row(6).locator('.task-outline-symbol')).to_have_text('◐')
     expect(row(7).locator('.task-outline-symbol')).to_have_text('◎')
-    expect(row(6).locator('.task-outline-symbol')).to_have_attribute('title', 'In progress')
-    expect(row(7).locator('.task-outline-symbol')).to_have_attribute('title', 'To review')
+    expect(row(6).locator('.task-outline-symbol')).to_have_attribute('title', 'In progress → To review')
+    expect(row(7).locator('.task-outline-symbol')).to_have_attribute('title', 'To review → Done')
     row(2).hover(position={'x': 110, 'y': 5})
     add = sidebar.get_by_role('button', name='Add milestone', exact=True)
     expect(add.locator('svg')).to_be_visible()
@@ -497,6 +497,7 @@ def test_sidebar_milestone_creation_filter_and_done_archive(workspace_page):
     expect(option).to_have_attribute('title', f'M1: {long_title}')
     option.click()
     expect(page.locator('.task-card')).to_have_count(4)
+    expect(option).to_be_focused()
     expect(filter_button).to_have_attribute('title', f'M1: {long_title}')
     assert filter_button.locator('span').last.evaluate(
         'label => label.scrollWidth > label.clientWidth && getComputedStyle(label).textOverflow === "ellipsis"')
@@ -524,6 +525,68 @@ def test_sidebar_milestone_creation_filter_and_done_archive(workspace_page):
     page.get_by_role('button', name='Restore', exact=True).click()
     expect(row(3)).to_have_attribute('data-archived', 'false')
     expect(done.locator('.task-card')).to_have_count(1)
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_filter_multiple_milestones_and_add_to_an_empty_column(workspace_page):
+    from playwright.sync_api import expect
+    _, page, url, ws = workspace_page
+
+    def create(title, **fields):
+        ws.tasks.mutate(dict(action='create', revision=ws.tasks.read()['revision'], title=title, **fields))
+
+    create('Design', milestone=True)
+    create('Release', milestone=True)
+    create('Design task', parent_id=1)
+    create('Release task', parent_id=2)
+    create('Unassigned task')
+    page.goto(url)
+    page.locator('#tasks-open').click()
+    titles = page.locator('.task-card-title')
+    expect(titles).to_have_count(3)
+
+    sidebar = page.locator('#task-sidebar')
+    design = sidebar.get_by_role('button', name='Filter board by #M1')
+    release = sidebar.get_by_role('button', name='Filter board by #M2')
+    design.click()
+    expect(titles).to_have_text(['Design task'])
+    filter_button = page.get_by_role('button', name='Filter by milestone', exact=True)
+    filter_button.click()
+    options = page.get_by_role('group', name='Milestone filters')
+    design_option = options.get_by_role('button', name='M1: Design')
+    release_option = options.get_by_role('button', name='M2: Release')
+    expect(design_option).to_have_attribute('aria-pressed', 'true')
+    release_option.press('Enter')
+    expect(release_option).to_be_focused()
+    expect(release_option).to_have_attribute('aria-pressed', 'true')
+    expect(release).to_have_attribute('aria-pressed', 'true')
+    expect(filter_button).to_have_text('◇2 milestones')
+    expect(titles).to_have_text(['Design task', 'Release task'])
+
+    release_option.press('Escape')
+    expect(filter_button).to_be_focused()
+    expect(options).to_be_hidden()
+    review = page.get_by_role('region', name='To review')
+    add = review.get_by_role('button', name='Add task to To review')
+    expect(add).to_have_text('+ Add task')
+    assert add.bounding_box()['height'] == 24
+    assert add.bounding_box()['width'] < review.bounding_box()['width'] / 2
+    add.click()
+    dialog = page.get_by_role('dialog', name='New task')
+    dialog.get_by_label('Title').fill('Review checklist')
+    milestone = dialog.get_by_role('combobox', name='Milestone')
+    expect(milestone).to_have_value('')
+    milestone.select_option('2')
+    dialog.get_by_role('button', name='Create').click()
+    expect(review.get_by_role('article', name='Review checklist')).to_be_visible()
+    assert ws.tasks.read()['cards'][-1]['milestone_id'] == 2
+
+    design.click()
+    expect(titles).to_have_text(['Release task', 'Review checklist'])
+    filter_button.click()
+    options.get_by_role('button', name='All milestones').click()
+    expect(release).to_have_attribute('aria-pressed', 'false')
+    expect(titles).to_have_count(4)
 
 
 @pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)

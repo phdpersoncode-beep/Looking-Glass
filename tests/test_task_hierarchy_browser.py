@@ -235,7 +235,11 @@ def test_drag_preview_slides_neighbors_and_saves_only_on_drop(workspace_page, su
             depth = 1 if surface == 'sidebar' else 0
             expect(group).to_have_attribute('data-task-drop-depth', str(depth))
             expect(gap).to_have_css('margin-inline-start', f'{16 * depth}px')
-            assert group.evaluate("list => getComputedStyle(list, '::after').borderInlineEndWidth") == '1px'
+            assert group.evaluate('list => getComputedStyle(list, "::after").content') == 'none'
+            if depth:
+                assert gap.evaluate('gap => getComputedStyle(gap, "::before").height') == '12px'
+            else:
+                assert gap.evaluate('gap => getComputedStyle(gap, "::before").content') == 'none'
 
     before = ws.tasks.read()
     start_drag()
@@ -335,7 +339,7 @@ def test_task_list_click_rename_caret_and_branch_toggle(workspace_page, surface)
     ('sidebar', 'in_progress', '◐', 'In progress'),
     ('checklist', 'to_review', '◎', 'To review'),
 ])
-def test_task_list_checkbox_moves_card_to_done(workspace_page, surface, status, symbol, column):
+def test_task_list_checkbox_and_status_cycle(workspace_page, surface, status, symbol, column):
     from playwright.sync_api import expect
     _, page, url, ws = workspace_page
     ws.tasks.mutate(dict(action='create', title='Plan', revision=0))
@@ -350,10 +354,11 @@ def test_task_list_checkbox_moves_card_to_done(workspace_page, surface, status, 
     row = group.locator('.task-outline-row[data-id="2"]')
     check = row.get_by_role('checkbox', name='Complete Child task')
     name = row.get_by_role('textbox', name='Task name 2')
-    indicator = row.locator('.task-outline-symbol')
+    indicator = row.get_by_role('button', name='Cycle status for Child task')
     expect(check).to_have_css('opacity', '1')
     expect(indicator).to_have_text(symbol)
-    expect(indicator).to_have_attribute('title', column)
+    expect(indicator).to_have_attribute('aria-description', f'Current status: {column}. Next status: ' +
+                                       ('To review.' if status == 'in_progress' else 'Done.'))
     assert row.evaluate("""row => {
         const name = row.querySelector('.task-outline-name');
         const checkbox = row.querySelector('input[type=checkbox]');
@@ -403,6 +408,27 @@ def test_task_list_checkbox_moves_card_to_done(workspace_page, surface, status, 
     check.uncheck()
     expect(page.locator('.task-lane[data-status="backlog"]').locator(card)).to_have_count(1)
     expect(indicator).to_have_text('◌')
+
+    if surface == 'checklist':
+        description = page.get_by_label('Description', exact=True)
+        description.fill('A pending parent edit')
+    for position, (status, symbol) in enumerate([
+        ('in_progress', '◐'), ('to_review', '◎'), ('done', '✓'), ('backlog', '◌')
+    ]):
+        if position == 0:
+            indicator.click()
+        else:
+            page.keyboard.press('Space')
+        expect(indicator).to_be_focused()
+        expect(indicator).to_have_text(symbol)
+        expect(page.locator(f'.task-lane[data-status="{status}"]').locator(card)).to_have_count(1)
+        expect(page.locator('.task-detail')).to_have_count(int(surface == 'checklist'))
+        assert ws.tasks.read()['cards'][1]['status'] == status
+    if surface == 'checklist':
+        expect(description).to_have_value('A pending parent edit')
+        page.get_by_role('button', name='Close card').click()
+        expect(page.locator('.task-detail')).to_have_count(0)
+        assert ws.tasks.read()['cards'][0]['description'] == 'A pending parent edit'
 
 
 @pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)

@@ -4,7 +4,10 @@ import {taskDragType, taskDropItem, taskDropPreview} from './task-drop-preview.m
 export const taskColumns = [['backlog', '◌', 'Backlog'], ['in_progress', '◐', 'In progress'],
   ['to_review', '◎', 'To review'], ['done', '✓', 'Done']];
 const taskIndent = 16;
-const taskStatus = new Map(taskColumns.map(([key, symbol, label]) => [key, {symbol, label}]));
+const taskStatus = new Map(taskColumns.map(([key, symbol, label], index) => {
+  const [next, , nextLabel] = taskColumns[(index + 1) % taskColumns.length];
+  return [key, {symbol, label, next, nextLabel}];
+}));
 
 export function cardTitle(card) {
   return card.milestone ? `M${card.milestone_number}: ${card.title}` : card.title;
@@ -77,7 +80,7 @@ const element = (tag, text, className) => {
 
 export function mountTaskOutline(host, options) {
   const {getBoard, state, picked, write, open, contextMenu, changed, create, createMilestone, startDrag, getDrag, rootId = null,
-    milestoneFilter, clearFilter, hover} = options;
+    milestoneFilter, milestoneIds, clearFilter, hover} = options;
   const drafts = state.outlineDrafts ??= new Map(), views = state.outlineViews ??= new Map();
   const key = rootId ?? 'plan', view = views.get(key) ?? {collapsed: false, toggled: new Set()};
   views.set(key, view);
@@ -117,7 +120,7 @@ export function mountTaskOutline(host, options) {
 
   function clearDrop(animate = true) {
     list.removeAttribute('data-task-drop-depth');
-    drop?.row.removeAttribute('data-drop');
+    drop?.parentRow?.removeAttribute('data-drop-parent');
     drop = null;
     preview.clear(animate);
   }
@@ -168,7 +171,6 @@ export function mountTaskOutline(host, options) {
     const parentAt = rows.findIndex(r => r.card.id === parent);
     const depth = parent === rootId ? 0 : rows[parentAt]?.depth + 1;
     list.dataset.taskDropDepth = Number.isFinite(depth) ? depth : 0;
-    list.style.setProperty('--task-drop-depth', list.dataset.taskDropDepth);
     if (!Number.isFinite(depth) || (depth > 0 && !isExpanded(parent))) {
       preview.clear();
       return;
@@ -211,9 +213,10 @@ export function mountTaskOutline(host, options) {
     }
     if (drop?.row === row && drop.mode === mode && drop.target.parent_id === target.parent_id &&
         drop.target.before === target.before) return;
-    drop?.row.removeAttribute('data-drop');
-    drop = {row, side, mode, target};
-    row.dataset.drop = mode;
+    drop?.parentRow?.removeAttribute('data-drop-parent');
+    const parentRow = mode === 'inside' ? nodes.get(target.parent_id) : null;
+    drop = {row, side, mode, target, parentRow};
+    parentRow?.setAttribute('data-drop-parent', '');
     showDrop(target, source);
   };
   list.ondragleave = event => {
@@ -296,8 +299,22 @@ export function mountTaskOutline(host, options) {
       render();
     });
     fold.classList.add('task-outline-fold');
-    const symbol = element('span', undefined, 'task-outline-symbol');
-    symbol.setAttribute('aria-hidden', 'true');
+    const symbol = element('button', undefined, 'task-outline-symbol');
+    symbol.type = 'button';
+    let cycling = false;
+    symbol.onclick = async () => {
+      if (cycling) return;
+      cycling = true;
+      try {
+        await saving;
+        const card = getBoard().cards.find(card => card.id === id);
+        if (!symbol.disabled && card) {
+          await mutate({action: 'update', ids: [id], changes: {status: taskStatus.get(card.status).next}});
+        }
+      } finally {
+        cycling = false;
+      }
+    };
     const check = element('input', undefined, 'task-outline-check');
     check.type = 'checkbox';
     check.onchange = async () => {
@@ -456,7 +473,10 @@ export function mountTaskOutline(host, options) {
       fold.setAttribute('aria-expanded', String(expanded));
       const itemStatus = taskStatus.get(card.status);
       symbol.textContent = itemStatus.symbol;
-      symbol.title = itemStatus.label;
+      symbol.title = `${itemStatus.label} → ${itemStatus.nextLabel}`;
+      symbol.setAttribute('aria-label', 'Cycle status for ' + card.title);
+      symbol.setAttribute('aria-description', `Current status: ${itemStatus.label}. Next status: ${itemStatus.nextLabel}.`);
+      symbol.disabled = context || !!card.archived;
       check.checked = card.status === 'done';
       check.disabled = context || !!card.archived;
       check.setAttribute('aria-label', 'Complete ' + card.title);
@@ -466,7 +486,7 @@ export function mountTaskOutline(host, options) {
       reference.title = (filterable ? 'Filter board by ' : 'Open ') + cardTitle(card);
       reference.setAttribute('aria-label', (filterable ? 'Filter board by ' : 'Open ') +
         (card.milestone ? '#M' + card.milestone_number : reference.textContent));
-      if (filterable) reference.setAttribute('aria-pressed', String(Number(state.filter) === card.id));
+      if (filterable) reference.setAttribute('aria-pressed', String(milestoneIds.has(card.id)));
       else reference.removeAttribute('aria-pressed');
       prefix.textContent = card.milestone ? 'M' + card.milestone_number + ':' : '';
       prefix.hidden = !card.milestone;

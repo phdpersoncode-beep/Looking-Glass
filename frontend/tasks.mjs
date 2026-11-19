@@ -38,6 +38,7 @@ function mountTasks(host, state, api, options = {}) {
   let board = { cards: [], revision: 0 }, disposed = false, pendingWrite = null, refreshing = null, outline = null, context = null;
   let dragSource = null, laneDrop = null, savingDrop = false, hoveredId = null;
   const drafts = state.drafts ??= new Map();
+  const milestoneIds = state.milestoneIds ??= new Set();
   const resume = state.documentReturn;
   const picked = new Set(), root = el("section", void 0, "task-board"), tools = el("div", void 0, "task-tools"), search = el("input"), archived = el("input"), bulk = el("div", void 0, "task-bulk"), lanes = el("div", void 0, "task-lanes"), notice = el("p", void 0, "task-notice");
   const filterWrap = el('div', undefined, 'task-filter');
@@ -63,36 +64,42 @@ function mountTasks(host, state, api, options = {}) {
     filterMenu.hidden = !open;
     filter.setAttribute('aria-expanded', String(open));
   }
-  const clearFilter = iconButton('Clear milestone filter', 'clearFilter', () => setMilestoneFilter(null));
-  function setMilestoneFilter(id) {
-    state.filter = id && Number(state.filter) !== id ? String(id) : '';
-    toggleFilter(false);
+  const clearFilter = iconButton('Clear milestone filter', 'clearFilter', () => toggleMilestone(null));
+  function toggleMilestone(id) {
+    if (id === null) milestoneIds.clear();
+    else if (milestoneIds.has(id)) milestoneIds.delete(id);
+    else milestoneIds.add(id);
     render();
   }
   function renderMilestoneFilter() {
     const choices = board.cards.filter(card => card.milestone).sort((a, b) => a.milestone_number - b.milestone_number);
-    const selected = choices.find(card => card.id === Number(state.filter));
-    if (!selected) state.filter = '';
-    clearFilter.disabled = !selected;
-    const label = selected ? cardTitle(selected) : 'Milestones';
+    const selected = choices.filter(card => milestoneIds.has(card.id));
+    if (selected.length !== milestoneIds.size) {
+      milestoneIds.clear();
+      for (const card of selected) milestoneIds.add(card.id);
+    }
+    clearFilter.disabled = !selected.length;
+    let label = 'Milestones';
+    if (selected.length === 1) label = cardTitle(selected[0]);
+    if (selected.length > 1) label = `${selected.length} milestones`;
     filterLabel.textContent = label;
-    filter.title = selected ? label : 'Filter by milestone';
-    filter.classList.toggle('active', !!selected);
+    filter.title = selected.length ? label : 'Filter by milestone';
+    filter.classList.toggle('active', !!selected.length);
     filter.disabled = !choices.length;
     if (!choices.length) toggleFilter(false);
     const focused = filterMenu.contains(document.activeElement) ? document.activeElement.dataset.milestone : undefined;
+    const scroll = filterMenu.scrollTop;
     const makeChoice = (id, text) => {
-      const item = button(text, () => {
-        setMilestoneFilter(id);
-        filter.focus();
-      }, text);
-      item.dataset.milestone = id;
-      item.setAttribute('aria-pressed', String((selected?.id ?? 0) === id));
+      const item = button(text, () => toggleMilestone(id));
+      item.dataset.milestone = id ?? 'all';
+      item.setAttribute('aria-pressed', String(id === null ? !selected.length : milestoneIds.has(id)));
       return item;
     };
-    filterMenu.replaceChildren(makeChoice(0, 'All milestones'), ...choices.map(card =>
+    filterMenu.replaceChildren(makeChoice(null, 'All milestones'), ...choices.map(card =>
       makeChoice(card.id, cardTitle(card) + (card.archived ? ' (archived)' : ''))));
-    if (focused !== undefined) filterMenu.querySelector(`[data-milestone="${focused}"]`)?.focus({preventScroll: true});
+    filterMenu.scrollTop = scroll;
+    if (focused !== undefined) (filterMenu.querySelector(`[data-milestone="${focused}"]`) ?? filter).focus({preventScroll: true});
+    return selected;
   }
   const lanePreview = taskDropPreview(() => lanes.querySelectorAll('.task-card'));
   function startDrag(event, id, ids = picked.has(id) ? [...picked] : [id]) {
@@ -156,7 +163,7 @@ function mountTasks(host, state, api, options = {}) {
     options.sidebar.append(heading,help);
     outline=mountTaskOutline(options.sidebar,outlineOptions({controlsHost:heading,
       createMilestone: before => editNew('backlog', null, {milestone: true, before}),
-      milestoneFilter: setMilestoneFilter, clearFilter, hover: setHoveredCard}));
+      milestoneFilter: toggleMilestone, milestoneIds, clearFilter, hover: setHoveredCard}));
     outline.updateCount=()=>count.textContent=String(board.cards.length);
   }
   function setHoveredCard(id) {
@@ -317,7 +324,7 @@ function mountTasks(host, state, api, options = {}) {
     const dropPositions = savingDrop && laneDrop ? lanePreview.capture() : null;
     clearLaneDrop(false);
     const scroll = lanes.scrollLeft, focused = document.activeElement, focusedCard = focused?.closest(".task-card"), focusedId = focusedCard?.dataset.id, focusedAction = focusedCard && focused !== focusedCard ? focused.getAttribute("aria-label") : null, assignment = bulk.querySelector("select")?.value || "", bulkFocused = bulk.contains(focused) ? focused?.getAttribute("aria-label") : null;
-    renderMilestoneFilter();
+    const activeMilestones = renderMilestoneFilter().filter(card => !card.archived);
     const byId = new Map(board.cards.map(card => [card.id, card]));
     for (const id of picked) if (!byId.has(id)) picked.delete(id);
     if (board.revision) {
@@ -336,24 +343,26 @@ function mountTasks(host, state, api, options = {}) {
       }));
     }
     lanes.replaceChildren();
-    const milestoneId = Number(state.filter), query = search.value.trim();
+    const query = search.value.trim();
     const milestoneQuery = /^#?m\d+$/i.test(query);
     for (const [status, symbol, label] of columns) {
       const lane = el("section", void 0, "task-lane");
       lane.dataset.status = status;
       lane.setAttribute("aria-label", label);
       const cards = board.cards.filter(c => !c.milestone && c.status === status && !!c.archived === archived.checked &&
-        (!milestoneId || c.milestone_id === milestoneId) &&
+        (!milestoneIds.size || milestoneIds.has(c.milestone_id)) &&
         (!query || fuzzyCard(milestoneQuery ? (byId.get(c.milestone_id) ?? c) : c, query)));
       const heading = el("header");
       heading.append(el("h3", symbol + " " + label), el("span", String(cards.length)));
       const addAt = (before, title) => {
-        const milestone = byId.get(milestoneId);
-        if (archived.checked || milestone?.archived) return;
-        const parent = milestone?.id ?? null;
-        const add = button('+', () => editNew(status, parent, {before}), title);
-        add.className = 'task-lane-add';
+        const anchorMilestone = milestoneIds.size ? byId.get(byId.get(before)?.milestone_id) : null;
+        if (archived.checked || (milestoneIds.size && (!activeMilestones.length || anchorMilestone?.archived))) return false;
+        const parent = anchorMilestone?.id ?? (activeMilestones.length === 1 ? activeMilestones[0].id : null);
+        const choices = !parent && activeMilestones.length > 1 ? activeMilestones : [];
+        const add = button(cards.length ? '+' : '+ Add task', () => editNew(status, parent, {before, choices}), title);
+        add.className = cards.length ? 'task-lane-add' : 'task-lane-add task-lane-add-empty';
         lane.append(add);
+        return true;
       };
       if (status === 'done' && !archived.checked) {
         const archiveAll = iconButton('Archive all done tasks', 'archive', () =>
@@ -438,8 +447,7 @@ function mountTasks(host, state, api, options = {}) {
         item.append(promote);
         lane.append(item);
       }
-      if (!cards.length) lane.append(el("p", "No cards", "task-empty"));
-      addAt(null, 'Add task to ' + label);
+      if (!addAt(null, 'Add task to ' + label) && !cards.length) lane.append(el("p", "No cards", "task-empty"));
       lanes.append(lane);
     }
     document.querySelectorAll(".task-dialog").forEach(d=>{
@@ -485,11 +493,16 @@ function mountTasks(host, state, api, options = {}) {
     form.append(wrap);
     return node;
   }
-  function editNew(status, parentId = null, {milestone = false, before = null} = {}) {
+  function editNew(status, parentId = null, {milestone = false, before = null, choices = []} = {}) {
     const d = dialog(milestone ? 'New milestone' : 'New task'), form = el("form"), title = field(form, "Title", el("input"));
     title.name = "title";
     title.required = true;
     title.maxLength = 500;
+    const parent = choices.length ? field(form, 'Milestone', el('select')) : null;
+    if (parent) {
+      parent.required = true;
+      parent.append(new Option('Choose a milestone', ''), ...choices.map(card => new Option(cardTitle(card), card.id)));
+    }
     form.append(button("Cancel", () => d.close()));
     const save = el("button", "Create");
     save.type = "submit";
@@ -497,7 +510,7 @@ function mountTasks(host, state, api, options = {}) {
     form.onsubmit = async (e) => {
       e.preventDefault();
       save.disabled = true;
-      const placement = milestone ? {milestone, before} : {parent_id: parentId, before};
+      const placement = milestone ? {milestone, before} : {parent_id: parent ? Number(parent.value) : parentId, before};
       if (await change({action: "create", title: title.value, status, ...placement})) d.close();
       else {
         save.disabled = false;

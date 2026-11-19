@@ -13,10 +13,12 @@ card to move the selected active tasks together, including tasks in other
 columns. **Order by sidebar** applies the full outline order within each
 column. Dragging cards can change that order again without changing the outline.
 
-Hover between cards or at the bottom of a column to reveal **+**, or use Tab to
-focus the same controls. A task created between cards is inserted at that spot.
-When an active milestone filter is set, new cards in the columns belong to that
-milestone.
+Use **+ Add task** near the top of an empty column. In a populated column, hover
+between or below cards to reveal **+**, or press Tab to reach the same controls.
+With one active milestone selected, new cards belong to that milestone. With
+several selected, choose a milestone when adding at the end of a column. When
+inserting between cards in a filtered column, the new task uses the milestone
+of the card immediately after it.
 
 Use the archive icon in **Done** to archive the tasks shown in that column.
 **Show archive** switches the board to archived tasks. The sidebar keeps
@@ -46,9 +48,10 @@ the previous milestone number; re-promotion reuses it when free, otherwise assig
 an unused number. The milestone editor also shows its permanent #C identity.
 Existing boards retain the numbers displayed before this upgrade.
 
-Click a milestone’s **◇** in the sidebar or choose it from **Filter by milestone**
-to show its tasks on the board. Click the same milestone again, use **Clear
-milestone filter** in the sidebar, or choose **All milestones** to clear it.
+Toggle milestones using **◇** in the sidebar or **Filter by milestone** above the
+board. The board shows tasks from any selected milestone. Click a selected
+milestone again to remove it. Use **Clear milestone filter** in the sidebar or
+**All milestones** in the filter to clear the selection.
 Search `#M1` or `M1` to find assigned tasks, or `#C01` / `C01` to find a task
 by its permanent ID. Stable #C numbers survive restarts and remain the references
 stored in activity history.
@@ -75,9 +78,13 @@ It uses the same resize and minimize controls; returning to a file restores the
 discussion controls. Milestones appear first, in ascending number order, followed
 by unassigned tasks. Drag milestone rows or use Alt+Up/Down to reorder them with
 their branches. Other siblings have their own saved outline order. The sidebar
-shows active and archived tasks regardless of the board filters. The sidebar and
-each card's **Tasks** list have a checkbox on the left and a small status symbol
-immediately after the visible task name, even when the name is truncated.
+shows active and archived tasks regardless of the board filters. In the sidebar
+and each card's **Tasks** list, click the symbol after a task name or focus it
+and press Enter or Space to cycle through **Backlog → In progress → To review →
+Done → Backlog**. The checkbox on the left still completes or reopens the task.
+When dragging, the preview is indented to the proposed level. A short elbow marks
+nested insertion points, and a subtle highlight marks the destination parent
+when nesting directly into a row.
 
 Double-click a row to edit its name in place. Click within the field to position
 the caret while editing. Enter saves and moves to the next row; Up/Down
