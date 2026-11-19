@@ -23,7 +23,7 @@ def test_reopening_clean_card_and_saving_only_edited_fields(workspace_page):
     expect(description).to_have_value('Agent notes')
     description.fill('My review notes')
     ws.tasks.mutate(dict(action='update', ids=[1], changes={'status':'to_review'}, revision=2))
-    save = page.get_by_role('button', name='Save', exact=True)
+    save = page.get_by_role('button', name='Close card', exact=True)
     save.click()
     page.get_by_text('Review latest saved card', exact=True).click()
     page.get_by_role('button', name='Use this revision and keep my edits').click()
@@ -55,9 +55,9 @@ def test_delayed_save_does_not_replace_newer_poll(workspace_page):
         page.get_by_role('article', name='Plan').click()
         page.get_by_label('Description', exact=True).fill('Saved from the UI')
     with page.expect_request(lambda request: request.method == 'POST' and request.url.endswith('/api/tasks')):
-        page.get_by_role('button', name='Save', exact=True).click()
+        page.get_by_role('button', name='Close card', exact=True).click()
     # Drain the route callback so the server's response is held before the agent write.
-    page.wait_for_function('() => document.querySelector(".task-save").disabled')
+    page.wait_for_function('() => document.querySelector(".task-detail-close").disabled')
     assert saves and polls
     latest = ws.tasks.mutate(dict(action='create', title='New agent card', revision=2))
     polls[0].fulfill(json=latest)
@@ -78,7 +78,7 @@ def test_shared_planning_board(workspace_page):
     page.locator('#tasks-open').click()
     expect(page.locator('.task-lane')).to_have_count(4)
     def create(title):
-        page.get_by_role('button', name='Create task', exact=True).click()
+        page.get_by_role('button', name='Add task to Backlog', exact=True).click()
         page.get_by_label('Title', exact=True).fill(title)
         page.get_by_role('button', name='Create', exact=True).click()
         expect(page.locator('.task-dialog')).to_have_count(0)
@@ -97,7 +97,7 @@ def test_shared_planning_board(workspace_page):
     page.get_by_role('button', name='Clear', exact=True).click()
     task.drag_to(page.locator('.task-lane[data-status=done]'))
     expect(page.locator('.task-lane[data-status=done] .task-card')).to_have_count(1)
-    release.click()
+    release.locator('..').click(position={'x':110,'y':16})
     expect(page.locator('.task-checklist').get_by_role('checkbox', name='Complete Implement board')).to_be_checked()
     page.get_by_label('Description', exact=True).fill('Milestone description')
     page.locator('.task-checklist').get_by_role('checkbox', name='Complete Implement board').uncheck()
@@ -107,9 +107,10 @@ def test_shared_planning_board(workspace_page):
     expect(page.locator('.task-checklist').get_by_role('checkbox', name='Complete Implement board')).to_be_enabled()
     page.locator('.task-checklist').get_by_role('button', name='Open #C02', exact=True).click()
     page.get_by_role('button', name='Cancel', exact=True).click()
-    release.click()
+    release.locator('..').click(position={'x':110,'y':16})
     expect(page.get_by_label('Description', exact=True)).to_have_value('Milestone description')
-    page.get_by_role('button', name='Save', exact=True).click()
+    assert next(card for card in ws.tasks.read()['cards'] if card['id'] == 1)['description'] == 'Milestone description'
+    page.get_by_role('button', name='Close card', exact=True).click()
     expect(page.locator('.task-dialog')).to_have_count(0)
     page.get_by_label('Search cards', exact=True).fill('ipb')
     expect(page.locator('.task-card')).to_have_count(1)
@@ -130,12 +131,12 @@ def test_shared_planning_board(workspace_page):
     page.locator('.task-card', has_text='Agent task').click()
     page.get_by_label('Description', exact=True).fill('Unsent text')
     ws.tasks.mutate(dict(action='create', title='Concurrent', revision=ws.tasks.read()['revision']))
-    page.get_by_role('button', name='Save', exact=True).click()
+    page.get_by_role('button', name='Close card', exact=True).click()
     expect(page.locator('.task-dialog [role=alert]')).to_contain_text('board changed')
     expect(page.get_by_label('Description', exact=True)).to_have_value('Unsent text')
     page.get_by_text('Review latest saved card', exact=True).click()
     page.get_by_role('button', name='Use this revision and keep my edits', exact=True).click()
-    page.get_by_role('button', name='Save', exact=True).click()
+    page.get_by_role('button', name='Close card', exact=True).click()
     expect(page.locator('.task-dialog')).to_have_count(0)
     assert next(c for c in ws.tasks.read()['cards'] if c['title']=='Agent task')['description']=='Unsent text'
     page.screenshot(path='/tmp/lg-task-board-wide.png')
@@ -177,7 +178,7 @@ def test_board_bulk_archive_delete_keyboard_and_order(workspace_page):
     page.get_by_role('button', name='Filter by milestone', exact=True).click()
     page.get_by_role('button', name='M1: Epic', exact=True).click()
     expect(page.locator('.task-card')).to_have_count(2)
-    page.locator('#task-sidebar .task-outline-row[data-id="1"] .task-outline-reference').click()
+    page.locator('#task-sidebar .task-outline-row[data-id="1"]').click(position={'x':110,'y':16})
     page.get_by_role('button', name='Delete', exact=True).click()
     page.get_by_role('button', name='Delete permanently', exact=True).click()
     expect(page.locator('.task-dialog')).to_have_count(0)
@@ -190,7 +191,7 @@ def test_board_bulk_archive_delete_keyboard_and_order(workspace_page):
     card.press('Enter')
     expect(page.locator('.task-dialog')).to_have_count(1)
     page.get_by_label('Status', exact=True).select_option('in_progress')
-    page.get_by_role('button', name='Save', exact=True).click()
+    page.get_by_role('button', name='Close card', exact=True).click()
     expect(page.locator('.task-lane[data-status=in_progress] .task-card')).to_have_count(1)
     page.locator('#explorer-toggle').click()
     expect(page.locator('#tasks-open')).to_be_hidden()
@@ -214,7 +215,7 @@ def test_archived_milestone_and_completion_preferences(workspace_page):
     page.get_by_role('article',name='Task',exact=True).click()
     expect(page.get_by_label('Milestone',exact=True)).to_have_value('1')
     page.get_by_label('Status',exact=True).select_option('done')
-    page.get_by_role('button',name='Save',exact=True).click()
+    page.get_by_role('button',name='Close card',exact=True).click()
     expect(page.locator('.task-lane[data-status=done] .task-card')).to_have_count(1)
     assert page.evaluate('window.taskDings') == 1
     assert ws.tasks.read()['cards'][1]['milestone_id'] == 1
@@ -222,11 +223,11 @@ def test_archived_milestone_and_completion_preferences(workspace_page):
     page.get_by_label('Mute',exact=True).check()
     page.get_by_role('article',name='Task',exact=True).click()
     page.get_by_label('Status',exact=True).select_option('backlog')
-    page.get_by_role('button',name='Save',exact=True).click()
+    page.get_by_role('button',name='Close card',exact=True).click()
     expect(page.locator('.task-lane[data-status=backlog] .task-card')).to_have_count(1)
     page.get_by_role('article',name='Task',exact=True).click()
     page.get_by_label('Status',exact=True).select_option('done')
-    page.get_by_role('button',name='Save',exact=True).click()
+    page.get_by_role('button',name='Close card',exact=True).click()
     expect(page.locator('.task-lane[data-status=done] .task-card')).to_have_count(1)
     assert page.evaluate('window.taskDings') == 1
     page.reload()
@@ -266,7 +267,7 @@ def test_card_comments_updates_references_and_milestone_style(workspace_page):
     expect(own).to_be_visible()
     expect(page.get_by_label('Title',exact=True)).to_have_value('Renamed')
     expect(comment).to_have_value('')
-    page.get_by_role('button',name='Save',exact=True).click()
+    page.get_by_role('button',name='Close card',exact=True).click()
     expect(page.locator('.task-dialog')).to_have_count(0)
     task=page.get_by_role('article',name='Renamed',exact=True)
     task.click()
@@ -286,7 +287,7 @@ def test_card_comments_updates_references_and_milestone_style(workspace_page):
     expect(page.locator('.task-comment',has_text='Agent response')).to_be_visible()
     expect(page.locator('.task-comment',has_text='Human comment')).to_have_count(0)
     page.get_by_label('Title',exact=True).fill('Renamed')
-    page.get_by_role('button',name='Save',exact=True).click()
+    page.get_by_role('button',name='Close card',exact=True).click()
     expect(page.locator('.task-dialog')).to_have_count(0)
     page.get_by_role('article',name='Renamed',exact=True).click()
     expect(page.locator('.task-update',has_text='Title: Implement → Renamed')).to_be_visible()
@@ -323,7 +324,7 @@ def test_milestone_aliases_update_without_losing_card_identity_or_drafts(workspa
     page.get_by_label('Show archive').uncheck()
     change(action='update',ids=[1],changes={'archived':False})
     expect(first).to_have_attribute('data-archived','false')
-    second.locator('.task-outline-reference').click()
+    second.click(position={'x':110,'y':16})
     expect(page.locator('.task-dialog h2')).to_have_attribute('aria-label','M2: Second milestone')
     expect(page.locator('.task-permanent-reference')).to_have_text('Card #C02')
     page.get_by_role('button',name='Cancel',exact=True).click()
@@ -340,7 +341,7 @@ def test_milestone_aliases_update_without_losing_card_identity_or_drafts(workspa
     expect(second.locator('.task-outline-prefix')).to_have_text('M1:')
     page.get_by_label('Search cards',exact=True).fill('#M1')
     expect(page.locator('.task-card')).to_have_count(1)
-    second.locator('.task-outline-reference').click()
+    second.click(position={'x':110,'y':16})
     page.locator('.task-dialog').get_by_role('button',name='Convert to task',exact=True).click()
     expect(page.locator('.task-dialog')).to_have_count(0)
     page.get_by_label('Search cards',exact=True).fill('#C02')
@@ -350,7 +351,7 @@ def test_milestone_aliases_update_without_losing_card_identity_or_drafts(workspa
     second_card.get_by_role('button',name='Promote to milestone').click()
     expect(second.locator('.task-outline-prefix')).to_have_text('M1:')
     # A reorder from another session updates the heading without clearing a draft.
-    second.locator('.task-outline-reference').click();page.get_by_label('Description',exact=True).fill('Draft description')
+    second.click(position={'x':110,'y':16});page.get_by_label('Description',exact=True).fill('Draft description')
     change(action='move',id=1,status='done')
     expect(page.locator('.task-dialog h2')).to_have_attribute('aria-label','M1: Second milestone')
     change(action='milestone_move',id=1,before=2)
@@ -437,7 +438,7 @@ def test_sidebar_milestone_drag_and_keyboard_reorder_change_numbers(workspace_pa
     expect(number).to_have_text('M2:')
     expect(child).to_contain_text('◇ #M2 Epic')
     expect(page.get_by_role('article',name='Nested child',exact=True)).to_contain_text('◇ #M1 Other epic')
-    epic.locator('.task-outline-reference').click()
+    epic.click(position={'x':110,'y':16})
     expect(page.locator('.task-update',has_text='Milestone number: #M1 → #M2')).to_be_visible()
     expect(page.locator('.task-permanent-reference')).to_have_text('Card #C01')
     expect(page.get_by_label('Milestone number (#M)',exact=True)).to_have_count(0)
@@ -523,3 +524,132 @@ def test_sidebar_milestone_creation_filter_and_done_archive(workspace_page):
     page.get_by_role('button', name='Restore', exact=True).click()
     expect(row(3)).to_have_attribute('data-archived', 'false')
     expect(done.locator('.task-card')).to_have_count(1)
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_sidebar_selection_moves_board_cards_together_without_shifting_layout(workspace_page):
+    from playwright.sync_api import expect
+    _, page, url, ws = workspace_page
+
+    def change(**data):
+        return ws.tasks.mutate(dict(revision=ws.tasks.read()['revision'], **data))
+
+    change(action='create', title='Release', milestone=True)
+    change(action='create', title='First', parent_id=1)
+    change(action='create', title='Second', parent_id=1, status='in_progress')
+    change(action='create', title='Other', status='done')
+    page.goto(url)
+    page.locator('#tasks-open').click()
+    sidebar = page.locator('#task-sidebar')
+    first = page.get_by_role('article', name='First', exact=True)
+    second = page.get_by_role('article', name='Second', exact=True)
+    other = page.get_by_role('article', name='Other', exact=True)
+    first_row = sidebar.locator('.task-outline-row[data-id="2"]')
+    second_row = sidebar.locator('.task-outline-row[data-id="3"]')
+    first_row.hover()
+    expect(first).to_have_class('task-card sidebar-hover')
+    page.get_by_label('Search cards').hover()
+    expect(first).to_have_class('task-card')
+    original = first.bounding_box()
+    first_row.click(modifiers=['Control'])
+    second_row.click(modifiers=['Control'])
+    expect(first).to_have_attribute('aria-selected', 'true')
+    expect(second).to_have_attribute('aria-selected', 'true')
+    expect(page.locator('.task-bulk')).to_contain_text('2 selected')
+    assert first.bounding_box() == original
+    first.drag_to(other, target_position={'x': 12, 'y': 10})
+    done = page.locator('.task-lane[data-status="done"]')
+    expect(done.locator('.task-card-title')).to_have_text(['First', 'Second', 'Other'])
+    expect(first).to_have_attribute('aria-selected', 'true')
+    expect(second).to_have_attribute('aria-selected', 'true')
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_sidebar_milestone_filter_and_board_order_and_insertion(workspace_page):
+    from playwright.sync_api import expect
+    _, page, url, ws = workspace_page
+
+    def change(**data):
+        return ws.tasks.mutate(dict(revision=ws.tasks.read()['revision'], **data))
+
+    change(action='create', title='Plan', milestone=True)
+    change(action='create', title='Other')
+    change(action='create', title='Second', parent_id=1)
+    change(action='create', title='First', parent_id=1)
+    change(action='outline_move', ids=[4], parent_id=1, before=3)
+    page.goto(url)
+    page.locator('#tasks-open').click()
+    sidebar = page.locator('#task-sidebar')
+    titles = page.locator('.task-lane[data-status="backlog"] .task-card-title')
+    diamond = sidebar.get_by_role('button', name='Filter board by #M1')
+    clear = sidebar.get_by_role('button', name='Clear milestone filter')
+    expect(clear).to_be_disabled()
+    expect(titles).to_have_text(['Other', 'Second', 'First'])
+    open_milestone = sidebar.get_by_role('button', name='Open #M1: Plan')
+    open_milestone.press('Enter')
+    expect(page.get_by_role('dialog', name='M1: Plan')).to_be_visible()
+    page.get_by_role('button', name='Close card').click()
+    expect(open_milestone).to_be_focused()
+    diamond.click()
+    expect(titles).to_have_text(['Second', 'First'])
+    expect(diamond).to_have_attribute('aria-pressed', 'true')
+    diamond.click()
+    expect(titles).to_have_count(3)
+    diamond.click()
+    clear.click()
+    expect(titles).to_have_count(3)
+    page.get_by_role('button', name='Order by sidebar').click()
+    expect(titles).to_have_text(['First', 'Second', 'Other'])
+    page.get_by_role('article', name='Other', exact=True).drag_to(
+        page.get_by_role('article', name='First', exact=True), target_position={'x': 12, 'y': 10})
+    expect(titles).to_have_text(['Other', 'First', 'Second'])
+    diamond.click()
+    between = page.get_by_role('button', name='Add task before Second')
+    between.hover()
+    between.click()
+    page.get_by_role('textbox', name='Title').fill('In between')
+    page.get_by_role('button', name='Create', exact=True).click()
+    expect(titles).to_have_text(['First', 'In between', 'Second'])
+    diamond.click()
+    expect(titles).to_have_text(['Other', 'First', 'In between', 'Second'])
+    page.reload()
+    expect(titles).to_have_text(['Other', 'First', 'In between', 'Second'])
+    assert next(card for card in ws.tasks.read()['cards'] if card['title'] == 'In between')['milestone_id'] == 1
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_task_comment_attaches_previews_and_downloads_files(workspace_page):
+    import io
+    from PIL import Image
+    from playwright.sync_api import expect
+    _, page, url, ws = workspace_page
+    ws.tasks.mutate(dict(action='create', title='Task', revision=0))
+    picture = io.BytesIO()
+    Image.new('RGB', (8, 8), 'purple').save(picture, format='PNG')
+
+    page.goto(url)
+    page.locator('#tasks-open').click()
+    card = page.get_by_role('article', name='Task', exact=True)
+    card.click()
+    detail = page.locator('.task-detail')
+    detail.get_by_label('Task comment files').set_input_files([
+        {'name': 'review.png', 'mimeType': 'image/png', 'buffer': picture.getvalue()},
+        {'name': 'notes.txt', 'mimeType': 'text/plain', 'buffer': b'April notes'},
+    ])
+    expect(detail.get_by_role('button', name='Remove notes.txt')).to_be_visible()
+    detail.get_by_role('button', name='Close card').click()
+    card.click()
+    expect(detail.get_by_role('button', name='Remove review.png')).to_be_visible()
+    detail.get_by_role('button', name='Comment', exact=True).click()
+    comment = detail.locator('.task-comment')
+    expect(comment).to_have_count(1)
+    comment.get_by_text('Preview review.png').click()
+    expect(comment.get_by_role('img', name='review.png')).to_be_visible()
+    page.wait_for_function("document.querySelector('.task-comment img').naturalWidth === 8")
+    with page.expect_download() as download:
+        comment.get_by_role('button', name='notes.txt').click()
+    assert download.value.suggested_filename == 'notes.txt'
+    assert download.value.path().read_bytes() == b'April notes'
+    comment.get_by_role('button', name='Delete comment').click()
+    expect(comment).to_have_count(0)
+    assert not list(ws.attachments.directory.iterdir())

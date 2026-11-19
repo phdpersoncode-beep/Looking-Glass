@@ -108,12 +108,13 @@ def check(root):
         result = inspect(db)
         # Upload bytes are deliberately outside the database snapshot.
         missing = []
-        if 'attachments' in result['tables']:
-            directory = state_path(root).parent / 'attachments'
-            for key, size in db.execute('SELECT storage_key,size FROM attachments ORDER BY id'):
-                file = directory / key
-                if not re.fullmatch(r'[0-9a-f]{48}', key) or not file.is_file() or file.stat().st_size != size:
-                    missing.append(key)
+        directory = state_path(root).parent / 'attachments'
+        for table in ('attachments', 'task_activity_attachments'):
+            if table in result['tables']:
+                for key, size in db.execute(f'SELECT storage_key,size FROM {table} ORDER BY id'):
+                    file = directory / key
+                    if not re.fullmatch(r'[0-9a-f]{48}', key) or not file.is_file() or file.stat().st_size != size:
+                        missing.append(key)
         result['warnings'] = ([f'{len(missing)} attachment file(s) missing or size mismatched; upload bytes are not in SQL dumps.']
                               if missing else [])
         return result

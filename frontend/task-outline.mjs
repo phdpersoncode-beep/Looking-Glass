@@ -3,6 +3,7 @@ import {taskDragType, taskDropItem, taskDropPreview} from './task-drop-preview.m
 
 export const taskColumns = [['backlog', '◌', 'Backlog'], ['in_progress', '◐', 'In progress'],
   ['to_review', '◎', 'To review'], ['done', '✓', 'Done']];
+const taskIndent = 16;
 const taskStatus = new Map(taskColumns.map(([key, symbol, label]) => [key, {symbol, label}]));
 
 export function cardTitle(card) {
@@ -75,7 +76,8 @@ const element = (tag, text, className) => {
 };
 
 export function mountTaskOutline(host, options) {
-  const {getBoard, state, picked, write, open, contextMenu, changed, create, createMilestone, startDrag, getDrag, rootId = null} = options;
+  const {getBoard, state, picked, write, open, contextMenu, changed, create, createMilestone, startDrag, getDrag, rootId = null,
+    milestoneFilter, clearFilter, hover} = options;
   const drafts = state.outlineDrafts ??= new Map(), views = state.outlineViews ??= new Map();
   const key = rootId ?? 'plan', view = views.get(key) ?? {collapsed: false, toggled: new Set()};
   views.set(key, view);
@@ -84,6 +86,7 @@ export function mountTaskOutline(host, options) {
   const section = element('section', undefined, 'task-outline'), list = element('div', undefined, 'task-outline-list'), status = element('div', undefined, 'task-outline-status');
   section.setAttribute('aria-label', rootId ? 'Card tasks' : 'Task hierarchy');
   list.setAttribute('role','list');
+  list.style.setProperty('--task-indent', taskIndent + 'px');
   status.setAttribute('role','status');
   const add = element('button', '+ Add ' + (rootId ? 'subitem' : 'task'), 'task-outline-add');
   add.type='button';add.onclick=()=>create(rootId);
@@ -96,6 +99,7 @@ export function mountTaskOutline(host, options) {
   }
   const collapse=iconButton('Collapse all tasks','collapse',()=>setCollapsed(true));
   const expand=iconButton('Expand all tasks','expand',()=>setCollapsed(false));
+  if (clearFilter) controls.append(clearFilter);
   if (createMilestone) {
     controls.append(iconButton('Add milestone', 'addMilestone', () => {
       createMilestone(milestoneInsertion(getBoard().cards, cursor?.id, cursor?.after));
@@ -112,6 +116,7 @@ export function mountTaskOutline(host, options) {
   let drop = null, savingDrop = false, moving = null;
 
   function clearDrop(animate = true) {
+    list.removeAttribute('data-task-drop-depth');
     drop?.row.removeAttribute('data-drop');
     drop = null;
     preview.clear(animate);
@@ -131,18 +136,26 @@ export function mountTaskOutline(host, options) {
     moving = {source, contains, origins, height: height || 34};
     return moving;
   }
-  function dropTarget(id, mode, source) {
+  function dropTarget(id, mode, source, levels) {
     const cards = getBoard().cards;
     const card = cards.find(c => c.id === id);
     if (!card) return null;
-    if (source.id === id) {
-      return mode === 'inside' || mode === 'outside' ? shiftTarget(cards, id, mode === 'outside') : null;
+    const group = movingRows(source);
+    if (mode === 'inside') {
+      if (source.id === id) return shiftTarget(cards, id);
+      return card.archived ? null : {parent_id: id, before: null};
     }
-    if (mode === 'inside') return {parent_id: id, before: null};
-    if (mode === 'outside') return shiftTarget(cards, id, true);
-    const before = mode === 'after' ? rows.slice(rows.findIndex(r => r.card.id === id) + 1)
-      .find(r => r.card.parent_id === card.parent_id && !movingRows(source).contains(r.card.id))?.card.id : id;
-    return {parent_id: card.parent_id, before: before ?? null};
+    let anchor = card;
+    if (mode === 'outside') {
+      for (let level = 0; level < levels && anchor.parent_id !== rootId; level++) {
+        anchor = cards.find(c => c.id === anchor.parent_id);
+      }
+      if (anchor === card) return null;
+    } else if (source.id === id) return null;
+
+    const before = mode === 'before' ? anchor.id : rows.slice(rows.findIndex(r => r.card.id === anchor.id) + 1)
+      .find(r => r.card.parent_id === anchor.parent_id && !group.contains(r.card.id))?.card.id;
+    return {parent_id: anchor.parent_id, before: before ?? null};
   }
   function milestoneDropTarget(id, mode, source) {
     if (movingRows(source).contains(id)) return null;
@@ -154,6 +167,8 @@ export function mountTaskOutline(host, options) {
     const group = movingRows(source);
     const parentAt = rows.findIndex(r => r.card.id === parent);
     const depth = parent === rootId ? 0 : rows[parentAt]?.depth + 1;
+    list.dataset.taskDropDepth = Number.isFinite(depth) ? depth : 0;
+    list.style.setProperty('--task-drop-depth', list.dataset.taskDropDepth);
     if (!Number.isFinite(depth) || (depth > 0 && !isExpanded(parent))) {
       preview.clear();
       return;
@@ -164,37 +179,42 @@ export function mountTaskOutline(host, options) {
     } else if (depth > 0 && !anchor) {
       anchor = nodes.get(rows.slice(parentAt + 1).find(r => r.depth < depth && !group.contains(r.card.id))?.card.id);
     }
-    preview.show(list, anchor || null, group.origins, group.height, depth * 16);
+    preview.show(list, anchor || null, group.origins, group.height, depth * taskIndent);
   }
   list.ondragover = event => {
     if (!event.dataTransfer.types.includes(taskDragType) || savingDrop) return;
     const source = getDrag();
+    if (!source) return;
     const hovered = taskDropItem(list, event.clientY, '.task-outline-row, .task-drop-preview');
-    const row = hovered === preview.gap ? drop?.row : hovered;
+    const overGap = hovered === preview.gap;
+    const row = overGap ? drop?.row : hovered;
     if (!row) { clearDrop(); return; }
     event.preventDefault();
     event.stopPropagation();
     event.dataTransfer.dropEffect = 'move';
     const id = Number(row.dataset.id);
-    const localDrag = source && list.contains(source.element);
+    const localDrag = list.contains(source.element);
     const milestoneDrag = localDrag && source.element.classList.contains('task-outline-milestone');
     const delta = localDrag ? event.clientX - source.x : 0;
     const midpoint = list.getBoundingClientRect().top + list.clientTop + row.offsetTop + row.offsetHeight / 2;
-    let mode = hovered === preview.gap ? drop.mode : event.clientY > midpoint ? 'after' : 'before';
+    const side = overGap ? drop.side : event.clientY > midpoint ? 'after' : 'before';
+    const levels = Math.max(0, 1 + Math.floor((Math.abs(delta) - 24) / taskIndent));
+    let mode = side;
     if (!milestoneDrag) {
-      if (delta > 24 || row.classList.contains('task-outline-milestone')) mode = 'inside';
-      else if (delta < -24) mode = 'outside';
+      if (row.classList.contains('task-outline-milestone') || (levels && delta > 0)) mode = 'inside';
+      else if (levels && delta < 0) mode = 'outside';
     }
-    if (drop?.row === row && drop.mode === mode) return;
-    const target = source && (milestoneDrag ? milestoneDropTarget(id, mode, source) : dropTarget(id, mode, source));
-    if (source && (!target || movingRows(source).contains(target.parent_id) || movingRows(source).contains(target.before))) {
+    const target = milestoneDrag ? milestoneDropTarget(id, mode, source) : dropTarget(id, mode, source, levels);
+    if (!target || movingRows(source).contains(target.parent_id) || movingRows(source).contains(target.before)) {
       clearDrop();
       return;
     }
+    if (drop?.row === row && drop.mode === mode && drop.target.parent_id === target.parent_id &&
+        drop.target.before === target.before) return;
     drop?.row.removeAttribute('data-drop');
-    drop = {row, mode, target};
+    drop = {row, side, mode, target};
     row.dataset.drop = mode;
-    if (target) showDrop(target, source);
+    showDrop(target, source);
   };
   list.ondragleave = event => {
     if (!savingDrop && !list.contains(event.relatedTarget)) clearDrop();
@@ -203,13 +223,9 @@ export function mountTaskOutline(host, options) {
     if (!drop || savingDrop) return;
     event.preventDefault();
     event.stopPropagation();
-    let source = getDrag();
-    if (!source) {
-      try { source = JSON.parse(event.dataTransfer.getData(taskDragType)); } catch { clearDrop(); return; }
-    }
-    if (!Array.isArray(source?.ids)) { clearDrop(); return; }
-    const target = drop.target || dropTarget(Number(drop.row.dataset.id), drop.mode, source);
-    if (!target) { clearDrop(); return; }
+    const source = getDrag();
+    if (!source) { clearDrop(); return; }
+    const {target} = drop;
     savingDrop = true;
     await mutate(target.action ? target : {action: 'outline_move', ids: source.ids, ...target});
     savingDrop = false;
@@ -292,8 +308,19 @@ export function mountTaskOutline(host, options) {
         check.disabled = row.dataset.archived === 'true' || row.classList.contains('task-outline-context');
       }
     };
-    const reference=element('button',undefined,'task-outline-reference');reference.type='button';reference.onclick=()=>openCard(id);
-    const prefix=element('span',undefined,'task-outline-prefix'), name=element('input',undefined,'task-outline-name');
+    const reference=element('button',undefined,'task-outline-reference');reference.type='button';
+    reference.onclick = () => {
+      if (milestoneFilter && row.classList.contains('task-outline-milestone')) milestoneFilter(id);
+      else openCard(id);
+    };
+    if (hover) {
+      row.onpointerenter = () => hover(id);
+      row.onpointerleave = () => hover(null);
+    }
+    const prefix = element('button', undefined, 'task-outline-prefix');
+    prefix.type = 'button';
+    prefix.onclick = () => openCard(id);
+    const name = element('input', undefined, 'task-outline-name');
     const title = element('span', undefined, 'task-outline-title');
     title.append(name);
     name.type='text';name.maxLength=500;name.draggable=false;
@@ -405,7 +432,11 @@ export function mountTaskOutline(host, options) {
       totals.set(card.milestone_id, count);
     }
     const visible=new Set(rows.map(r=>r.card.id));
-    for(const [id,row] of nodes)if(!visible.has(id)){row.remove();nodes.delete(id);}
+    for (const [id, row] of nodes) if (!visible.has(id)) {
+      if (row.matches(':hover')) hover?.(null);
+      row.remove();
+      nodes.delete(id);
+    }
     for(let index=0;index<rows.length;index++) {
       const {card,depth,children,context}=rows[index];
       let row=nodes.get(card.id);if(!row){row=makeRow(card.id);nodes.set(card.id,row);}
@@ -430,8 +461,19 @@ export function mountTaskOutline(host, options) {
       check.disabled = context || !!card.archived;
       check.setAttribute('aria-label', 'Complete ' + card.title);
       check.setAttribute('aria-description', itemStatus.label);
-      reference.textContent=card.milestone?'◇':'#C'+String(card.id).padStart(2,'0');reference.title='Open '+cardTitle(card);reference.setAttribute('aria-label','Open '+(card.milestone?'#M'+card.milestone_number:reference.textContent));
-      prefix.textContent=card.milestone?'M'+card.milestone_number+':':'';prefix.hidden=!card.milestone;
+      const filterable = milestoneFilter && card.milestone;
+      reference.textContent = card.milestone ? '◇' : '#C' + String(card.id).padStart(2, '0');
+      reference.title = (filterable ? 'Filter board by ' : 'Open ') + cardTitle(card);
+      reference.setAttribute('aria-label', (filterable ? 'Filter board by ' : 'Open ') +
+        (card.milestone ? '#M' + card.milestone_number : reference.textContent));
+      if (filterable) reference.setAttribute('aria-pressed', String(Number(state.filter) === card.id));
+      else reference.removeAttribute('aria-pressed');
+      prefix.textContent = card.milestone ? 'M' + card.milestone_number + ':' : '';
+      prefix.hidden = !card.milestone;
+      if (card.milestone) {
+        prefix.title = 'Open ' + cardTitle(card);
+        prefix.setAttribute('aria-label', 'Open #M' + card.milestone_number + ': ' + card.title);
+      }
       if(!drafts.has(card.id))name.value=card.title;
       else if(document.activeElement!==name)name.value=drafts.get(card.id).value;
       if (title.dataset.value !== name.value) title.dataset.value = name.value;

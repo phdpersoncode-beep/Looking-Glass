@@ -1,5 +1,5 @@
 import {mountTaskActivity} from './task-activity.mjs';
-import {cardTitle, mountTaskOutline, taskColumns as columns} from './task-outline.mjs';
+import {cardTitle, mountTaskOutline, outlineRows, taskColumns as columns} from './task-outline.mjs';
 import {bindTaskDismiss} from './task-dialog.mjs';
 import {iconButton} from './icons.mjs';
 import {fileReferences} from './file-references.mjs';
@@ -35,8 +35,8 @@ function button(text, action, title = text) {
   return b;
 }
 function mountTasks(host, state, api, options = {}) {
-  let board = { cards: [], revision: 0 }, disposed = false, busy = false, refreshing = null, editor = null, outline = null, context = null;
-  let dragSource = null, laneDrop = null, savingDrop = false;
+  let board = { cards: [], revision: 0 }, disposed = false, pendingWrite = null, refreshing = null, outline = null, context = null;
+  let dragSource = null, laneDrop = null, savingDrop = false, hoveredId = null;
   const drafts = state.drafts ??= new Map();
   const resume = state.documentReturn;
   const picked = new Set(), root = el("section", void 0, "task-board"), tools = el("div", void 0, "task-tools"), search = el("input"), archived = el("input"), bulk = el("div", void 0, "task-bulk"), lanes = el("div", void 0, "task-lanes"), notice = el("p", void 0, "task-notice");
@@ -63,10 +63,17 @@ function mountTasks(host, state, api, options = {}) {
     filterMenu.hidden = !open;
     filter.setAttribute('aria-expanded', String(open));
   }
+  const clearFilter = iconButton('Clear milestone filter', 'clearFilter', () => setMilestoneFilter(null));
+  function setMilestoneFilter(id) {
+    state.filter = id && Number(state.filter) !== id ? String(id) : '';
+    toggleFilter(false);
+    render();
+  }
   function renderMilestoneFilter() {
     const choices = board.cards.filter(card => card.milestone).sort((a, b) => a.milestone_number - b.milestone_number);
     const selected = choices.find(card => card.id === Number(state.filter));
     if (!selected) state.filter = '';
+    clearFilter.disabled = !selected;
     const label = selected ? cardTitle(selected) : 'Milestones';
     filterLabel.textContent = label;
     filter.title = selected ? label : 'Filter by milestone';
@@ -76,9 +83,7 @@ function mountTasks(host, state, api, options = {}) {
     const focused = filterMenu.contains(document.activeElement) ? document.activeElement.dataset.milestone : undefined;
     const makeChoice = (id, text) => {
       const item = button(text, () => {
-        state.filter = selected?.id === id || id === 0 ? '' : String(id);
-        toggleFilter(false);
-        render();
+        setMilestoneFilter(id);
         filter.focus();
       }, text);
       item.dataset.milestone = id;
@@ -91,12 +96,18 @@ function mountTasks(host, state, api, options = {}) {
   }
   const lanePreview = taskDropPreview(() => lanes.querySelectorAll('.task-card'));
   function startDrag(event, id, ids = picked.has(id) ? [...picked] : [id]) {
-    const data = {id, ids, x: event.clientX};
+    const selected = new Set(ids);
+    const laneIds = columns.flatMap(([status]) => board.cards.filter(card =>
+      card.status === status && !card.milestone && !card.archived && selected.has(card.id)).map(card => card.id));
+    const data = {id, ids, laneIds, x: event.clientX};
     event.dataTransfer.setData('text/plain', String(id));
     event.dataTransfer.setData(taskDragType, JSON.stringify(data));
     event.dataTransfer.effectAllowed = 'move';
-    const boardCard = lanes.querySelector(`.task-card[data-id="${id}"]`);
-    dragSource = {...data, element: event.currentTarget, cardHeight: boardCard?.offsetHeight || 65};
+    const boardCards = laneIds.map(item => lanes.querySelector(`.task-card[data-id="${item}"]`)).filter(Boolean);
+    const height = boardCards.reduce((sum, item) => sum + item.offsetHeight, 0) +
+      (laneIds.length - boardCards.length) * 65 + Math.max(0, laneIds.length - 1) * 14;
+    dragSource = {...data, element: event.currentTarget, boardCards, height};
+    setHoveredCard(null);
     dragSource.element.classList.add('task-drag-source');
     document.body.classList.add('task-drag-active');
   }
@@ -117,7 +128,12 @@ function mountTasks(host, state, api, options = {}) {
   const archiveLabel = el("label", "Show archive ");
   archiveLabel.append(archived);
   notice.setAttribute("role", "status");
-  tools.append(search, filterWrap, archiveLabel, button("+ Task", () => editNew("backlog"), "Create task"));
+  const orderBoard = button('Order by sidebar', () => {
+    const ids = outlineRows(board.cards, {includeArchived: true})
+      .filter(({card}) => !card.milestone).map(({card}) => card.id);
+    return change({action: 'board_order', ids});
+  });
+  tools.append(search, filterWrap, archiveLabel, orderBoard);
   const muted = el("input");
   muted.type = "checkbox";
   muted.checked = !!state.muted;
@@ -129,7 +145,7 @@ function mountTasks(host, state, api, options = {}) {
   };
   if (state.muted === void 0) muted.checked = localStorage.getItem("looking-glass-task-muted") === "true";
   tools.append(muteLabel);
-  root.append(tools, bulk, notice, lanes);
+  root.append(tools, notice, lanes, bulk);
   host.append(root);
   options.onSidebarMode?.(true);
   if(options.sidebar){
@@ -139,8 +155,15 @@ function mountTasks(host, state, api, options = {}) {
     help.title='Enter saves; Shift+Enter adds a sibling; Ctrl/Cmd+Enter adds a subitem. Tab / Shift+Tab nest; Alt+Up/Down reorders. Drag vertically to reorder and right/left to nest or outdent. Ctrl/Cmd+click selects; right-click opens actions.';
     options.sidebar.append(heading,help);
     outline=mountTaskOutline(options.sidebar,outlineOptions({controlsHost:heading,
-      createMilestone: before => editNew('backlog', null, {milestone: true, before})}));
+      createMilestone: before => editNew('backlog', null, {milestone: true, before}),
+      milestoneFilter: setMilestoneFilter, clearFilter, hover: setHoveredCard}));
     outline.updateCount=()=>count.textContent=String(board.cards.length);
+  }
+  function setHoveredCard(id) {
+    if (hoveredId === id) return;
+    lanes.querySelector('.task-card.sidebar-hover')?.classList.remove('sidebar-hover');
+    hoveredId = id;
+    if (id !== null) lanes.querySelector(`.task-card[data-id="${id}"]`)?.classList.add('sidebar-hover');
   }
   function outlineOptions(extra={}){
     return {getBoard:()=>board,state,picked,write:change,open:card=>{if(card)edit(card);},contextMenu:openContext,changed:render,create:parent=>editNew('backlog',parent),error:()=>notice.textContent,startDrag,getDrag:()=>dragSource,...extra};
@@ -228,16 +251,26 @@ function mountTasks(host, state, api, options = {}) {
       }
     }
   }
-  async function change(data, revision = board.revision) {
-    if (busy) {
+  function change(data, revision = board.revision, files = []) {
+    if (pendingWrite) {
       notice.textContent = "Another task change is saving. Try again in a moment.";
-      return false;
+      return Promise.resolve(false);
     }
-    busy = true;
+    pendingWrite = write(data, revision, files).finally(() => { pendingWrite = null; });
+    return pendingWrite;
+  }
+  async function write(data, revision, files) {
     notice.textContent = "";
     try {
       const old = board;
-      const next = await api("tasks", "POST", { ...data, revision, author:options.author?.() || "User" });
+      const payload = {...data, revision, author: options.author?.() || 'User'};
+      let body = payload;
+      if (files.length) {
+        body = new FormData();
+        body.append('data', JSON.stringify(payload));
+        for (const file of files) body.append('files', file);
+      }
+      const next = await api('tasks', 'POST', body);
       if (disposed) return false;
       document.querySelectorAll('.task-detail[open]').forEach(d=>d.acknowledge?.(old.revision,next.revision,data));
       if (next.revision > board.revision || !lanes.children.length) {
@@ -254,8 +287,6 @@ function mountTasks(host, state, api, options = {}) {
         await refresh(true);
       }
       return false;
-    } finally {
-      busy = false;
     }
   }
   // Unchanged polls do not touch the DOM or read card payloads.
@@ -289,7 +320,10 @@ function mountTasks(host, state, api, options = {}) {
     renderMilestoneFilter();
     const byId = new Map(board.cards.map(card => [card.id, card]));
     for (const id of picked) if (!byId.has(id)) picked.delete(id);
-    for (const id of drafts.keys()) if (!byId.has(id)) drafts.delete(id);
+    if (board.revision) {
+      for (const id of drafts.keys()) if (!byId.has(id)) drafts.delete(id);
+      for (const id of state.commentDrafts?.keys() ?? []) if (!byId.has(id)) state.commentDrafts.delete(id);
+    }
     bulk.replaceChildren();
     if (picked.size) {
       bulk.append(el("span", `${picked.size} selected`));
@@ -312,7 +346,15 @@ function mountTasks(host, state, api, options = {}) {
         (!milestoneId || c.milestone_id === milestoneId) &&
         (!query || fuzzyCard(milestoneQuery ? (byId.get(c.milestone_id) ?? c) : c, query)));
       const heading = el("header");
-      heading.append(el("h3", symbol + " " + label), el("span", String(cards.length)), button("+", () => editNew(status), "Add task to " + label));
+      heading.append(el("h3", symbol + " " + label), el("span", String(cards.length)));
+      const addAt = (before, title) => {
+        const milestone = byId.get(milestoneId);
+        if (archived.checked || milestone?.archived) return;
+        const parent = milestone?.id ?? null;
+        const add = button('+', () => editNew(status, parent, {before}), title);
+        add.className = 'task-lane-add';
+        lane.append(add);
+      };
       if (status === 'done' && !archived.checked) {
         const archiveAll = iconButton('Archive all done tasks', 'archive', () =>
           change({action: 'archive_done', ids: cards.map(card => card.id)}));
@@ -321,37 +363,42 @@ function mountTasks(host, state, api, options = {}) {
         heading.append(archiveAll);
       }
       lane.append(heading);
-      lane.ondragover = (e) => {
-        if (!e.dataTransfer.types.includes(taskDragType) || savingDrop) return;
+      lane.ondragover = e => {
+        if (!e.dataTransfer.types.includes(taskDragType) || savingDrop ||
+            archived.checked || !dragSource?.laneIds.length) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = 'move';
-        if (!dragSource) return;
         const hovered = taskDropItem(lane, e.clientY, '.task-card, .task-drop-preview');
         if (hovered === lanePreview.gap) return;
-        const source = lanes.querySelector(`.task-card[data-id="${dragSource.id}"]`);
-        if (hovered && hovered === source) {
+        const sources = dragSource.boardCards;
+        if (hovered && sources.includes(hovered)) {
           clearLaneDrop();
           return;
         }
         laneDrop = {lane, before: hovered ? Number(hovered.dataset.id) : null};
-        lanePreview.show(lane, hovered || lane.querySelector('.task-empty'), source ? [source] : [], dragSource.cardHeight);
+        const anchor = hovered?.previousElementSibling?.matches('.task-lane-add') ? hovered.previousElementSibling :
+          hovered || lane.querySelector('.task-empty, .task-lane-add:last-child');
+        lanePreview.show(lane, anchor, sources, Math.min(dragSource.height, 480));
       };
-      lane.ondrop = async (e) => {
-        if (!e.dataTransfer.types.includes(taskDragType) || savingDrop) return;
+      lane.ondrop = async e => {
+        if (!e.dataTransfer.types.includes(taskDragType) || savingDrop || archived.checked) return;
         e.preventDefault();
-        let id;
-        try { ({id} = JSON.parse(e.dataTransfer.getData(taskDragType))); } catch { return; }
-        const hovered = dragSource ? taskDropItem(lane, e.clientY, '.task-card') : e.target.closest('.task-card');
+        let data;
+        try { data = JSON.parse(e.dataTransfer.getData(taskDragType)); } catch { return; }
+        const ids = data?.laneIds ?? [data?.id];
+        const hovered = taskDropItem(lane, e.clientY, '.task-card');
         const before = laneDrop?.lane === lane ? laneDrop.before : hovered ? Number(hovered.dataset.id) : null;
-        if (!Number.isSafeInteger(id) || id === before) return;
+        if (!Array.isArray(ids) || !ids.length || ids.some(id => !Number.isSafeInteger(id) || id === before)) return;
         savingDrop = true;
-        await change({action: 'move', id, status, before});
+        await change({action: 'move', ids, status, before});
         savingDrop = false;
         clearLaneDrop();
       };
-      for (const card of cards) {
+      for (const [index, card] of cards.entries()) {
+        if (index) addAt(card.id, 'Add task before ' + card.title);
         const item = el("article", void 0, "task-card");
         item.dataset.id = card.id;
+        item.classList.toggle('sidebar-hover', hoveredId === card.id);
         item.tabIndex = 0;
         item.setAttribute("aria-label", card.title);
         item.setAttribute("aria-selected", String(picked.has(card.id)));
@@ -392,6 +439,7 @@ function mountTasks(host, state, api, options = {}) {
         lane.append(item);
       }
       if (!cards.length) lane.append(el("p", "No cards", "task-empty"));
+      addAt(null, 'Add task to ' + label);
       lanes.append(lane);
     }
     document.querySelectorAll(".task-dialog").forEach(d=>{
@@ -410,26 +458,22 @@ function mountTasks(host, state, api, options = {}) {
   }
   function dialog(title, detail=false) {
     const previousFocus=document.activeElement, openerId=previousFocus?.closest('.task-card')?.dataset.id;
-    const previous=document.querySelector('.task-detail[open]');
-    if(detail&&previous){previous.retainDraft?.();previous.close();previous.remove();}
     const d = el("dialog", void 0, "task-dialog"), heading = el("h2", title);
     if(detail)d.classList.add('task-detail');
     heading.id = 'task-heading-' + crypto.randomUUID();
     d.setAttribute('aria-labelledby', heading.id);
     d.append(heading);
     document.body.append(d);
-    editor = d;
     d.addEventListener("close", () => {
       d.remove();
       notice.textContent = "";
-      if (editor === d) editor = document.querySelector('.task-detail[open]');
       if(detail&&!document.querySelector('dialog[open]')){
         const target=previousFocus?.isConnected?previousFocus:openerId?lanes.querySelector('[data-id="'+openerId+'"]'):null;
         target?.focus({preventScroll:true});
       }
     });
     if(detail){
-      bindTaskDismiss(d,()=>{d.retainDraft?.();d.close();});
+      bindTaskDismiss(d, () => d.saveAndClose());
     }
     return d;
   }
@@ -453,7 +497,7 @@ function mountTasks(host, state, api, options = {}) {
     form.onsubmit = async (e) => {
       e.preventDefault();
       save.disabled = true;
-      const placement = milestone ? {milestone, before} : {parent_id: parentId};
+      const placement = milestone ? {milestone, before} : {parent_id: parentId, before};
       if (await change({action: "create", title: title.value, status, ...placement})) d.close();
       else {
         save.disabled = false;
@@ -467,8 +511,15 @@ function mountTasks(host, state, api, options = {}) {
     d.showModal();
     title.focus();
   }
-  function edit(card) {
-    if(editor?.open&&editor.cardId===card.id){editor.querySelector('[aria-label=Title]')?.focus();return;}
+  async function edit(card) {
+    const previous = document.querySelector('.task-detail[open]');
+    if (previous?.cardId === card.id) {
+      previous.querySelector('[aria-label=Title]').focus();
+      return;
+    }
+    if (previous && !await previous.saveAndClose()) return;
+    card = board.cards.find(item => item.id === card.id);
+    if (!card || disposed) return;
     const draft = drafts.get(card.id);
     const original = draft?.original ?? {
       title: card.title, description: card.description, status: card.status, milestone_id: card.milestone_id
@@ -480,7 +531,7 @@ function mountTasks(host, state, api, options = {}) {
     status.title='Status';parent.title='Milestone';
     d.cardId=card.id;
     const actions=el('div',undefined,'task-detail-actions'), content=el('div',undefined,'task-detail-content');
-    const close=iconButton('Close card','close',()=>{retainDraft();d.close();});
+    const close=iconButton('Close card','close',()=>d.saveAndClose());
     actions.setAttribute('role','toolbar');actions.setAttribute('aria-label','Card actions');close.classList.add('task-detail-close');
     const heading=d.querySelector('h2'), prefix=el('span',undefined,'task-detail-prefix');
     content.append(heading);
@@ -546,8 +597,6 @@ function mountTasks(host, state, api, options = {}) {
       }
     };
     d.refreshReference();
-    const save=iconButton('Save','save');save.classList.add('task-save');
-    save.type = "submit";save.setAttribute('form',form.id);
     const readFields = () => ({
       title:title.value, description:description.value, status:status.value, milestone_id:Number(parent.value)||null
     });
@@ -558,7 +607,6 @@ function mountTasks(host, state, api, options = {}) {
       else drafts.delete(card.id);
     };
     title.oninput=()=>{retainDraft();d.refreshReference();sizeTitle();};
-    d.retainDraft=retainDraft;
     d.acknowledge=(before,after,data)=>{
       // Local edits elsewhere in the outline can advance this draft's base;
       // edits to the same fields still require conflict review.
@@ -569,13 +617,12 @@ function mountTasks(host, state, api, options = {}) {
     };
     form.oninput = form.onchange = retainDraft;
     const cancel=iconButton('Cancel','undo',()=>{drafts.delete(card.id);d.close();});cancel.title='Discard edits (Cancel)';
-    actions.append(save, cancel, iconButton(card.milestone ? "Convert to task" : "Promote to milestone", 'milestone',async () => {
-      if (await change({ action: "update", ids: [card.id], changes: { milestone: !card.milestone } }, revision)) d.close();
-      else error.textContent = notice.textContent;
-    }), iconButton(card.archived ? "Restore" : "Archive", card.archived?'restore':'archive',async () => {
-      if (await change({ action: "update", ids: [card.id], changes: { archived: !card.archived } }, revision)) d.close();
-      else error.textContent = notice.textContent;
-    }), iconButton("Delete", 'trash',() => confirmDelete([card.id], d)),close);
+    const convert = iconButton(card.milestone ? 'Convert to task' : 'Promote to milestone', 'milestone',
+      () => saveAndClose(card.milestone ? {milestone: false} : {milestone: true, milestone_id: null}));
+    const archive = iconButton(card.archived ? 'Restore' : 'Archive', card.archived ? 'restore' : 'archive',
+      () => saveAndClose({archived: !card.archived}));
+    const remove = iconButton('Delete', 'trash', () => confirmDelete([card.id], d));
+    actions.append(cancel, convert, archive, remove, close);
     const error = el("p");
     error.setAttribute("role", "alert");
     form.append(error);
@@ -593,30 +640,48 @@ function mountTasks(host, state, api, options = {}) {
         error.scrollIntoView({block:'nearest'});
       }
     });
-    form.onsubmit = async (e) => {
-      e.preventDefault();
-      const changes = editedFields(readFields());
-      if (!Object.keys(changes).length) { drafts.delete(card.id); d.close(); return; }
-      save.disabled = true;
-      if (await change({ action: "update", ids: [card.id], changes }, revision)) { drafts.delete(card.id); d.close(); }
-      else {
-        save.disabled = false;
-        error.textContent = notice.textContent;
-        // Keep unsent fields intact until the user reviews the saved version.
-        if (board.revision !== revision) {
-          const latest = board.cards.find((c) => c.id === card.id), reviewedRevision = board.revision;
-          if (latest) {
-            const details = el("details"), summary = el("summary", "Review latest saved card");
-            details.append(summary, el("pre", JSON.stringify({ title: latest.title, description: latest.description, status: latest.status, milestone_id: latest.milestone_id, milestone: !!latest.milestone, milestone_number:latest.milestone_number, archived: !!latest.archived }, null, 2)), button("Use this revision and keep my edits", () => {
-              revision = reviewedRevision;
-              retainDraft();
-              error.textContent = "Latest revision acknowledged. Review your fields, then save.";
-            }));
-            error.append(details);
-          }
+    let saving = false;
+    async function saveAndClose(extra = {}) {
+      if (saving) return false;
+      const changes = {...editedFields(readFields()), ...extra};
+      if (!Object.keys(changes).length) {
+        drafts.delete(card.id);
+        d.close();
+        return true;
+      }
+      if (!form.reportValidity()) return false;
+      saving = true;
+      const controls = [close, cancel, convert, archive, remove, title, description, status, parent];
+      const enabled = controls.filter(control => !control.disabled);
+      enabled.forEach(control => control.disabled = true);
+      if (pendingWrite) await pendingWrite;
+      const saved = d.open && await change({action: 'update', ids: [card.id], changes}, revision);
+      saving = false;
+      enabled.forEach(control => control.disabled = false);
+      if (saved) {
+        drafts.delete(card.id);
+        d.close();
+        return true;
+      }
+      error.textContent = notice.textContent;
+      // Keep unsent fields intact until the user reviews the saved version.
+      if (board.revision !== revision) {
+        const latest = board.cards.find((c) => c.id === card.id), reviewedRevision = board.revision;
+        if (latest) {
+          const details = el("details"), summary = el("summary", "Review latest saved card");
+          details.append(summary, el("pre", JSON.stringify({ title: latest.title, description: latest.description, status: latest.status, milestone_id: latest.milestone_id, milestone: !!latest.milestone, milestone_number:latest.milestone_number, archived: !!latest.archived }, null, 2)), button("Use this revision and keep my edits", () => {
+            revision = reviewedRevision;
+            retainDraft();
+            error.textContent = "Latest revision acknowledged. Close the card to save your edits.";
+          }));
+          error.append(details);
         }
       }
-    };
+      error.scrollIntoView({block: 'nearest'});
+      return false;
+    }
+    d.saveAndClose = saveAndClose;
+    form.onsubmit = event => event.preventDefault();
     content.append(form);
     const checklistHost=el('div',undefined,'task-checklist');content.append(checklistHost);
     const checklist=mountTaskOutline(checklistHost,outlineOptions({rootId:card.id,write:async(data,base)=>{
@@ -628,9 +693,9 @@ function mountTasks(host, state, api, options = {}) {
     d.refreshReference=()=>{refreshReference();checklist.render();};
     d.addEventListener('close',checklist.dispose);
     const activity = mountTaskActivity(content, card.id, {
-      api, state, getRevision:()=>board.revision,
-      write:async data=>{
-        const before=board.revision, saved=await change(data);
+      api, download: options.downloadAttachment, state, getRevision:()=>board.revision,
+      write:async (data, files)=>{
+        const before=board.revision, saved=await change(data, before, files);
         // A comment does not change card fields. Only acknowledge our own
         // activity write when no other writer changed the card in between.
         if(saved && revision===before && board.revision===before+1) {
@@ -664,10 +729,6 @@ function mountTasks(host, state, api, options = {}) {
     state.query = search.value;
     render();
   };
-  filter.onchange = () => {
-    state.filter = filter.value;
-    render();
-  };
   archived.onchange = () => {
     state.archived = archived.checked;
     picked.clear();
@@ -675,7 +736,7 @@ function mountTasks(host, state, api, options = {}) {
   };
   refresh();
   const timer = setInterval(() => {
-    if (!document.hidden && !busy) refresh();
+    if (!document.hidden && !pendingWrite) refresh();
   }, 2200);
   return () => {
     disposed = true;

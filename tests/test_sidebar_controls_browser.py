@@ -181,7 +181,7 @@ def test_toolbar_icons_share_a_horizontal_centerline(workspace_page):
 
         page.locator('#tasks-open').click()
         expect(page.locator('#task-sidebar')).to_be_visible()
-        assert centerline('#discussions-toggle svg, #task-sidebar .panel-heading button svg', 4) == right
+        assert centerline('#discussions-toggle svg, #task-sidebar .panel-heading button svg', 5) == right
         for toggle, top in [('#explorer-toggle', left), ('#discussions-toggle', right)]:
             page.locator(toggle).click()
             expect(page.locator(toggle)).to_have_attribute('aria-expanded', 'false')
@@ -189,7 +189,7 @@ def test_toolbar_icons_share_a_horizontal_centerline(workspace_page):
             page.locator(toggle).click()
 
         page.get_by_role('article', name='Plan a release').click()
-        centerline('.task-detail-actions svg', 6)
+        centerline('.task-detail-actions svg', 5)
         centerline('.task-detail .task-outline-heading button svg', 2)
         page.get_by_role('button', name='Close card').click()
         page.get_by_role('button', name='note.txt', exact=True).first.click()

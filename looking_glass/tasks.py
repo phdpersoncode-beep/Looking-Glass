@@ -1,6 +1,9 @@
 """Workspace planning shared by the board and agent API."""
 import json
+import re
+from collections import defaultdict
 
+from .attachments import MAX_ATTACHMENT
 from .workspace import Problem
 
 STATUSES = ('backlog', 'in_progress', 'to_review', 'done')
@@ -30,6 +33,12 @@ class Tasks:
                     kind TEXT NOT NULL, author TEXT NOT NULL, body TEXT NOT NULL DEFAULT '',
                     changes TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
                 CREATE INDEX IF NOT EXISTS task_activity_card ON task_activity(card_id,id);
+                CREATE TABLE IF NOT EXISTS task_activity_attachments(
+                    id INTEGER PRIMARY KEY,
+                    entry_id INTEGER NOT NULL REFERENCES task_activity(id) ON DELETE CASCADE,
+                    storage_key TEXT NOT NULL UNIQUE,
+                    name TEXT NOT NULL, size INTEGER NOT NULL, media_type TEXT NOT NULL);
+                CREATE INDEX IF NOT EXISTS task_activity_attachment_entry ON task_activity_attachments(entry_id);
             ''')
             task_columns = {row['name'] for row in db.execute('PRAGMA table_info(tasks)')}
             if 'milestone_number' not in task_columns:
@@ -133,8 +142,45 @@ class Tasks:
                 query += ' AND id<?'
                 params.append(before)
             rows = list(db.execute(query + ' ORDER BY id DESC LIMIT ?', [*params, limit+1]))
-            return dict(revision=revision, has_older=len(rows)>limit,
-                        entries=[dict(row, changes=json.loads(row['changes'])) for row in reversed(rows[:limit])])
+            entries = [dict(row, changes=json.loads(row['changes'])) for row in reversed(rows[:limit])]
+            comments = [entry['id'] for entry in entries if entry['kind'] == 'comment']
+            attachments = defaultdict(list)
+            if comments:
+                marks = ','.join('?' for _ in comments)
+                for item in db.execute(f'SELECT id,entry_id,name,size,media_type FROM task_activity_attachments '
+                                       f'WHERE entry_id IN ({marks}) ORDER BY id', comments):
+                    attachments[item['entry_id']].append(dict(item))
+                for entry in entries:
+                    if entry['id'] in attachments:
+                        entry['attachments'] = attachments[entry['id']]
+            return dict(revision=revision, has_older=len(rows)>limit, entries=entries)
+
+    def attachment(self, entry_id, identifier):
+        if not is_row_id(entry_id) or not is_row_id(identifier):
+            raise Problem('Attachment not found.', 404)
+        with self.ws.connection() as db:
+            item = db.execute('SELECT * FROM task_activity_attachments WHERE entry_id=? AND id=?',
+                              (entry_id, identifier)).fetchone()
+        if not item or not re.fullmatch(r'[0-9a-f]{48}', item['storage_key']):
+            raise Problem('Attachment not found.', 404)
+        return dict(item)
+
+    def comment_with_attachments(self, data, uploads):
+        if data.get('action') != 'comment':
+            raise Problem('Attachments belong to task comments.')
+        attachments, size = [], 0
+        try:
+            for upload in uploads:
+                item = self.ws.attachments.store(upload.stream, upload.filename)
+                attachments.append(item)
+                size += item[2]
+                if size > MAX_ATTACHMENT:
+                    raise Problem('Attachments in one comment are limited to 64 MiB.', 413)
+            return self.mutate(data, attachments)
+        except BaseException:
+            for key, *_ in attachments:
+                (self.ws.attachments.directory / key).unlink(missing_ok=True)
+            raise
 
     @staticmethod
     def add_activity(db, card_id, kind, author, body='', changes=None):
@@ -142,6 +188,34 @@ class Tasks:
         db.execute('UPDATE task_board_revision SET next_activity_id=next_activity_id+1 WHERE id=1')
         db.execute('INSERT INTO task_activity(id,card_id,kind,author,body,changes) VALUES(?,?,?,?,?,?)',
                    (identifier,card_id,kind,author,body,json.dumps(changes or {},ensure_ascii=False)))
+        return identifier
+
+    @staticmethod
+    def lane_order(db, status, include_milestones=False):
+        return [row[0] for row in db.execute(
+            'SELECT id FROM tasks WHERE status=? AND archived=0 AND (milestone=0 OR ?) ORDER BY position,id',
+            (status, include_milestones))]
+
+    @staticmethod
+    def place_in_lane(db, status, ids, before, include_milestones=False):
+        moving = set(ids)
+        order = [identifier for identifier in Tasks.lane_order(db, status, include_milestones) if identifier not in moving]
+        if before is not None and (not is_row_id(before) or before not in order):
+            raise Problem('Drop target changed. Refresh and retry.', 409)
+        at = order.index(before) if before is not None else len(order)
+        order[at:at] = ids
+        db.executemany('UPDATE tasks SET position=? WHERE id=?', enumerate(order))
+        return order
+
+    @staticmethod
+    def renumber_milestones(db):
+        updates = [(number, card['id']) for number, card in enumerate(db.execute(
+            'SELECT id,milestone_number FROM tasks WHERE milestone=1 ORDER BY milestone_number'), 1)
+            if number != card['milestone_number']]
+        # The unique index must allow every freed slot to be reused.
+        db.executemany('UPDATE tasks SET milestone_number=NULL WHERE id=?',
+                       ((identifier,) for _, identifier in updates))
+        db.executemany('UPDATE tasks SET milestone_number=?,updated_at=CURRENT_TIMESTAMP WHERE id=?', updates)
 
     @staticmethod
     def outline_ranks(cards, parent):
@@ -167,7 +241,15 @@ class Tasks:
         db.executemany('UPDATE tasks SET milestone_number=?,updated_at=CURRENT_TIMESTAMP WHERE id=?', updates)
         return bool(updates)
 
-    def mutate(self, data):
+    def mutate(self, data, attachments=()):
+        removed = []
+        result = self._mutate(data, attachments, removed)
+        for key in removed:
+            if re.fullmatch(r'[0-9a-f]{48}', key):
+                (self.ws.attachments.directory / key).unlink(missing_ok=True)
+        return result
+
+    def _mutate(self, data, attachments, removed):
         allowed = {'title', 'description', 'status', 'milestone', 'milestone_id', 'archived', 'parent_id'}
         with self.ws.connection() as db:
             db.execute('BEGIN IMMEDIATE')
@@ -185,14 +267,19 @@ class Tasks:
                         or not db.execute('SELECT 1 FROM tasks WHERE id=?', (identifier,)).fetchone()):
                     raise Problem('Card no longer exists.', 404)
                 if action == 'comment':
-                    body = data.get('body')
-                    if not isinstance(body, str) or not body.strip() or len(body) > 100000:
-                        raise Problem('Provide a comment of 1–100,000 characters.')
-                    self.add_activity(db, identifier, 'comment', author, body.strip())
+                    body = data.get('body', '')
+                    if not isinstance(body, str) or len(body) > 100000 or (not body.strip() and not attachments):
+                        raise Problem('Provide a comment of 1–100,000 characters or attach a file.')
+                    entry_id = self.add_activity(db, identifier, 'comment', author, body.strip())
+                    db.executemany('INSERT INTO task_activity_attachments(entry_id,storage_key,name,size,media_type) '
+                                   'VALUES(?,?,?,?,?)', ((entry_id, *item) for item in attachments))
                 else:
                     entry_id = data.get('entry_id')
                     if not is_row_id(entry_id):
                         raise Problem('Provide an activity entry ID.')
+                    removed.extend(row[0] for row in db.execute(
+                        'SELECT storage_key FROM task_activity_attachments JOIN task_activity '
+                        'ON task_activity.id=entry_id WHERE entry_id=? AND card_id=?', (entry_id, identifier)))
                     deleted = db.execute('DELETE FROM task_activity WHERE id=? AND card_id=?', (entry_id,identifier))
                     if not deleted.rowcount:
                         raise Problem('Activity entry no longer exists.', 404)
@@ -227,8 +314,11 @@ class Tasks:
                     self.reorder_milestone(db, identifier, data.get('before'))
                     number = db.execute('SELECT milestone_number FROM tasks WHERE id=?', (identifier,)).fetchone()[0]
                     changes.update(milestone={'from': False, 'to': True}, milestone_number={'from': None, 'to': number})
-                elif 'parent_id' in data:
-                    self.reparent(db, [identifier], data['parent_id'])
+                else:
+                    if 'parent_id' in data:
+                        self.reparent(db, [identifier], data['parent_id'])
+                    if data.get('before') is not None:
+                        self.place_in_lane(db, status, [identifier], data['before'])
                 self.add_activity(db, identifier, 'update', author, 'Created card.', changes)
             elif action == 'archive_done':
                 ids = data.get('ids')
@@ -256,7 +346,12 @@ class Tasks:
                         while parent in ids:
                             parent = previous[parent]['parent_id']
                         db.execute('UPDATE tasks SET parent_id=? WHERE id=?', (parent,child['id']))
+                    removed.extend(row[0] for row in db.execute(
+                        'SELECT storage_key FROM task_activity_attachments JOIN task_activity '
+                        f'ON task_activity.id=entry_id WHERE card_id IN ({marks})', ids))
                     db.execute(f'DELETE FROM tasks WHERE id IN ({marks})', ids)
+                    if any(row['milestone'] for row in rows):
+                        self.renumber_milestones(db)
                 else:
                     changes = data.get('changes')
                     if not isinstance(changes, dict) or not changes or set(changes) - allowed:
@@ -340,18 +435,27 @@ class Tasks:
                 for position, identifier in enumerate(order):
                     db.execute('UPDATE tasks SET outline_position=? WHERE id=?', (position,identifier))
             elif action == 'move':
-                identifier, before, status = data.get('id'), data.get('before'), data.get('status')
-                if not is_row_id(identifier) or status not in STATUSES or (before is not None and not is_row_id(before)):
+                legacy_move = 'ids' not in data
+                ids = data.get('ids', [data.get('id')])
+                before, status = data.get('before'), data.get('status')
+                if (not isinstance(ids, list) or not ids or len(ids) > 1000
+                        or any(not is_row_id(identifier) for identifier in ids) or len(set(ids)) != len(ids)
+                        or status not in STATUSES or (before is not None and not is_row_id(before))):
                     raise Problem('Invalid move.')
-                if not db.execute('SELECT 1 FROM tasks WHERE id=? AND archived=0', (identifier,)).fetchone():
-                    raise Problem('Card no longer exists.', 404)
-                order = [r[0] for r in db.execute('SELECT id FROM tasks WHERE status=? AND archived=0 AND id!=? ORDER BY position,id', (status, identifier))]
-                if before is not None and before not in order:
-                    raise Problem('Drop target changed. Refresh and retry.', 409)
-                order.insert(order.index(before) if before is not None else len(order), identifier)
-                db.execute('UPDATE tasks SET status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?', (status, identifier))
-                for position, item in enumerate(order):
-                    db.execute('UPDATE tasks SET position=? WHERE id=?', (position, item))
+                if any(identifier not in previous or previous[identifier]['archived']
+                       or (previous[identifier]['milestone'] and not legacy_move) for identifier in ids):
+                    raise Problem('Choose active tasks to move.', 404)
+                old_lane = self.lane_order(db, status, legacy_move)
+                db.executemany('UPDATE tasks SET status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?',
+                               ((status, identifier) for identifier in ids))
+                order = self.place_in_lane(db, status, ids, before, legacy_move)
+            elif action == 'board_order':
+                ids = data.get('ids')
+                expected = {card['id'] for card in previous.values() if not card['milestone']}
+                if (not isinstance(ids, list) or len(ids) != len(expected)
+                        or any(not is_row_id(identifier) for identifier in ids) or set(ids) != expected):
+                    raise Problem('Provide the complete task order.')
+                db.executemany('UPDATE tasks SET position=? WHERE id=?', enumerate(ids))
             else:
                 raise Problem('Invalid board action.')
             self.hierarchy(db)
@@ -364,13 +468,24 @@ class Tasks:
                 for rank, identifier in enumerate(order, 1):
                     if identifier in moving and identifier in old_ranks and old_ranks[identifier] != rank:
                         order_changes[identifier] = {'outline_position': {'from': old_ranks[identifier], 'to': rank}}
-            elif action == 'move' and previous[identifier]['status'] == status:
-                old_lane = sorted((c for c in previous.values() if c['status'] == status and not c['archived']),
-                                  key=lambda c: (c['position'], c['id']))
-                old_rank = next(rank for rank, card in enumerate(old_lane, 1) if card['id'] == identifier)
-                new_rank = order.index(identifier) + 1
-                if old_rank != new_rank:
-                    order_changes[identifier] = {'position': {'from': old_rank, 'to': new_rank}}
+            elif action in ('move', 'board_order'):
+                if action == 'move':
+                    old_ranks = {identifier: rank for rank, identifier in enumerate(old_lane, 1)}
+                    new_ranks = {identifier: rank for rank, identifier in enumerate(order, 1)}
+                else:
+                    def ranks(cards):
+                        counts, result = {}, {}
+                        for card in sorted(cards.values(), key=lambda card: (card['position'], card['id'])):
+                            if not card['milestone']:
+                                lane = card['status'], card['archived']
+                                counts[lane] = counts.get(lane, 0) + 1
+                                result[card['id']] = counts[lane]
+                        return result
+
+                    old_ranks, new_ranks = ranks(previous), ranks(current)
+                for identifier in ids:
+                    if identifier in old_ranks and old_ranks[identifier] != new_ranks[identifier]:
+                        order_changes[identifier] = {'position': {'from': old_ranks[identifier], 'to': new_ranks[identifier]}}
             fields = sorted(allowed | {'milestone_number'})
             for identifier, row in current.items():
                 old = previous.get(identifier)

@@ -402,11 +402,19 @@ const liveMarkdown = ViewPlugin.fromClass(class {
 
 function notify(message,error=false) {$('#notice').textContent=message;$('#notice').classList.toggle('error',error);}
 async function api(route,method='GET',data) {
-  const result=await fetch('/api/'+route,{method,headers:{'X-Looking-Glass-Token':token,'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)});
+  const headers = {'X-Looking-Glass-Token': token};
+  const multipart = data instanceof FormData;
+  if (!multipart) headers['Content-Type'] = 'application/json';
+  const result = await fetch('/api/' + route, {method, headers, body: multipart ? data : JSON.stringify(data)});
   if(result.status===304)return null;
   const payload=await result.json();
   if(!result.ok){const e=new Error(payload.error||'Request failed');e.status=result.status;throw e;}
   return payload;
+}
+async function fetchAttachment(route) {
+  const response = await fetch('/api/' + route, {headers: {'X-Looking-Glass-Token': token}});
+  if (!response.ok) throw new Error((await response.json()).error);
+  return response.blob();
 }
 async function binary(path){const r=await fetch('/api/binary?'+new URLSearchParams({path}),{headers:{'X-Looking-Glass-Token':token}});if(!r.ok)throw new Error((await r.json()).error);return r.arrayBuffer();}
 function guard(fn){return (...args)=>Promise.resolve().then(()=>fn(...args)).catch(e=>notify(e.message,true));}
@@ -752,7 +760,8 @@ async function loadFile(path,request){
 }
 
 async function mountFileSurface(e){
-  if(e.kind==='tasks')cleanup=mountTasks($('#surface'),e.tasks??={},api,{openDocument:(path,id)=>openTaskDocument(e,path,id),author:()=>authorName,sidebar:$('#task-sidebar'),onSidebarMode:active=>{
+  if(e.kind==='tasks')cleanup=mountTasks($('#surface'),e.tasks??={},api,{openDocument:(path,id)=>openTaskDocument(e,path,id),
+    downloadAttachment:file=>fetchAttachment(`task-attachments/${file.entry_id}/${file.id}`),author:()=>authorName,sidebar:$('#task-sidebar'),onSidebarMode:active=>{
     document.body.classList.toggle('tasks-view',active);
     $('#discussion-sidebar').setAttribute('aria-label',active?'Task hierarchy':'Discussions');
     $('#discussion-resize').setAttribute('aria-label',active?'Resize task list':'Resize discussions');
@@ -1667,9 +1676,7 @@ document.addEventListener('click',guard(async event=>{
     const attachmentId=Number(action.closest('[data-attachment]').dataset.attachment),item=t.attachments.find(a=>a.id===attachmentId);
     if(action.dataset.action==='rename-attachment'){await requestText({title:'Rename attachment',value:item.name,onSubmit:async name=>{await api('attachments/'+attachmentId,'PATCH',{name});await refreshThreads();}});return;}
     if(action.dataset.action==='delete-attachment'){if(await confirmAction({title:'Remove attachment?',message:item.name,confirmLabel:'Remove attachment',symbol:'trash',danger:true})){await api('attachments/'+attachmentId,'DELETE');await refreshThreads();}return;}
-    const response=await fetch('/api/attachments/'+attachmentId,{headers:{'X-Looking-Glass-Token':token}});
-    if(!response.ok)throw new Error((await response.json()).error);
-    const url=URL.createObjectURL(await response.blob());
+    const url=URL.createObjectURL(await fetchAttachment('attachments/'+attachmentId));
     if(action.dataset.action==='preview-attachment'){
       $('#attachment-title').textContent=item.name;$('#attachment-image').src=url;$('#attachment-image').alt=item.name;
       $('#attachment-dialog').addEventListener('close',()=>{URL.revokeObjectURL(url);$('#attachment-image').removeAttribute('src');},{once:true});$('#attachment-dialog').showModal();

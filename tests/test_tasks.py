@@ -362,3 +362,92 @@ def test_milestone_creation_inserts_at_the_requested_position(tmp_path):
     assert result['cards'][3]['milestone_id'] == 3
     assert tasks.activity(3)['entries'][-1]['changes']['milestone_number'] == {'from': 3, 'to': 4}
     assert tasks.activity(5)['entries'][-1]['changes']['milestone_number'] == {'from': None, 'to': 3}
+
+
+def test_board_multimove_and_insert_preserve_other_lane_and_outline_order(tmp_path):
+    tasks = Workspace(tmp_path).tasks
+
+    def change(**data):
+        return tasks.mutate(dict(revision=tasks.read()['revision'], **data))
+
+    def lane(status):
+        return [card['id'] for card in tasks.read()['cards'] if card['status'] == status]
+
+    for status in ('backlog', 'backlog', 'in_progress', 'done', 'done'):
+        change(action='create', title='Task', status=status)
+    change(action='move', ids=[3, 1], status='done', before=5)
+    assert lane('backlog') == [2]
+    assert lane('done') == [4, 3, 1, 5]
+    assert tasks.activity(1)['entries'][-1]['changes']['status'] == {'from': 'backlog', 'to': 'done'}
+    saved = tasks.read()
+    with pytest.raises(Problem, match='Drop target changed'):
+        change(action='move', ids=[1, 2], status='done', before=1)
+    assert tasks.read() == saved
+    change(action='create', title='Inserted', status='done', before=1)
+    assert lane('done') == [4, 3, 6, 1, 5]
+    change(action='board_order', ids=[1, 2, 3, 4, 5, 6])
+    assert lane('done') == [1, 3, 4, 5, 6]
+    assert lane('backlog') == [2]
+    assert {card['id']: card['outline_position'] for card in tasks.read()['cards']} == {
+        card['id']: card['outline_position'] for card in saved['cards']
+    } | {6: 6}
+
+
+def test_delete_milestone_compacts_surviving_numbers_and_preserves_ids(tmp_path):
+    tasks = Workspace(tmp_path).tasks
+
+    def change(**data):
+        return tasks.mutate(dict(revision=tasks.read()['revision'], **data))
+
+    for title in ('First', 'Second', 'Third', 'Fourth'):
+        change(action='create', title=title, milestone=True)
+    change(action='update', ids=[3], changes={'archived': True})
+    change(action='create', title='Fourth child', parent_id=4)
+    change(action='delete', ids=[2])
+    remaining = {card['id']: card for card in Workspace(tmp_path).tasks.read()['cards']}
+    assert [remaining[i]['reference'] for i in (1, 3, 4)] == ['#M1', '#M2', '#M3']
+    assert remaining[3]['archived']
+    assert remaining[5]['milestone_id'] == 4
+    assert remaining[4]['card_reference'] == '#C04'
+    assert tasks.activity(4)['entries'][-1]['changes']['milestone_number'] == {'from': 4, 'to': 3}
+
+
+def test_task_comment_attachments_are_atomic_and_removed_with_their_owner(tmp_path):
+    import io
+    import json
+
+    app = create_app(tmp_path)
+    client = app.test_client()
+    ws = app.extensions['workspace']
+    headers = {'X-Looking-Glass-Token': ws.token}
+    files = ws.attachments.directory
+    ws.tasks.mutate(dict(action='create', title='Plan', revision=0))
+
+    def comment(identifier, *names):
+        return client.post('/api/tasks', headers=headers, data={
+            'data': json.dumps({'action': 'comment', 'id': identifier}),
+            'files': [(io.BytesIO(name.encode()), name) for name in names],
+        })
+
+    assert comment(99, 'missing.txt').status_code == 404
+    assert comment(1, 'valid.txt', '../invalid.txt').status_code == 400
+    assert not list(files.iterdir())
+    assert ws.tasks.read()['revision'] == 1
+    assert comment(1, 'evidence.txt', 'picture.png').status_code == 200
+    entry = Workspace(tmp_path).tasks.activity(1)['entries'][-1]
+    attachments = entry['attachments']
+    assert entry['body'] == ''
+    assert [item['name'] for item in attachments] == ['evidence.txt', 'picture.png']
+    assert all('storage_key' not in item for item in attachments)
+    download = f"/api/task-attachments/{entry['id']}/{attachments[0]['id']}"
+    assert client.get(download).status_code == 401
+    response = client.get(download, headers=headers)
+    assert response.data == b'evidence.txt'
+    assert response.headers['Content-Disposition'] == 'attachment; filename=evidence.txt'
+    assert len(list(files.iterdir())) == 2
+    ws.tasks.mutate(dict(action='delete_activity', id=1, entry_id=entry['id']))
+    assert client.get(download, headers=headers).status_code == 404
+    assert not list(files.iterdir())
+    assert comment(1, 'other.txt').status_code == 200
+    ws.tasks.mutate(dict(action='delete', ids=[1], revision=ws.tasks.read()['revision']))
+    assert not list(files.iterdir())

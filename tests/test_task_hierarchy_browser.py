@@ -70,7 +70,7 @@ def test_outline_keyboard_edits_hierarchy_details_and_sidebar_restore(workspace_
     page.get_by_role('button',name='Close card',exact=True).click()
     sidebar.get_by_role('button',name='Open #C03',exact=True).click()
     expect(page.get_by_label('Description',exact=True)).to_have_value('Keep this parent draft')
-    page.get_by_role('button',name='Save',exact=True).click()
+    page.get_by_role('button',name='Close card',exact=True).click()
     expect(page.locator('.task-detail')).to_have_count(0)
     # Keyboard creation adds a full card subitem, also visible on the board.
     name=sidebar.get_by_label('Task name 3',exact=True);name.focus();name.press('Control+Enter')
@@ -116,10 +116,10 @@ def test_outline_dragging_reassigns_reorders_nests_and_shares_multiselection(wor
     # Same blade dragged to the right indents under its preceding sibling.
     row(3).drag_to(row(3),source_position={'x':30,'y':16},target_position={'x':100,'y':16})
     expect(row(3)).to_have_attribute('data-depth','2')
-    row(3).drag_to(row(3),source_position={'x':100,'y':16},target_position={'x':30,'y':16})
+    row(3).drag_to(row(3),source_position={'x':100,'y':16},target_position={'x':67,'y':16})
     expect(row(3)).to_have_attribute('data-depth','1')
     # Checklists reuse draggable blades and clickable permanent card references.
-    row(1).locator('.task-outline-reference').click()
+    row(1).click(position={'x':110,'y':16})
     checklist=page.locator('.task-checklist')
     first=checklist.locator('.task-outline-row[data-id="5"]');second=checklist.locator('.task-outline-row[data-id="3"]')
     second.drag_to(first,source_position={'x':8,'y':16},target_position={'x':8,'y':4})
@@ -222,6 +222,11 @@ def test_drag_preview_slides_neighbors_and_saves_only_on_drop(workspace_page, su
         page.mouse.move(x, y)
         page.mouse.move(x, y)
         expect(gap).to_be_visible()
+        if surface != 'kanban':
+            depth = 1 if surface == 'sidebar' else 0
+            expect(group).to_have_attribute('data-task-drop-depth', str(depth))
+            expect(gap).to_have_css('margin-inline-start', f'{16 * depth}px')
+            assert group.evaluate("list => getComputedStyle(list, '::after').borderInlineEndWidth") == '1px'
 
     before = ws.tasks.read()
     start_drag()
@@ -251,6 +256,7 @@ def test_drag_preview_slides_neighbors_and_saves_only_on_drop(workspace_page, su
     page.mouse.move(8, 36)
     page.mouse.up()
     expect(gap).to_have_count(0)
+    assert group.get_attribute('data-task-drop-depth') is None
     expect(source).to_be_visible()
     page.wait_for_function('() => !document.getAnimations().some(a => a.effect.target?.matches?.(".task-card,.task-outline-row"))')
     assert ws.tasks.read() == before
@@ -388,3 +394,40 @@ def test_task_list_checkbox_moves_card_to_done(workspace_page, surface, status, 
     check.uncheck()
     expect(page.locator('.task-lane[data-status="backlog"]').locator(card)).to_have_count(1)
     expect(indicator).to_have_text('◌')
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+@pytest.mark.parametrize('surface', ['sidebar', 'checklist'])
+def test_drag_snaps_across_multiple_hierarchy_levels(workspace_page, surface):
+    from playwright.sync_api import expect
+    _, page, url, ws = workspace_page
+    for title, parent in [('Plan', None), ('Group', 1), ('Parent', 2), ('Task', 3), ('Neighbor', 3)]:
+        ws.tasks.mutate(dict(action='create', title=title, parent_id=parent, revision=ws.tasks.read()['revision']))
+    page.goto(url)
+    page.locator('#tasks-open').click()
+    if surface == 'checklist':
+        page.get_by_role('article', name='Plan', exact=True).click()
+        group = page.locator('.task-checklist .task-outline-list')
+        original_depth = 2
+    else:
+        group = page.locator('#task-sidebar .task-outline-list')
+        original_depth = 3
+    source = group.locator('.task-outline-row[data-id="4"]')
+    neighbor = group.locator('.task-outline-row[data-id="5"]')
+    expect(neighbor).to_have_attribute('data-depth', str(original_depth))
+    start, target = source.bounding_box(), neighbor.bounding_box()
+    start_x, start_y = start['x'] + 170, start['y'] + 16
+    y = target['y'] + 16
+    page.mouse.move(start_x, start_y)
+    page.mouse.down()
+    page.mouse.move(start_x - 9, start_y)
+    page.mouse.move(start_x - 47, y)
+    page.mouse.move(start_x - 47, y)
+    depth = original_depth - 2
+    expect(group).to_have_attribute('data-task-drop-depth', str(depth))
+    expect(group.locator('.task-drop-preview')).to_have_css('margin-inline-start', f'{16 * depth}px')
+    assert next(card for card in ws.tasks.read()['cards'] if card['id'] == 4)['parent_id'] == 3
+    page.mouse.up()
+    expect(source).to_have_attribute('data-depth', str(depth))
+    assert next(card for card in ws.tasks.read()['cards'] if card['id'] == 4)['parent_id'] == 1
+    assert group.get_attribute('data-task-drop-depth') is None

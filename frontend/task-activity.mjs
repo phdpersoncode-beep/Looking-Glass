@@ -18,8 +18,10 @@ function value(field, v) {
   if (field === "archived") return v ? "Archived" : "Active";
   return String(v);
 }
-function mountTaskActivity(dialog, id, { api, state, write, getRevision, error }) {
+function mountTaskActivity(dialog, id, { api, download, state, write, getRevision, error }) {
   const drafts = state.commentDrafts ??= /* @__PURE__ */ new Map();
+  const draft = drafts.get(id) ?? {body: '', files: []};
+  const previews = new Map();
   let revision = -1, limit = 100, pending = null, disposed = false, hasOlder = false;
   const section = node("section", void 0, "task-activity"), heading = node("h3", "Comments & activity"), list = node("div", void 0, "task-activity-list"), status = node("p", void 0, "task-activity-error"), older = node("button", "Load earlier activity"), form = node("form", void 0, "task-comment-form"), label = node("label", "Comment"), input = node("textarea"), send = node("button", "Comment");
   section.setAttribute("aria-label", "Comments and activity");
@@ -37,15 +39,106 @@ function mountTaskActivity(dialog, id, { api, state, write, getRevision, error }
   input.rows = 2;
   input.dataset.taskFileMentions = '';
   input.maxLength = 1e5;
-  input.value = drafts.get(id) || "";
-  input.oninput = () => drafts.set(id, input.value);
+  input.value = draft.body;
+  function keepDraft() {
+    if (draft.body || draft.files.length) drafts.set(id, draft);
+    else drafts.delete(id);
+  }
+  input.oninput = () => {
+    draft.body = input.value;
+    keepDraft();
+  };
+  const picker = node('input');
+  picker.type = 'file';
+  picker.multiple = true;
+  picker.hidden = true;
+  picker.setAttribute('aria-label', 'Task comment files');
+  const attach = iconButton('Attach files', 'paperclip', () => picker.click());
+  const actions = node('div', undefined, 'task-comment-actions');
+  const pendingFiles = node('ul', undefined, 'task-comment-files');
+  function renderFiles() {
+    pendingFiles.replaceChildren(...draft.files.map(file => {
+      const item = node('li');
+      item.append(node('span', file.name), iconButton('Remove ' + file.name, 'close', () => {
+        draft.files = draft.files.filter(value => value !== file);
+        keepDraft();
+        renderFiles();
+      }));
+      return item;
+    }));
+  }
+  picker.onchange = () => {
+    const files = [...draft.files, ...picker.files];
+    picker.value = '';
+    if (files.length > 16 || files.reduce((total, file) => total + file.size, 0) > 64 * 1024 * 1024) {
+      status.textContent = 'Attach up to 16 files, totaling at most 64 MiB.';
+      return;
+    }
+    draft.files = files;
+    status.textContent = '';
+    keepDraft();
+    renderFiles();
+  };
+  renderFiles();
   send.type = "submit";
-  form.append(label, input, send);
+  actions.append(attach, send);
+  form.append(label, input, actions, picker, pendingFiles);
   section.append(heading, older, list, status, form);
   dialog.append(section);
+  function removePreviews(item) {
+    for (const [image, url] of previews) if (item.contains(image)) {
+      URL.revokeObjectURL(url);
+      previews.delete(image);
+    }
+  }
+  function renderAttachment(file) {
+    const item = node('li');
+    const save = node('button', file.name);
+    save.type = 'button';
+    save.title = 'Download ' + file.name;
+    save.onclick = async () => {
+      try {
+        const url = URL.createObjectURL(await download(file));
+        const link = node('a');
+        link.href = url;
+        link.download = file.name;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } catch (problem) {
+        status.textContent = problem.message;
+      }
+    };
+    item.append(save);
+    if (['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(file.media_type)) {
+      const preview = node('details');
+      const image = node('img');
+      image.alt = file.name;
+      preview.append(node('summary', 'Preview ' + file.name), image);
+      preview.ontoggle = async () => {
+        if (!preview.open || image.hasAttribute('src') || preview.dataset.loading) return;
+        preview.dataset.loading = 'true';
+        try {
+          const blob = await download(file);
+          if (disposed || !preview.isConnected || image.hasAttribute('src')) return;
+          const url = URL.createObjectURL(blob);
+          previews.set(image, url);
+          image.src = url;
+        } catch (problem) {
+          if (!disposed) status.textContent = problem.message;
+        } finally {
+          delete preview.dataset.loading;
+        }
+      };
+      item.append(preview);
+    }
+    return item;
+  }
   function render(entries) {
     const ids = new Set(entries.map((e) => String(e.id)));
-    for (const child of [...list.children]) if (!ids.has(child.dataset.entry)) child.remove();
+    for (const child of [...list.children]) if (!ids.has(child.dataset.entry)) {
+      removePreviews(child);
+      child.remove();
+    }
     for (const entry of entries) {
       let item = [...list.children].find((e) => e.dataset.entry === String(entry.id));
       if (item) continue;
@@ -69,9 +162,16 @@ function mountTaskActivity(dialog, id, { api, state, write, getRevision, error }
       meta.append(author, time, remove);
       item.append(meta);
       if (entry.kind === "comment") {
-        const body = node("p", entry.body);
-        linkFileReferences(body);
-        item.append(body);
+        if (entry.body) {
+          const body = node("p", entry.body);
+          linkFileReferences(body);
+          item.append(body);
+        }
+        if (entry.attachments?.length) {
+          const files = node('ul', undefined, 'task-comment-files');
+          files.append(...entry.attachments.map(renderAttachment));
+          item.append(files);
+        }
       }
       else {
         const updates = node("div", void 0, "task-update-fields");
@@ -119,15 +219,16 @@ function mountTaskActivity(dialog, id, { api, state, write, getRevision, error }
   }
   form.onsubmit = async (event) => {
     event.preventDefault();
-    if (!input.value.trim()) return;
+    if (send.disabled || (!input.value.trim() && !draft.files.length)) return;
     const body = input.value;
+    const files = [...draft.files];
     send.disabled = true;
     status.textContent = "";
-    if (await write({ action: "comment", id, body })) {
-      if (input.value === body) {
-        input.value = "";
-        drafts.delete(id);
-      }
+    if (await write({ action: "comment", id, body }, files)) {
+      if (input.value === body) input.value = draft.body = '';
+      draft.files = draft.files.filter(file => !files.includes(file));
+      keepDraft();
+      renderFiles();
       await refresh(true);
     } else status.textContent = error();
     send.disabled = false;
@@ -141,6 +242,7 @@ function mountTaskActivity(dialog, id, { api, state, write, getRevision, error }
   refresh();
   return { refresh, dispose: () => {
     disposed = true;
+    removePreviews(section);
   } };
 }
 export {

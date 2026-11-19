@@ -16,7 +16,11 @@ def test_card_popup_geometry_backdrop_drafts_and_editable_heading(workspace_page
     change(action='update',ids=[1],changes={'milestone':True})
     change(action='create',title='Nested task',parent_id=1)
     page.goto(url);page.locator('#tasks-open').click()
-    card=page.locator('#task-sidebar .task-outline-row[data-id="1"] .task-outline-reference');card.click()
+    card=page.locator('#task-sidebar .task-outline-row[data-id="1"]')
+    def open_milestone():
+        card.click(position={'x':110,'y':16})
+
+    open_milestone()
     popup=page.locator('.task-detail')
     expect(popup).to_be_visible()
     expect(page.get_by_role('dialog',name='M1: Plan the release',exact=True)).to_be_visible()
@@ -60,31 +64,32 @@ def test_card_popup_geometry_backdrop_drafts_and_editable_heading(workspace_page
     # A backdrop click dismisses without activating the board behind it.
     page.mouse.click(8,300)
     expect(popup).to_have_count(0)
-    assert ws.tasks.read()['cards'][0]['title']=='Plan the release'
-    card.click()
-    expect(title).to_have_value('A directly editable heading')
-    expect(page.get_by_label('Description',exact=True)).to_have_value('An unsaved plan')
-    popup.get_by_role('button',name='Save',exact=True).click()
-    expect(popup).to_have_count(0)
-    expect(card).to_have_attribute('title', 'Open M1: A directly editable heading')
-    card.click()
-    title.fill('Keep on Escape')
+    saved = next(card for card in ws.tasks.read()['cards'] if card['id'] == 1)
+    assert saved['title'] == 'A directly editable heading'
+    assert saved['description'] == 'An unsaved plan'
+    expect(card.locator('.task-outline-name')).to_have_value('A directly editable heading')
+    open_milestone()
+    title.fill('Save on Escape')
     page.keyboard.press('Escape')
     expect(popup).to_have_count(0)
-    card.click();expect(title).to_have_value('Keep on Escape')
+    open_milestone()
+    expect(title).to_have_value('Save on Escape')
+    title.fill('Discard this edit')
     popup.get_by_role('button',name='Cancel',exact=True).click()
-    card.click();expect(title).to_have_value('A directly editable heading')
+    expect(popup).to_have_count(0)
+    open_milestone()
+    expect(title).to_have_value('Save on Escape')
     popup.get_by_role('button',name='Close card',exact=True).click()
     # Normal cards use their name as the editable heading and show #C separately.
     page.locator('.task-card[data-id="2"]').click()
     expect(popup.get_by_role('heading',name='Ship a task',exact=True)).to_be_visible()
     expect(popup.locator('.task-permanent-reference')).to_have_text('Card #C02')
     title.fill('')
-    popup.get_by_role('button',name='Save',exact=True).click()
+    popup.get_by_role('button',name='Close card',exact=True).click()
     expect(popup).to_be_visible()
     assert not title.evaluate('e=>e.checkValidity()')
     title.fill('Ship the full task')
-    popup.get_by_role('button',name='Save',exact=True).click()
+    popup.get_by_role('button',name='Close card',exact=True).click()
     page.reload()
     expect(page.locator('.task-card[data-id="2"]')).to_contain_text('Ship the full task')
 
@@ -108,9 +113,13 @@ def test_popup_focus_scroll_polling_and_nested_navigation(workspace_page):
     title.focus();page.keyboard.press('Shift+Tab')
     expect(popup.get_by_role('button',name='Close card',exact=True)).to_be_focused()
     page.keyboard.press('Tab');expect(title).to_be_focused()
-    # Clickable checklist IDs replace the focused card, preserving parent drafts.
+    # Switching to a child uses the same conflict review and autosave as closing.
+    popup.get_by_role('button',name='Open #C02',exact=True).click()
+    popup.get_by_text('Review latest saved card').click()
+    popup.get_by_role('button',name='Use this revision and keep my edits').click()
     popup.get_by_role('button',name='Open #C02',exact=True).click()
     expect(popup.get_by_role('heading',name='Child',exact=True)).to_be_visible()
+    assert next(card for card in ws.tasks.read()['cards'] if card['id'] == 1)['description'] == 'Parent draft'
     popup.get_by_role('button',name='Close card',exact=True).click()
     page.locator('.task-card[data-id="1"]').click()
     expect(title).to_have_value('Draft heading <script>plain text</script>')

@@ -26,6 +26,6 @@ test('all four backdrop edges dismiss, while the card edges remain inside',()=>{
  for(const [x,y] of [[200,32],[967,767]]){send('pointerdown',x,y);send('click',x,y);}
  assert.equal(count(),4);
 });
-test('Escape uses the same draft-preserving dismissal callback',()=>{
+test('Escape uses the same dismissal callback',()=>{
  const {send,count}=popup();send('cancel');assert.equal(count(),1);
 });

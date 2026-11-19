@@ -8,41 +8,50 @@ The four columns are **◌ Backlog**, **◐ In progress**, **◎ To review**, an
 Drag a card onto another card to insert before it, or onto a column to append.
 While dragging, a preview gap shows where the card will land and nearby cards
 slide into the proposed positions. The board order is saved on drop. With
-reduced motion enabled, the preview gap updates immediately.
+reduced motion enabled, the preview gap updates immediately. Drag any selected
+card to move the selected active tasks together, including tasks in other
+columns. **Order by sidebar** applies the full outline order within each
+column. Dragging cards can change that order again without changing the outline.
+
+Hover between cards or at the bottom of a column to reveal **+**, or use Tab to
+focus the same controls. A task created between cards is inserted at that spot.
+When an active milestone filter is set, new cards in the columns belong to that
+milestone.
+
 Use the archive icon in **Done** to archive the tasks shown in that column.
 **Show archive** switches the board to archived tasks. The sidebar keeps
 archived tasks in their original hierarchy, where you can open and restore them.
 Click a card (or press Enter while focused) to open its centered detail popup.
-The card's name is its heading: edit it directly in place, then Save with the
-other fields. There is no separate Title box. Milestones keep their M-number
-prefix beside the editable name; #C identity remains underneath. Compact status
+Edit the card's name directly in its heading. Milestones show their M-number
+prefix beside the editable name and their permanent #C reference underneath. Compact status
 and milestone dropdowns sit side by side directly below the heading, above the
 description. Status symbols match the board columns (◌, ◐, ◎, ✓); ◇ marks milestone
 assignment. Changing status in the editor is the keyboard alternative
 to dragging. All titles and descriptions are treated as plain text.
 
-The upper-right toolbar beside × uses line icons for Save, discard edits (Cancel),
-promotion/demotion, archive/restore, and delete. Each has a hover tooltip and
-accessible name. Save commits all fields, including the heading; Delete keeps its
-confirmation step. Actions stay available while scrolling the popup.
+The upper-right toolbar beside × includes **Cancel** to discard field edits,
+promotion/demotion, archive/restore, and delete. Each control has a tooltip
+and accessible name, and stays available while scrolling the popup.
 
 Milestones appear in the right sidebar with a purple left bar. The board shows
 their tasks and each task's milestone label.
 Every card keeps a permanent reference such as **#C01**, including while promoted.
 Milestone titles display **M1: My awesome card** (without changing the stored title).
 Reorder milestones in the right sidebar to change their numbers. The new order
-reuses the existing active milestone numbers, including gaps. Archived milestones
-keep their reserved numbers. New promotions take the
+reuses the existing active milestone numbers, including gaps. Deleting a
+milestone compacts the numbers of all surviving milestones in order, including
+archived milestones. New promotions take the
 lowest unused number. Demotion restores the original #C identity and remembers
 the previous milestone number; re-promotion reuses it when free, otherwise assigns
 an unused number. The milestone editor also shows its permanent #C identity.
 Existing boards retain the numbers displayed before this upgrade.
 
-Use **Filter by milestone** to show its tasks on the board. Select the same
-milestone again or choose **All milestones** to clear the filter. Hover a
-truncated name to see its full text. Search `#M1` or `M1` to find assigned
-tasks, or `#C01` / `C01` to find a task by its permanent ID. Stable #C numbers
-survive restarts and remain the references stored in activity history.
+Click a milestone’s **◇** in the sidebar or choose it from **Filter by milestone**
+to show its tasks on the board. Click the same milestone again, use **Clear
+milestone filter** in the sidebar, or choose **All milestones** to clear it.
+Search `#M1` or `M1` to find assigned tasks, or `#C01` / `C01` to find a task
+by its permanent ID. Stable #C numbers survive restarts and remain the references
+stored in activity history.
 Assignments and edit headings follow milestone renumbering without changing the
 underlying relationships or clearing unsent fields.
 
@@ -52,8 +61,9 @@ tasks. Use **◇** on a board card to promote an existing task. Milestones keep
 their own status, description, and a completion count for their active
 descendants. Every card has a nested **Tasks** list;
 each subitem is itself a full card with a permanent ID, status, and conversation.
-Click the row or its **#Cxx** reference to open its detail popup. Parent
-field drafts remain available when following these links or returning to the board.
+Click the row, a task’s **#Cxx** reference, or a milestone’s **M-number**
+to open its detail popup.
+Opening a child card saves the parent’s pending field edits first.
 Checking a task moves its card to **Done**. Unchecking returns it to **Backlog**.
 Completion never automatically changes a parent's status. Milestones cannot be nested; task
 hierarchies support up to 32 levels and inherit the top milestone's assignment.
@@ -89,10 +99,10 @@ does not expand collapsed lists when agents add children. A blank left gutter
 remains available for dragging rows.
 
 The popup leaves the board visible through a dimmed backdrop. Clicking that
-backdrop, pressing Escape, or choosing **Close card** exits focus mode and keeps
-unsaved field/comment drafts for reopening; **Cancel** discards field changes.
-Saving sends only the fields you edited. If another writer changed the board,
-review and acknowledge the latest revision before retrying your field edits.
+backdrop, pressing Escape, or choosing **Close card** saves the edited fields
+and closes the popup. Unposted comments and their selected files remain in the
+tab session. If another writer changed the board, the popup keeps your edits
+open so you can review and acknowledge the latest revision before closing again.
 
 Type `@` in a card description or comment to find a workspace file. Description
 references appear under **Related files**, and references in posted comments
@@ -117,22 +127,23 @@ For example, at 1600px wide it occupies 48% of the screen, and at 1100px about 7
 These are Looking Glass dimensions, not a claim about Trello's current CSS.
 
 Drag rows vertically to reorder siblings. Drag a row right to nest under a target,
-or left to lift a level; dragging a row horizontally on itself uses the previous
-sibling for indentation. In the sidebar and card checklists, nearby rows slide
-aside to preview the insertion point. The gap is indented to show the proposed
-nesting level when it is visible in the current list.
+or left to lift one or more levels. Dragging a row right on itself nests it under
+the previous sibling. In the sidebar and card checklists, nearby rows slide aside
+to preview the drop. The gap snaps to the proposed nesting depth, with vertical
+guides marking the levels.
 Dropping onto a milestone assigns the task and its subtree to that milestone.
 All card checklists use the same editable, draggable rows and saved hierarchy.
-Ctrl/Cmd+click selects multiple rows and shares selection with Kanban cards;
-right-click exposes assign/unassign, archive, restore, delete, and clear actions.
+Hover over a task in the sidebar to highlight its board card. Ctrl/Cmd+click
+selects multiple rows and shares selection with their board cards. Right-click
+opens task actions in either view.
 Selected descendants travel once with a selected ancestor. Archived cards must be
 restored before dragging.
 
 Search matches a case-insensitive character subsequence across title and
-description. The milestone filter shows the milestone and its children. Search,
-filter, and archive scope combine. Ctrl+click (Cmd+click on macOS), or Space on a
-focused card, toggles selection. Selected cards expose assign/unassign, archive,
-restore, delete, and clear actions. Delete asks for confirmation; archive is
+description. Search, milestone filtering, and archive scope combine. Ctrl+click
+(Cmd+click on macOS), or Space on a focused card, toggles selection. A floating
+ribbon offers assign/unassign, archive, restore, delete, and clear actions.
+Delete asks for confirmation. Archive is
 reversible through **Show archive**. Deleting a card lifts surviving children to
 its nearest surviving parent. Deleting or demoting a milestone keeps its tasks,
 lifts direct children to the root, and unassigns the subtree. Archiving a milestone preserves its task relationships;
@@ -158,8 +169,11 @@ Milestones also record child assignment/unassignment. Description differences ex
 on demand. Saving unchanged fields does not create an update or reorder the card.
 
 Write in the resizable comment box and click **Comment** beside it (Ctrl/Cmd+Enter
-also submits). A trash icon
-on each entry immediately deletes that comment or update. Deletion is permanent
+also submits). Use the paperclip to attach images or files, with optional text.
+A comment supports up to 16 files totaling 64 MiB. Click a filename to download
+it or open the inline preview for PNG, JPEG, GIF, and WebP images. A trash icon
+on each entry immediately deletes that comment and its attachments, or the update.
+Deletion is permanent
 and does not revert the card change. This is a collaborative activity log that can
 be cleaned up, not an immutable audit trail. Deleting a card removes its timeline;
 archiving keeps it. Existing cards retain their IDs and gain activity from this
@@ -244,7 +258,7 @@ as other agent routes:
 ```json
 {"action":"create","revision":0,"title":"Plan","status":"backlog"}
 {"action":"update","revision":1,"ids":[1],"changes":{"milestone":true}}
-{"action":"move","revision":2,"id":1,"status":"in_progress","before":null}
+{"action":"move","revision":2,"ids":[2,3],"status":"in_progress","before":null}
 {"action":"delete","revision":3,"ids":[1]}
 {"action":"create","revision":4,"title":"Subitem","parent_id":2}
 {"action":"outline_move","revision":5,"ids":[3],"parent_id":2,"before":null}
@@ -262,6 +276,13 @@ Additional `POST /api/tasks` actions:
 {"action":"delete_activity","id":1,"entry_id":42}
 ```
 
+To attach files to a comment, send `multipart/form-data` with the JSON action in
+`data` and one or more `files` fields. An attached comment can omit `body`.
+Activity entries with files include `attachments` with each file’s `id`,
+`entry_id`, `name`, `size`, and `media_type`. Download via the authenticated
+`GET /api/task-attachments/<entry_id>/<id>` endpoint. SQL snapshots include
+attachment metadata. File bytes stay in `.looking-glass/attachments/`.
+
 Deletion checks both the card and entry IDs. Card snapshots also contain a
 `reference` (the displayed #M or #C label), `card_reference` (permanent #C ID),
 `milestone_reference` (#M label or null), `parent_id` (immediate card parent or null),
@@ -272,8 +293,11 @@ for mutations (defaults to User for HTTP; the browser uses its saved author).
 Statuses are `backlog`, `in_progress`, `to_review`, `done`. Editable fields are
 `title`, `description`, `status`, `milestone` (boolean), `milestone_id` (integer or
 null; reassigns the subtree directly under that milestone), `parent_id` (integer
-or null), and `archived` (boolean). Move's optional `before` identifies an active card
-in the destination column. The sidebar sends `milestone_move` with the moved
+or null), and `archived` (boolean). Move accepts ordered `ids` for a group or
+`id` for a single card. An optional `before` identifies an active card in the
+destination column for a move or task creation. `board_order` takes a complete
+list of task IDs in the desired order and preserves their statuses and outline
+positions. The sidebar sends `milestone_move` with the moved
 milestone's `id` and an active milestone `before`, or null to move it to the end.
 Creating a milestone uses `create` with `milestone: true` and the same `before`.
 The Done archive action uses `archive_done` with the `ids` shown in the column.
@@ -298,7 +322,7 @@ or automatic Git commits are introduced.
   includes hidden selected cards. Switching archive scope clears selection.
 - Comments and update entries are both deletable; deletion does not undo changes.
 - Every card retains its stable `#C` identity, with two-digit minimum padding. Milestones
-  display editable, saved `#M` numbers; gaps are allowed and archived numbers remain reserved.
+  display saved `#M` numbers. Deletion closes numbering gaps in milestone order.
 - A completion celebration is only for a successful local task transition into Done.
 - Tab pinning follows existing behavior; board search/filter state lasts while its tab
   session remains open, while card data and tab metadata survive reloads.

@@ -29,7 +29,9 @@ def create_app(root):
     def protect():
         if request.path.startswith('/api/images'):
             request.max_content_length=33*1024*1024
-        if request.method=='POST' and (request.path.endswith(('/attachments','/replies')) or request.path=='/api/threads'):
+        if request.method == 'POST' and (request.path.endswith(('/attachments', '/replies'))
+                or request.path == '/api/threads'
+                or (request.path == '/api/tasks' and request.mimetype == 'multipart/form-data')):
             request.max_content_length=65*1024*1024
         if request.path.startswith(('/api/', '/fragments/')):
             if not secrets.compare_digest(request.headers.get('X-Looking-Glass-Token',''), ws.token):
@@ -69,13 +71,13 @@ def create_app(root):
             raise Problem('Send a JSON object.')
         return data
 
-    def review_body():
+    def comment_body():
         if request.mimetype != 'multipart/form-data':
             return body(), []
         try:
             data = json.loads(request.form.get('data',''))
         except (TypeError,ValueError):
-            raise Problem('Send review data with the attachment files.')
+            raise Problem('Send comment data with the attachment files.')
         if not isinstance(data,dict): raise Problem('Send a JSON object.')
         files=request.files.getlist('files')
         if len(files)>16: raise Problem('Attach at most 16 files per comment.')
@@ -161,7 +163,17 @@ def create_app(root):
 
     @app.post('/api/tasks')
     def change_task_board():
-        return jsonify(ws.tasks.mutate(body()))
+        data, files = comment_body()
+        board = ws.tasks.comment_with_attachments(data, files) if files else ws.tasks.mutate(data)
+        return jsonify(board)
+
+    @app.get('/api/task-attachments/<int:entry_id>/<int:identifier>')
+    def download_task_attachment(entry_id, identifier):
+        item = ws.tasks.attachment(entry_id, identifier)
+        path = ws.attachments.directory / item['storage_key']
+        if not path.is_file():
+            raise Problem('Attachment file not found.', 404)
+        return send_file(path, mimetype=item['media_type'], as_attachment=True, download_name=item['name'])
 
     @app.get('/api/project')
     def project():
@@ -441,7 +453,7 @@ def create_app(root):
 
     @app.post('/api/threads')
     def new_thread():
-        data,files = review_body()
+        data,files = comment_body()
         if 'git_target' in data:
             if any(key in data for key in ('path','start','end','render_anchor','pdf_anchor')):
                 raise Problem('Choose either a Git target or a file passage.')
@@ -481,7 +493,7 @@ def create_app(root):
 
     @app.post('/api/threads/<int:identifier>/replies')
     def reply(identifier):
-        data,files = review_body()
+        data,files = comment_body()
         return jsonify(save_review(lambda empty:ws.reply(identifier,data.get('body'),data.get('author'),allow_empty=empty,review=data.get('review_id')),files)),201
 
     @app.patch('/api/threads/<int:identifier>/messages/<int:message_id>')
