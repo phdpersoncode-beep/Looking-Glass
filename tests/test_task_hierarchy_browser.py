@@ -65,8 +65,17 @@ def test_outline_keyboard_edits_hierarchy_details_and_sidebar_restore(workspace_
     page.get_by_role('button',name='Create',exact=True).click()
     expect(page.locator('.task-dialog')).to_have_count(1)
     expect(checklist.get_by_label('Task name 8',exact=True)).to_have_value('Added from card checklist')
+    page.evaluate("""() => {
+        window.maxTaskDetails = 1;
+        new MutationObserver(() => {
+            const details = document.querySelectorAll('.task-detail').length;
+            window.maxTaskDetails = Math.max(window.maxTaskDetails, details);
+        }).observe(document.body, {childList: true});
+    }""")
     checklist.get_by_role('button',name='Open #C06',exact=True).click()
-    expect(page.locator('.task-dialog h2')).to_have_attribute('aria-label','Keyboard flow')
+    expect(page.get_by_role('heading',name='Keyboard flow',exact=True)).to_be_visible()
+    assert page.evaluate('window.maxTaskDetails') == 1
+    expect(detail).to_have_count(1)
     page.get_by_role('button',name='Close card',exact=True).click()
     sidebar.get_by_role('button',name='Open #C03',exact=True).click()
     expect(page.get_by_label('Description',exact=True)).to_have_value('Keep this parent draft')

@@ -517,7 +517,11 @@ function mountTasks(host, state, api, options = {}) {
       previous.querySelector('[aria-label=Title]').focus();
       return;
     }
-    if (previous && !await previous.saveAndClose()) return;
+    if (previous) {
+      if (!await previous.saveAndClose()) return;
+      // The native close event is queued. Detach the parent before mounting its replacement.
+      previous.remove();
+    }
     card = board.cards.find(item => item.id === card.id);
     if (!card || disposed) return;
     const draft = drafts.get(card.id);
