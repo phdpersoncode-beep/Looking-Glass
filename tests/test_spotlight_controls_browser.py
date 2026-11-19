@@ -204,15 +204,24 @@ def test_last_zen_spotlight_thread_clears_and_resolving_does_not_override_new_fo
     page.locator(f'.thread[data-thread="{threads[0]["id"]}"]').click(position={'x':4, 'y':4})
     page.locator('#zen-toggle').click()
     held = []
-    page.route('**/api/threads/*', lambda route: held.append(route) if route.request.method == 'PATCH' else route.continue_())
+    resolve_url = f'{url}/api/threads/{threads[0]["id"]}'
+
+    def hold_resolve(route):
+        if route.request.method == 'PATCH':
+            held.append(route)
+            page.evaluate('() => { window.resolveRequestHeld = true; }')
+        else:
+            route.continue_()
+
+    page.route(resolve_url, hold_resolve)
     page.locator('.thread.active [data-action=resolve]').click()
-    assert held
+    page.wait_for_function('() => window.resolveRequestHeld === true')
     page.keyboard.press('Escape')
     page.locator(f'.thread[data-thread="{threads[2]["id"]}"] .thread-summary').click()
     expect(page.locator('.thread.active')).to_have_attribute('data-thread', str(threads[2]['id']))
-    with page.expect_response(lambda response: response.request.method == 'PATCH'):
+    with page.expect_response(lambda response: response.url == resolve_url and response.request.method == 'PATCH'):
         held[0].continue_()
-    page.unroute('**/api/threads/*')
+    page.unroute(resolve_url)
     expect(page.locator('#thread-count')).to_have_text('2')
     expect(page.locator('.thread.active')).to_have_attribute('data-thread', str(threads[2]['id']))
     # Complete remaining threads; the final one clears spotlight and focus.
