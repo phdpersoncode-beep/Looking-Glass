@@ -26,7 +26,7 @@ even when the focused thread does not change.
 | Search/scope/zen change | Pure visible-thread selector and explicit fallback transition | No incidental navigation |
 | Spotlight arrows | Advance the requested-thread cursor; coalesce each frame and supersede unfinished reveals | Keep the current spotlight until the destination is ready; reveal the latest passage |
 | Escape from spotlight reply/search | Focus the current thread card; preserve spotlight, query, reply and attachments | Preserve reading/sidebar scroll; restore arrow shortcuts |
-| Resolve | Keep the current passage as the starting point for explicit navigation | Preserve reading position |
+| Resolve | Keep the current passage as the starting point for explicit navigation and preserve a reply's focus while its field stays visible | Preserve reading position |
 | Zen delete | Advance to next open thread in the pre-mutation queue and keep spotlight if active | Reveal next passage |
 | Go to top | Preserve selection and document state | Scroll the displayed document surface to its beginning |
 | Original context visit/return | Suspend/resume existing surface | Restore selection, undo, report state and scroll |

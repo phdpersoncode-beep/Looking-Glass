@@ -146,7 +146,14 @@ def test_outline_layout_keyboard_themes_and_file_scope(workspace_page):
         assert scroll.evaluate('el => el.offsetWidth - el.clientWidth') <= 12
         assert scroll.bounding_box()['y'] + scroll.bounding_box()['height'] <= outline_box['y'] + outline_box['height'] + 1
         scroll.hover()
-        page.mouse.wheel(0, 4000)
+        # Wheel input is asynchronous and browsers can cap the distance per event.
+        for _ in range(10):
+            top, remaining = scroll.evaluate('el => [el.scrollTop, el.scrollHeight - el.clientHeight - el.scrollTop]')
+            if remaining <= 2:
+                break
+            page.mouse.wheel(0, 400)
+            page.wait_for_function('([el, top]) => el.scrollTop > top',
+                                   arg=[scroll.element_handle(), top], timeout=5000)
         last = outline.get_by_role('button', name=re.compile('^function step_49,'))
         expect(last).to_be_in_viewport()
         last.click()

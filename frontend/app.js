@@ -1682,7 +1682,13 @@ document.addEventListener('keydown',event=>{
     const card=event.target.closest('.thread')||(event.target===sidebar?sidebar.querySelector('.thread.active:not([hidden])'):null);
     if(!card||card.hidden)return;
     event.preventDefault();
-    if(!event.repeat&&card.dataset.resolved==='false')card.querySelector('[data-action="resolve"]')?.click();
+    if(!event.repeat&&card.dataset.resolved==='false'){
+      const resolve=card.querySelector('[data-action="resolve"]');
+      if(resolve&&!resolve.disabled){
+        card.focus({preventScroll:true});
+        resolve.click();
+      }
+    }
     return;
   }
   if((threadSpotlight.active||event.target===sidebar||appStore.state.zen)&&['ArrowLeft','ArrowRight'].includes(event.key)){
@@ -1747,7 +1753,9 @@ document.addEventListener('click',guard(async event=>{
   }
   if(action.dataset.action==='jump'){await focusThreadCard(id);return;}
   if(action.dataset.action==='resolve'){
-    if(appStore.state.focusedThread===id)action.closest('.thread').focus({preventScroll:true});
+    if(appStore.state.focusedThread===id&&(event.isTrusted||document.activeElement===action)){
+      action.closest('.thread').focus({preventScroll:true});
+    }
     action.disabled=true;
     try{
       await api('threads/'+id,'PATCH',{resolved:!t.resolved});
