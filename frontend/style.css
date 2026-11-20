@@ -487,7 +487,7 @@ body.tasks-view .task-sidebar:not([hidden]){display:flex}
   :is(.task-card,.task-outline-row)[aria-selected=true]{border-color:Highlight}
 }
 .task-outline-row>button{border:0;background:none;padding:0;flex-shrink:0}
-.task-outline-row::before{content:"";width:10px;align-self:stretch;flex-shrink:0;cursor:grab}
+.task-outline-row[draggable=true]{cursor:grab}
 .task-outline-row>.task-outline-fold{width:24px;height:24px;padding:0;color:var(--muted)}
 .task-outline-fold:disabled{visibility:hidden}
 .task-outline-fold svg{width:12px;height:12px;fill:currentColor;stroke:none}
@@ -562,8 +562,6 @@ body.tasks-view .task-sidebar:not([hidden]){display:flex}
 .task-edge-top{top:4px}.task-edge-bottom{bottom:8px}
 .task-edge-left,.task-edge-right{top:50%;transform:translateY(-50%)}
 .task-edge-left{left:4px}.task-edge-right{right:4px}
-.task-outline-row[draggable=true]:hover::before{background:radial-gradient(circle,var(--muted) 1px,transparent 1.3px) center / 4px 4px;align-self:center;width:10px;height:12px;opacity:.6}
-
 .task-outline-list>.task-drop-preview>strong{color:var(--text);font-weight:500}
 .task-outline-list>.task-drop-preview>:is(strong,span){display:block;overflow:hidden;text-overflow:ellipsis}
 

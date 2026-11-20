@@ -108,8 +108,8 @@ a row to fold or unfold its own branch. Collapse all shows the current list's
 top-level items; Expand all reveals every descendant. Each card and the plan
 keep independent display state for the tab
 session. Folding never changes task data, order, selection, or drafts, and polling
-does not expand collapsed lists when agents add children. A blank left gutter
-remains available for dragging rows.
+does not expand collapsed lists when agents add children. Drag a task row by its
+title or any open space on the row. The symbols and checkbox act as controls.
 
 The popup leaves the board visible through a dimmed backdrop. Clicking that
 backdrop, pressing Escape, or choosing **Close card** saves the edited fields

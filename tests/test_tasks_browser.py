@@ -434,8 +434,8 @@ def test_sidebar_milestone_drag_and_keyboard_reorder_change_numbers(workspace_pa
     page.get_by_role('article',name='Other child',exact=True).drag_to(child)
     expect(page.locator('.task-card').first).to_have_attribute('data-id','4')
     expect(number).to_have_text('M1:')
-    sidebar.locator('.task-outline-row[data-id="2"]').drag_to(rows.first,
-        source_position={'x':8,'y':16},target_position={'x':8,'y':6})
+    sidebar.locator('.task-outline-row[data-id="2"] .task-outline-title').drag_to(
+        rows.first, target_position={'x':8,'y':6})
     expect(rows.first).to_have_attribute('data-id','2')
     assert rows.evaluate_all('rows => rows.map(row => Number(row.dataset.id))') == [2,4,5,1,3,6]
     expect(number).to_have_text('M2:')

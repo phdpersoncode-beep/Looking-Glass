@@ -119,6 +119,21 @@ export function mountTaskOutline(host, options) {
   const dragEvents = new AbortController();
   let rows = [], disposed = false, rendering = false, saving = Promise.resolve();
   let drop = null, savingDrop = false, moving = null;
+  let controlRow = null;
+
+  function updateDraggable(row) {
+    row.draggable = row !== controlRow && row.dataset.archived !== 'true' &&
+      !row.classList.contains('task-outline-editing');
+  }
+  function releaseControl() {
+    const row = controlRow;
+    controlRow = null;
+    if (row) updateDraggable(row);
+  }
+  const pointerEvents = {capture: true, signal: dragEvents.signal};
+  document.addEventListener('pointerup', releaseControl, pointerEvents);
+  document.addEventListener('pointercancel', releaseControl, pointerEvents);
+  window.addEventListener('blur', releaseControl, {signal: dragEvents.signal});
 
   function clearDrop(animate = true) {
     drop = null;
@@ -360,11 +375,11 @@ export function mountTaskOutline(host, options) {
     name.onfocus=()=>{
       if (name.readOnly) return;
       row.classList.add('task-outline-editing');
-      row.draggable = false;
+      updateDraggable(row);
     };
     name.onblur=()=>{
       row.classList.remove('task-outline-editing');
-      row.draggable = row.dataset.archived !== 'true';
+      updateDraggable(row);
       if(!rendering)saveName(id);
     };
     name.onkeydown=async event=>{
@@ -439,8 +454,15 @@ export function mountTaskOutline(host, options) {
       name.focus({preventScroll: true});
     };
     row.oncontextmenu=event=>contextMenu(event,id);
+    row.onpointerdown = event => {
+      releaseControl();
+      if (event.button !== 0 || !event.target.closest('button,input')) return;
+      // Native dragging would otherwise pick up the ancestor row from a control.
+      controlRow = row;
+      updateDraggable(row);
+    };
     row.ondragstart=event=>{
-      if(event.target===name || row.classList.contains('task-outline-editing')){event.preventDefault();return;}
+      if (event.target !== row || !row.draggable) { event.preventDefault(); return; }
       startDrag(event,id,row.classList.contains('task-outline-milestone') ? [id] : undefined);
     };
     return row;
@@ -484,7 +506,7 @@ export function mountTaskOutline(host, options) {
       row.dataset.archived = !!card.archived;
       row.setAttribute('aria-selected',String(picked.has(card.id)));
       row.tabIndex = picked.has(card.id) || (!picked.size && index === 0) ? 0 : -1;
-      row.draggable = !card.archived && !row.classList.contains('task-outline-editing');
+      updateDraggable(row);
       const [fold, check, reference, prefix, title, symbol, progress] = row.children;
       const name = title.firstElementChild;
       const expanded = isExpanded(card.id);

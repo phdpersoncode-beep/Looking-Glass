@@ -118,7 +118,10 @@ def test_outline_sibling_drag_keyboard_nesting_and_shared_selection(workspace_pa
         row(id).click(button='right',position={'x':8,'y':16})
         page.get_by_role('menuitem',name='Assign to M2: Later epic').click()
     expect(row(5)).to_have_attribute('data-depth','1')
-    row(5).drag_to(row(3),source_position={'x':30,'y':16},target_position={'x':30,'y':4})
+    status = row(5).get_by_role('button', name='Cycle status for Write docs')
+    status.drag_to(row(3), target_position={'x':30,'y':4})
+    expect(sidebar.locator('.task-outline-row').nth(3)).to_have_attribute('data-id','3')
+    row(5).locator('.task-outline-title').drag_to(row(3),target_position={'x':30,'y':4})
     expect(sidebar.locator('.task-outline-row').nth(3)).to_have_attribute('data-id','5')
     assert sidebar.locator('.task-outline-row').evaluate_all('(rows)=>rows.map(r=>+r.dataset.id)')==[2,4,1,5,3,6]
     row(3).click(position={'x':8,'y':16})
@@ -131,7 +134,7 @@ def test_outline_sibling_drag_keyboard_nesting_and_shared_selection(workspace_pa
     row(1).get_by_role('button', name='Open card details').click()
     checklist=page.locator('.task-checklist')
     first=checklist.locator('.task-outline-row[data-id="5"]');second=checklist.locator('.task-outline-row[data-id="3"]')
-    second.drag_to(first,source_position={'x':8,'y':16},target_position={'x':8,'y':4})
+    second.locator('.task-outline-title').drag_to(first,target_position={'x':8,'y':4})
     expect(checklist.locator('.task-outline-row').first).to_have_attribute('data-id','3')
     assert checklist.locator('.task-outline-row').evaluate_all('(rows)=>rows.map(r=>+r.dataset.id)')==[3,6,5]
     checklist.get_by_role('button',name='Open #C06',exact=True).click()
@@ -469,7 +472,7 @@ def test_selected_row_navigation_and_keyboard_nesting(workspace_page, surface):
     if surface == 'checklist':
         expect(page.get_by_role('dialog', name='Plan')).to_be_visible()
         branch = group.locator('.task-outline-row[data-id="2"]')
-        branch.click(position={'x':8,'y':16})
+        branch.locator('.task-outline-title').click()
         branch.press('Shift+Tab')
         expect(group.locator('.task-outline-row')).to_have_count(0)
         expect(page.get_by_role('button', name='+ Add subitem')).to_be_focused()
