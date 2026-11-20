@@ -52,8 +52,8 @@ def test_outline_keyboard_edits_hierarchy_details_and_sidebar_restore(workspace_
     assert name.evaluate('(e)=>e===window.keptTaskName && e.selectionStart===7 && document.activeElement===e')
     name.press('Escape')
     expect(name).to_have_value('Review the changes')
-    # A row click opens the centered card popup above the board and outline.
-    sidebar.locator('.task-outline-row[data-id="3"]').click(position={'x':110,'y':16})
+    # The row pen opens the centered card popup above the board and outline.
+    sidebar.locator('.task-outline-row[data-id="3"]').get_by_role('button', name='Open card details').click()
     detail=page.locator('.task-detail')
     expect(detail).to_be_visible();expect(sidebar).to_be_visible()
     assert detail.evaluate('e=>e.matches(":modal")')
@@ -104,31 +104,31 @@ def test_outline_keyboard_edits_hierarchy_details_and_sidebar_restore(workspace_
 
 
 @pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
-def test_outline_dragging_reassigns_reorders_nests_and_shares_multiselection(workspace_page):
+def test_outline_sibling_drag_keyboard_nesting_and_shared_selection(workspace_page):
     from playwright.sync_api import expect
     root,page,url,ws=workspace_page
     seed(ws)
     page.goto(url);page.locator('#tasks-open').click()
     sidebar=page.locator('#task-sidebar')
     row=lambda id: sidebar.locator(f'.task-outline-row[data-id="{id}"]')
-    # Drop a task under a milestone: its entire subtree follows.
+    # Cross-branch drags cannot change the hierarchy. Assign through the row menu.
     row(3).drag_to(row(1),source_position={'x':8,'y':16},target_position={'x':90,'y':16})
-    expect(row(3)).to_have_attribute('data-depth','1')
-    expect(page.locator('.task-card[data-id="3"] .task-assignment')).to_contain_text('#M2')
-    assert next(c for c in ws.tasks.read()['cards'] if c['id']==6)['milestone_id']==1
-    # Drag vertically to reorder direct siblings, then horizontally to nest/outdent.
-    row(5).drag_to(row(1),source_position={'x':8,'y':16},target_position={'x':90,'y':16})
+    assert next(c for c in ws.tasks.read()['cards'] if c['id']==3)['parent_id']==2
+    for id in (3,5):
+        row(id).click(button='right',position={'x':8,'y':16})
+        page.get_by_role('menuitem',name='Assign to M2: Later epic').click()
     expect(row(5)).to_have_attribute('data-depth','1')
     row(5).drag_to(row(3),source_position={'x':30,'y':16},target_position={'x':30,'y':4})
     expect(sidebar.locator('.task-outline-row').nth(3)).to_have_attribute('data-id','5')
     assert sidebar.locator('.task-outline-row').evaluate_all('(rows)=>rows.map(r=>+r.dataset.id)')==[2,4,1,5,3,6]
-    # Same blade dragged to the right indents under its preceding sibling.
-    row(3).drag_to(row(3),source_position={'x':30,'y':16},target_position={'x':100,'y':16})
+    row(3).click(position={'x':8,'y':16})
+    row(3).press('Tab')
     expect(row(3)).to_have_attribute('data-depth','2')
-    row(3).drag_to(row(3),source_position={'x':100,'y':16},target_position={'x':67,'y':16})
+    row(3).press('Shift+Tab')
     expect(row(3)).to_have_attribute('data-depth','1')
+    row(3).press('Escape')
     # Checklists reuse draggable blades and clickable permanent card references.
-    row(1).click(position={'x':110,'y':16})
+    row(1).get_by_role('button', name='Open card details').click()
     checklist=page.locator('.task-checklist')
     first=checklist.locator('.task-outline-row[data-id="5"]');second=checklist.locator('.task-outline-row[data-id="3"]')
     second.drag_to(first,source_position={'x':8,'y':16},target_position={'x':8,'y':4})
@@ -235,13 +235,8 @@ def test_drag_preview_slides_neighbors_and_saves_only_on_drop(workspace_page, su
             expect(gap).to_contain_text('Move me')
             expect(gap).to_contain_text('Insert before First')
             depth = 1 if surface == 'sidebar' else 0
-            expect(group).to_have_attribute('data-task-drop-depth', str(depth))
             expect(gap).to_have_css('margin-inline-start', f'{16 * depth}px')
             assert group.evaluate('list => getComputedStyle(list, "::after").content') == 'none'
-            if depth:
-                assert gap.evaluate('gap => getComputedStyle(gap, "::before").height') == '12px'
-            else:
-                assert gap.evaluate('gap => getComputedStyle(gap, "::before").content') == 'none'
 
     before = ws.tasks.read()
     start_drag()
@@ -271,7 +266,6 @@ def test_drag_preview_slides_neighbors_and_saves_only_on_drop(workspace_page, su
     page.mouse.move(8, 36)
     page.mouse.up()
     expect(gap).to_have_count(0)
-    assert group.get_attribute('data-task-drop-depth') is None
     expect(source).to_be_visible()
     page.wait_for_function('() => !document.getAnimations().some(a => a.effect.target?.matches?.(".task-card,.task-outline-row"))')
     assert ws.tasks.read() == before
@@ -306,6 +300,9 @@ def test_task_list_click_rename_caret_and_branch_toggle(workspace_page, surface)
     descendant = group.locator('.task-outline-row[data-id="3"]')
     title_position = {'x': 135, 'y': 17}
     row.click(position=title_position)
+    expect(row).to_be_focused()
+    expect(row).to_have_attribute('aria-selected', 'true')
+    row.press('Enter')
     detail = page.get_by_role('dialog', name='Editable name', exact=True)
     expect(detail).to_be_visible()
     detail.get_by_role('button', name='Close card').click()
@@ -439,7 +436,7 @@ def test_task_list_checkbox_and_status_cycle(workspace_page, surface, status, sy
 
 @pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
 @pytest.mark.parametrize('surface', ['sidebar', 'checklist'])
-def test_drag_snaps_across_multiple_hierarchy_levels(workspace_page, surface):
+def test_selected_row_navigation_and_keyboard_nesting(workspace_page, surface):
     from playwright.sync_api import expect
     _, page, url, ws = workspace_page
     for title, parent in [('Plan', None), ('Group', 1), ('Parent', 2), ('Task', 3), ('Neighbor', 3)]:
@@ -456,19 +453,23 @@ def test_drag_snaps_across_multiple_hierarchy_levels(workspace_page, surface):
     source = group.locator('.task-outline-row[data-id="4"]')
     neighbor = group.locator('.task-outline-row[data-id="5"]')
     expect(neighbor).to_have_attribute('data-depth', str(original_depth))
-    start, target = source.bounding_box(), neighbor.bounding_box()
-    start_x, start_y = start['x'] + 170, start['y'] + 16
-    y = target['y'] + 16
-    page.mouse.move(start_x, start_y)
-    page.mouse.down()
-    page.mouse.move(start_x - 9, start_y)
-    page.mouse.move(start_x - 47, y)
-    page.mouse.move(start_x - 47, y)
-    depth = original_depth - 2
-    expect(group).to_have_attribute('data-task-drop-depth', str(depth))
-    expect(group.locator('.task-drop-preview')).to_have_css('margin-inline-start', f'{16 * depth}px')
-    assert next(card for card in ws.tasks.read()['cards'] if card['id'] == 4)['parent_id'] == 3
-    page.mouse.up()
-    expect(source).to_have_attribute('data-depth', str(depth))
-    assert next(card for card in ws.tasks.read()['cards'] if card['id'] == 4)['parent_id'] == 1
-    assert group.get_attribute('data-task-drop-depth') is None
+    source.drag_to(neighbor, source_position={'x':120, 'y':15}, target_position={'x':65, 'y':5})
+    expect(source).to_have_attribute('data-depth', str(original_depth))
+    source.click(position={'x':8,'y':16})
+    source.press('ArrowDown')
+    expect(neighbor).to_be_focused()
+    neighbor.press('Tab')
+    expect(neighbor).to_have_attribute('data-depth', str(original_depth + 1))
+    neighbor.press('Shift+Tab')
+    expect(neighbor).to_have_attribute('data-depth', str(original_depth))
+    neighbor.press('ArrowUp')
+    expect(source).to_be_focused()
+    source.press('Escape')
+    expect(source).to_have_attribute('aria-selected','false')
+    if surface == 'checklist':
+        expect(page.get_by_role('dialog', name='Plan')).to_be_visible()
+        branch = group.locator('.task-outline-row[data-id="2"]')
+        branch.click(position={'x':8,'y':16})
+        branch.press('Shift+Tab')
+        expect(group.locator('.task-outline-row')).to_have_count(0)
+        expect(page.get_by_role('button', name='+ Add subitem')).to_be_focused()

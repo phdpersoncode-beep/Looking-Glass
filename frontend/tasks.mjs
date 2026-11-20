@@ -34,13 +34,33 @@ function button(text, action, title = text) {
   b.onclick = action;
   return b;
 }
+// Keep focus by card identity and control name across a tab remount.
+function taskFocus(scope) {
+  const control = document.activeElement;
+  if (!scope?.contains(control)) return null;
+  const item = control.closest('[data-id]');
+  return {
+    id: item?.dataset.id, row: control === item, tag: control.localName,
+    label: control.getAttribute('aria-label') || control.labels?.[0]?.textContent || control.title,
+    start: control.selectionStart, end: control.selectionEnd
+  };
+}
+function restoreTaskFocus(scope, mark) {
+  if (!scope || !mark) return;
+  const item = mark.id ? scope.querySelector('[data-id="' + CSS.escape(mark.id) + '"]') : scope;
+  const control = mark.row ? item : [...item?.querySelectorAll(mark.tag) ?? []].find(node =>
+    (node.getAttribute('aria-label') || node.labels?.[0]?.textContent || node.title) === mark.label);
+  control?.focus({preventScroll: true});
+  if (control && mark.start != null) control.setSelectionRange(mark.start, mark.end);
+}
 function mountTasks(host, state, api, options = {}) {
   let board = { cards: [], revision: 0 }, disposed = false, pendingWrite = null, refreshing = null, outline = null, context = null;
   let dragSource = null, laneDrop = null, savingDrop = false, hoveredId = null;
   const drafts = state.drafts ??= new Map();
   const milestoneIds = state.milestoneIds ??= new Set();
   const resume = state.documentReturn;
-  const picked = new Set(), root = el("section", void 0, "task-board"), tools = el("div", void 0, "task-tools"), search = el("input"), archived = el("input"), bulk = el("div", void 0, "task-bulk"), lanes = el("div", void 0, "task-lanes"), notice = el("p", void 0, "task-notice");
+  const picked = state.picked ??= new Set();
+  const root = el("section", void 0, "task-board"), tools = el("div", void 0, "task-tools"), search = el("input"), archived = el("input"), bulk = el("div", void 0, "task-bulk"), lanes = el("div", void 0, "task-lanes"), notice = el("p", void 0, "task-notice");
   const filterWrap = el('div', undefined, 'task-filter');
   const filter = button('', () => toggleFilter(filterMenu.hidden), 'Filter by milestone');
   const filterLabel = el('span');
@@ -106,7 +126,7 @@ function mountTasks(host, state, api, options = {}) {
     const selected = new Set(ids);
     const laneIds = columns.flatMap(([status]) => board.cards.filter(card =>
       card.status === status && !card.milestone && !card.archived && selected.has(card.id)).map(card => card.id));
-    const data = {id, ids, laneIds, x: event.clientX};
+    const data = {id, ids, laneIds};
     event.dataTransfer.setData('text/plain', String(id));
     event.dataTransfer.setData(taskDragType, JSON.stringify(data));
     event.dataTransfer.effectAllowed = 'move';
@@ -172,8 +192,13 @@ function mountTasks(host, state, api, options = {}) {
   if(options.sidebar){
     const heading=el('div',undefined,'panel-heading'), label=el('span','TASKS'), count=el('span','0');
     label.append(' ',count);heading.append(label);
-    const help=el('p','Click to open · Double-click to rename · Drag right to nest, left to outdent','task-outline-help');
-    help.title='Enter saves; Shift+Enter adds a sibling; Ctrl/Cmd+Enter adds a subitem. Tab / Shift+Tab nest; Alt+Up/Down reorders. Drag vertically to reorder and right/left to nest or outdent. Ctrl/Cmd+click selects; right-click opens actions.';
+    const help = el('p', undefined, 'task-outline-help');
+    for (const [keys, action] of [['↑ ↓','Select'], ['Tab','Nest'], ['Shift+Tab','Unnest'], ['Enter','Open'], ['Esc','Deselect']]) {
+      const hint = el('span');
+      hint.append(el('kbd', keys), ' ' + action);
+      help.append(hint);
+    }
+    help.title='Enter saves; Shift+Enter adds a sibling; Ctrl/Cmd+Enter adds a subitem. Tab / Shift+Tab nest; Alt+Up/Down reorders. Double-click a name to rename. Drag vertically to reorder siblings. Ctrl/Cmd+click selects; right-click opens actions.';
     options.sidebar.append(heading,help);
     outline=mountTaskOutline(options.sidebar,outlineOptions({controlsHost:heading,
       createMilestone: before => editNew('backlog', null, {milestone: true, before}),
@@ -220,7 +245,7 @@ function mountTasks(host, state, api, options = {}) {
   const viewportObserver = new ResizeObserver(updateEdges);
   viewportObserver.observe(lanes);
   function outlineOptions(extra={}){
-    return {getBoard:()=>board,state,picked,write:change,open:card=>{if(card)edit(card);},contextMenu:openContext,changed:render,create:parent=>editNew('backlog',parent),error:()=>notice.textContent,startDrag,getDrag:()=>dragSource,...extra};
+    return {getBoard:()=>board,state,picked,write:change,open:card=>{if(card)edit(card);},contextMenu:openContext,changed:refreshSelection,create:parent=>editNew('backlog',parent),error:()=>notice.textContent,startDrag,getDrag:()=>dragSource,...extra};
   }
   function closeContext(){context?.remove();context=null;}
   function openContext(event,id){
@@ -350,12 +375,27 @@ function mountTasks(host, state, api, options = {}) {
       try {
         const next = await api("tasks" + (lanes.children.length ? "?revision=" + board.revision : ""));
         if (!disposed && (!dragSource || duringDrag) && next && (next.revision > board.revision || !lanes.children.length)) {
+          const firstLoad = !lanes.children.length;
           board = next;
           render();
+          if (firstLoad && state.position) {
+            lanes.scrollTo(state.position.left, state.position.top);
+            const sidebarList = options.sidebar?.querySelector('.task-outline');
+            if (sidebarList) sidebarList.scrollTop = state.position.sidebarTop;
+            restoreTaskFocus(sidebarList, state.position.sidebarFocus);
+            restoreTaskFocus(root, state.position.boardFocus);
+          }
           if (resume && state.documentReturn === resume) {
             const card = board.cards.find(c => c.id === resume.id);
             delete state.documentReturn;
-            if (card) edit(card);
+            if (card) {
+              await edit(card);
+              const content = document.querySelector('.task-detail-content');
+              if (content) {
+                restoreTaskFocus(content.closest('dialog'), resume.focus);
+                if (resume.top) content.scrollTop = resume.top;
+              }
+            }
             else notice.textContent = "The card was deleted while you were viewing the file.";
           }
         }
@@ -367,17 +407,18 @@ function mountTasks(host, state, api, options = {}) {
     })();
     return refreshing;
   }
-  function render() {
-    const dropPositions = savingDrop && laneDrop ? lanePreview.capture() : null;
-    clearLaneDrop(false);
-    const scroll = lanes.scrollLeft, focused = document.activeElement, focusedCard = focused?.closest(".task-card"), focusedId = focusedCard?.dataset.id, focusedAction = focusedCard && focused !== focusedCard ? focused.getAttribute("aria-label") : null, assignment = bulk.querySelector("select")?.value || "", bulkFocused = bulk.contains(focused) ? focused?.getAttribute("aria-label") : null;
-    const activeMilestones = renderMilestoneFilter().filter(card => !card.archived);
-    const byId = new Map(board.cards.map(card => [card.id, card]));
-    for (const id of picked) if (!byId.has(id)) picked.delete(id);
-    if (board.revision) {
-      for (const id of drafts.keys()) if (!byId.has(id)) drafts.delete(id);
-      for (const id of state.commentDrafts?.keys() ?? []) if (!byId.has(id)) state.commentDrafts.delete(id);
+  function refreshSelection() {
+    for (const item of document.querySelectorAll('.task-card, .task-outline-row')) {
+      const selected = picked.has(Number(item.dataset.id));
+      if (item.getAttribute('aria-selected') !== String(selected)) item.setAttribute('aria-selected', String(selected));
+      if (item.classList.contains('task-outline-row')) {
+        item.tabIndex = selected || (!picked.size && item === item.parentElement.firstElementChild) ? 0 : -1;
+      }
     }
+    renderBulk();
+  }
+  function renderBulk() {
+    const assignment = bulk.querySelector('select')?.value || '';
     bulk.replaceChildren();
     if (picked.size) {
       bulk.append(el("span", `${picked.size} selected`));
@@ -386,9 +427,22 @@ function mountTasks(host, state, api, options = {}) {
       assign.setAttribute("aria-label", "Assign selected cards to milestone");
       bulk.append(assign, button("Assign", () => change({ action: "update", ids: [...picked], changes: { milestone_id: Number(assign.value) || null } })), button("Archive", () => change({ action: "update", ids: [...picked], changes: { archived: true } })), button("Restore", () => change({ action: "update", ids: [...picked], changes: { archived: false } })), button("Delete", () => confirmDelete([...picked])), button("Clear", () => {
         picked.clear();
-        render();
+        refreshSelection();
       }));
     }
+  }
+  function render() {
+    const dropPositions = savingDrop && laneDrop ? lanePreview.capture() : null;
+    clearLaneDrop(false);
+    const scroll = lanes.scrollLeft, focused = document.activeElement, focusedCard = focused?.closest(".task-card"), focusedId = focusedCard?.dataset.id, focusedAction = focusedCard && focused !== focusedCard ? focused.getAttribute("aria-label") : null, bulkFocused = bulk.contains(focused) ? focused?.getAttribute("aria-label") : null;
+    const activeMilestones = renderMilestoneFilter().filter(card => !card.archived);
+    const byId = new Map(board.cards.map(card => [card.id, card]));
+    for (const id of picked) if (!byId.has(id)) picked.delete(id);
+    if (board.revision) {
+      for (const id of drafts.keys()) if (!byId.has(id)) drafts.delete(id);
+      for (const id of state.commentDrafts?.keys() ?? []) if (!byId.has(id)) state.commentDrafts.delete(id);
+    }
+    renderBulk();
     lanes.replaceChildren();
     const query = search.value.trim();
     const milestoneQuery = /^#?m\d+$/i.test(query);
@@ -488,9 +542,6 @@ function mountTasks(host, state, api, options = {}) {
             render();
           }
         };
-        const promote = iconButton("Promote to milestone", "addMilestone", () => change({action: "update", ids: [card.id], changes: {milestone: true}}));
-        promote.className = "task-promote";
-        item.append(promote);
         lane.append(item);
       }
       if (!addAt(null, 'Add task to ' + label) && !cards.length) lane.append(el("p", "No cards", "task-empty"));
@@ -594,6 +645,7 @@ function mountTasks(host, state, api, options = {}) {
     status.parentElement.classList.add('task-status-field');parent.parentElement.classList.add('task-milestone-field');
     status.title='Status';parent.title='Milestone';
     d.cardId=card.id;
+    d.returnPosition = () => ({id: card.id, top: content.scrollTop, focus: taskFocus(d)});
     const actions=el('div',undefined,'task-detail-actions'), content=el('div',undefined,'task-detail-content');
     const close=iconButton('Close card','close',()=>d.saveAndClose());
     actions.setAttribute('role','toolbar');actions.setAttribute('aria-label','Card actions');close.classList.add('task-detail-close');
@@ -803,6 +855,9 @@ function mountTasks(host, state, api, options = {}) {
     if (!document.hidden && !pendingWrite) refresh();
   }, 2200);
   return () => {
+    state.position = {left: lanes.scrollLeft, top: lanes.scrollTop,
+      sidebarTop: options.sidebar?.querySelector('.task-outline')?.scrollTop ?? 0,
+      sidebarFocus: taskFocus(options.sidebar), boardFocus: taskFocus(root)};
     disposed = true;
     endDrag();
     clearInterval(timer);

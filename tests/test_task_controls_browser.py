@@ -114,7 +114,7 @@ def test_collapse_expand_lists_are_independent_preserve_drafts_and_survive_polls
     expect(title).to_have_value('Keep the parent draft')
     popup.get_by_role('button',name='Close card',exact=True).click()
     # A different card starts expanded; its state does not affect the plan.
-    sidebar.locator('.task-outline-row[data-id="1"]').click(position={'x':110,'y':16})
+    sidebar.locator('.task-outline-row[data-id="1"]').get_by_role('button', name='Open card details').click()
     expect(tasks.locator('.task-outline-row')).to_have_count(4)
     popup.get_by_role('button',name='Close card',exact=True).click()
     sidebar.get_by_role('button',name='Expand all tasks',exact=True).click()
@@ -133,7 +133,7 @@ def test_icon_toolbar_and_metadata_fit_light_dark_and_narrow_popups(workspace_pa
     root,page,url,ws=workspace_page
     seed(ws)
     page.goto(url);page.locator('#tasks-open').click()
-    page.locator('#task-sidebar .task-outline-row[data-id="1"]').click(position={'x':110,'y':16})
+    page.locator('#task-sidebar .task-outline-row[data-id="1"]').get_by_role('button', name='Open card details').click()
     popup=page.locator('.task-detail')
     title=popup.get_by_label('Title',exact=True)
     title.fill('Get cc-step scaling and translation functionality implemented ' * 2)

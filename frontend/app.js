@@ -692,14 +692,34 @@ async function goToPythonDefinition(editor,at){
   if(offset===null){notify('The definition changed. Try again.',true);return;}
   view.dispatch({selection:{anchor:offset},effects:EditorView.scrollIntoView(offset,{y:'center'})});view.focus();notify('Definition · '+target.path+':'+target.line);
 }
-let taskReturnPath = null;
+let workspaceReturn = null;
 async function toggleTasks() {
   if (document.querySelector('dialog:modal:not(.task-detail)')) return;
   const detail = document.querySelector('.task-detail:modal');
-  if (detail && !await detail.saveAndClose()) return;
+  if (detail) {
+    const resume = detail.returnPosition();
+    if (!await detail.saveAndClose()) return;
+    entry().tasks.documentReturn = resume;
+  }
   if (appStore.state.displayedDocument !== TASKS) return openFile(TASKS);
-  const previous = tabs.has(taskReturnPath) ? taskReturnPath : [...tabs.keys()].reverse().find(path => path !== TASKS);
-  if (previous) return openFile(previous);
+  const saved = workspaceReturn;
+  const restoreOriginal = saved?.source && tabs.has(saved.source);
+  const previous = restoreOriginal || tabs.has(saved?.path) ? saved.path : [...tabs.keys()].reverse().find(path => path !== TASKS);
+  if (previous) {
+    if (restoreOriginal && (await openFile(saved.source)).status !== 'ready') return;
+    await openFile(previous);
+    if (saved?.path === previous && entry()?.path === previous) {
+      if (appStore.state.threads.some(thread => thread.id === saved.thread)) {
+        const ids = saved.spotlight.filter(id => appStore.state.threads.some(thread => thread.id === id));
+        appStore.dispatch({type:'THREAD_ACTIVATED', threadId:saved.thread, spotlight:!!ids.length, ids});
+      }
+      $('#surface').scrollTo(saved.left, saved.top);
+      $('.discussion-content').scrollTop = saved.discussionTop;
+      if (saved.editorFocus) view?.focus();
+      else if (saved.focusId) document.getElementById(saved.focusId)?.focus({preventScroll:true});
+    }
+    return;
+  }
   return closeTab(TASKS, false, {keepOpen: true});
 }
 async function loadFile(path,request){
@@ -710,6 +730,12 @@ async function loadFile(path,request){
     if(entry()?.workMode==='review')await flushReview(entry());
     if(!request.current())return;
     const activation=request.context?.threadNavigation;
+    const leavingForTasks = path === TASKS && entry() ? {
+      path: entry().path, source: entry().kind === 'original' ? contextVisit?.path : null,
+      top: $('#surface').scrollTop, left: $('#surface').scrollLeft,
+      discussionTop: $('.discussion-content').scrollTop, thread: appStore.state.focusedThread,
+      spotlight: appStore.state.spotlightIds, editorFocus: view?.hasFocus, focusId: document.activeElement.id
+    } : null;
     if(!activation)clearSpotlight();
     closeComment();contentsController?.reset();
     syncState();
@@ -739,7 +765,7 @@ async function loadFile(path,request){
       await held.surface.suspend();if(!request.current()){held.surface.resume();previewMessage('resume');contextVisit=null;return;}view=null;cleanup=()=>{};
     }
     if(renderedPreview&&!contextVisit){await suspendHTMLPreview();if(!request.current())return;}
-    if (path === TASKS) taskReturnPath = appStore.state.displayedDocument;
+    if (path === TASKS) workspaceReturn = leavingForTasks;
     const held=contextVisit;
     view?.destroy();view=null;cleanup();cleanup=()=>{};
     if(discussions)receiveDiscussions(discussions.data,discussions.key,true,activation,path);

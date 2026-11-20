@@ -1,6 +1,10 @@
 # Shared Tasks board
 
-Press **Alt+T** to open Tasks and press it again to return to the previous tab (or the welcome screen). You can also open **Tasks** beside **Commit history**. It opens a normal tab that can be pinned,
+Press **Alt+T** to switch between Tasks and your previous tab (or the welcome screen).
+During the session, you can return to your file draft and cursor, then switch back
+to the same board position or open card. The shortcut uses the card's usual save
+behavior and keeps unsaved file edits in the editor.
+You can also open **Tasks** beside **Commit history**. It opens a normal tab that can be pinned,
 closed, and restored after a browser refresh. The board belongs to the open
 workspace, including when agents use the CLI from another directory.
 
@@ -60,11 +64,11 @@ underlying relationships or clearing unsent fields.
 
 Use **Add milestone** in the sidebar header to insert a milestone at the current
 row position. A cursor inside a branch inserts after that milestone and its
-tasks. Use the diamond-plus button on a board card to promote an existing task. Milestones keep
+tasks. Use the diamond-plus button in card details to promote an existing task. Milestones keep
 their own status, description, and a completion count for their active
 descendants. Every card has a nested **Tasks** list;
 each subitem is itself a full card with a permanent ID, status, and conversation.
-Click the row, a task’s **#Cxx** reference, or a milestone’s **M-number**
+Use the row’s pen, a task’s **#Cxx** reference, or a milestone’s **M-number**
 to open its detail popup.
 Opening a child card saves the parent’s pending field edits first.
 Checking a task moves its card to **Done**. Unchecking returns it to **Backlog**.
@@ -82,9 +86,9 @@ shows active and archived tasks regardless of the board filters. In the sidebar
 and each card's **Tasks** list, click the symbol after a task name or focus it
 and press Enter or Space to cycle through **Backlog → In progress → To review →
 Done → Backlog**. The checkbox on the left still completes or reopens the task.
-When dragging, the preview is indented to the proposed level. A short elbow marks
-nested insertion points, and a subtle highlight marks the destination parent
-when nesting directly into a row.
+Click a row to select it. Up and Down select adjacent visible rows. Enter opens
+the selected card, and Escape clears selection. The pen at the right opens
+details on click and appears on hover or keyboard focus.
 
 Double-click a row to edit its name in place. Click within the field to position
 the caret while editing. Enter saves and moves to the next row; Up/Down
@@ -133,11 +137,8 @@ centers horizontally and vertically; height fits content up to that available sp
 For example, at 1600px wide it occupies 48% of the screen, and at 1100px about 70%.
 These are Looking Glass dimensions, not a claim about Trello's current CSS.
 
-Drag rows vertically to reorder siblings. Drag a row right to nest under a target,
-or left to lift one or more levels. Dragging a row right on itself nests it under
-the previous sibling. In the sidebar and card checklists, nearby rows slide aside
-to preview the drop. The indented gap names the destination, such as **Nest under Design** or **Insert before Review**.
-Dropping onto a milestone assigns the task and its subtree to that milestone.
+Drag vertically to reorder siblings. Use Tab and Shift+Tab on a selected row to
+change its nesting. The sidebar heading lists the selection shortcuts.
 All card checklists use the same editable, draggable rows and saved hierarchy.
 Hover over a sidebar milestone or task to highlight its visible branch on the board. Edge arrows count matching board cards beyond the scroll area. Ctrl/Cmd+click
 selects multiple rows and shares selection with their board cards. Right-click

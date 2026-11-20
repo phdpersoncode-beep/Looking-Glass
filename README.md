@@ -353,7 +353,7 @@ cards, fuzzy search, milestone filtering, and bulk selection. Cards have stable
 sidebar holds milestones, active tasks, and archived tasks in one hierarchy.
 Drag a milestone to reorder its branch and update its number. Use the Done
 column's archive icon to archive the completed tasks currently shown.
-Click a row in the sidebar or a card checklist to open details, double-click
+Click a row in the sidebar or a card checklist to select it, press Enter or use its pen to open details, double-click
 to rename it, and use its triangle to fold the branch. People and agents share
 the same persisted board through `looking-glass tasks`. [Task board guide](docs/TASKS.md)
 

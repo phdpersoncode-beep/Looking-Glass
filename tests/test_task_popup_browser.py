@@ -18,7 +18,7 @@ def test_card_popup_geometry_backdrop_drafts_and_editable_heading(workspace_page
     page.goto(url);page.locator('#tasks-open').click()
     card=page.locator('#task-sidebar .task-outline-row[data-id="1"]')
     def open_milestone():
-        card.click(position={'x':110,'y':16})
+        card.get_by_role('button', name='Open card details').click()
 
     open_milestone()
     popup=page.locator('.task-detail')

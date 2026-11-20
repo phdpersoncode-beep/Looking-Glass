@@ -143,10 +143,10 @@ cycle/depth/stale-move rejection with rollback, independent sibling/column order
 parent deletion/demotion, CLI subtree reads/moves, and database snapshot round trips.
 Both browser engines exercise inline names, preserved draft/caret during agent
 polls, explicit conflict review, Tab/Shift+Tab indentation, Alt+arrow ordering,
-keyboard/checklist creation, vertical/horizontal drag, milestone drop assignment,
+keyboard/checklist creation, sibling drag ordering, cross-parent drag rejection,
 shared Ctrl+click/context actions, clickable references/card popups, and
 discussion/task sidebar resize/collapse/restoration in both themes and narrow panes.
-Task list journeys also exercise click to open, double-click to rename, mouse
+Task list journeys also exercise click to select, Enter or pen to open, double-click to rename, mouse
 caret placement, and folding an individual branch in both lists. The board
 journey verifies insertion at the sidebar cursor, sidebar-only milestones,
 truncated filter labels with full hover text, status symbols, and filtered Done
