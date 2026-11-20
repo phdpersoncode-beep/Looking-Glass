@@ -489,7 +489,7 @@ function showTabMenu(e,x,y){
   $('.tab-menu')?.remove();const menu=document.createElement('div');menu.className='tab-menu';menu.style.left=x+'px';menu.style.top=y+'px';
   const others=document.createElement('button');others.textContent='Close other tabs';others.onclick=guard(async()=>{menu.remove();for(const name of [...tabs.keys()])if(name!==e.path&&!tabs.get(name).pinned)await closeTab(name);});menu.append(others);document.body.append(menu);setTimeout(()=>document.addEventListener('click',()=>menu.remove(),{once:true}),0);
 }
-async function closeTab(path,returning=false){
+async function closeTab(path,returning=false,{keepOpen=false}={}){
   if(fileMutation){const session=tabs.get(path);await fileMutation;path=session?.path||path;}
   if(!tabs.has(path))return;
   if(tabs.get(path).kind==='original'&&!returning){await returnFromOriginal();return;}
@@ -498,8 +498,9 @@ async function closeTab(path,returning=false){
   if(contextVisit?.path===path){contextVisit.surface.dispose();contextVisit=null;}
   if(returning)contextVisit=null;
   if(path===appStore.state.displayedDocument){clearSpotlight();closeComment();syncState();view?.destroy();view=null;cleanup();cleanup=()=>{};appStore.dispatch({type:'DOCUMENT_DISPLAYED',path:null});}
-  disposeReport(e);e.reviewSync?.dispose();tabs.delete(path);remember();renderTabs();
-  if(!appStore.state.displayedDocument&&tabs.size)await openFile([...tabs.keys()].at(-1));
+  if (!keepOpen) {disposeReport(e);e.reviewSync?.dispose();tabs.delete(path);}
+  remember();renderTabs();
+  if(!appStore.state.displayedDocument&&tabs.size&&!keepOpen)await openFile([...tabs.keys()].at(-1));
   else if(!appStore.state.displayedDocument){lastThreadHTML='';lastThreadKey='';clearSurface();const welcome=document.createElement('div');welcome.className='welcome';welcome.innerHTML='<h1>Open a file to begin.</h1>';$('#surface').append(welcome);$('#threads').replaceChildren();discussionView.reset();appStore.dispatch({type:'THREADS_RECEIVED',threads:[]});$('#thread-count').textContent='0';updateToolbar();await refreshThreads();}
 }
 
@@ -691,6 +692,16 @@ async function goToPythonDefinition(editor,at){
   if(offset===null){notify('The definition changed. Try again.',true);return;}
   view.dispatch({selection:{anchor:offset},effects:EditorView.scrollIntoView(offset,{y:'center'})});view.focus();notify('Definition · '+target.path+':'+target.line);
 }
+let taskReturnPath = null;
+async function toggleTasks() {
+  if (document.querySelector('dialog:modal:not(.task-detail)')) return;
+  const detail = document.querySelector('.task-detail:modal');
+  if (detail && !await detail.saveAndClose()) return;
+  if (appStore.state.displayedDocument !== TASKS) return openFile(TASKS);
+  const previous = tabs.has(taskReturnPath) ? taskReturnPath : [...tabs.keys()].reverse().find(path => path !== TASKS);
+  if (previous) return openFile(previous);
+  return closeTab(TASKS, false, {keepOpen: true});
+}
 async function loadFile(path,request){
     if(fileMutation)await fileMutation;
     await restoreReady;
@@ -728,6 +739,7 @@ async function loadFile(path,request){
       await held.surface.suspend();if(!request.current()){held.surface.resume();previewMessage('resume');contextVisit=null;return;}view=null;cleanup=()=>{};
     }
     if(renderedPreview&&!contextVisit){await suspendHTMLPreview();if(!request.current())return;}
+    if (path === TASKS) taskReturnPath = appStore.state.displayedDocument;
     const held=contextVisit;
     view?.destroy();view=null;cleanup();cleanup=()=>{};
     if(discussions)receiveDiscussions(discussions.data,discussions.key,true,activation,path);
@@ -1566,6 +1578,11 @@ document.addEventListener('scroll',scheduleSelectionTools,true);
 window.addEventListener('resize',()=>{scheduleSelectionTools();if($('#comment-dialog').open){const location=selectionLocation();if(location)placeNearSelection($('#comment-dialog'),location);}});
 document.addEventListener('keydown',event=>{
   if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='s'&&!document.querySelector('dialog:modal')){event.preventDefault();guard(saveActive)();return;}
+  if (event.altKey && !event.shiftKey && !event.ctrlKey && !event.metaKey && event.code === 'KeyT') {
+    event.preventDefault();
+    if (!event.repeat) guard(toggleTasks)();
+    return;
+  }
   if(event.altKey&&!event.ctrlKey&&!event.metaKey&&event.key.toLowerCase()==='q'){event.preventDefault();$('#collapse-files').click();return;}
   if($('#file-mentions')&&event.target.matches('#comment-body,.reply-form textarea,#edit-comment-body')&&['Escape','ArrowUp','ArrowDown','Enter'].includes(event.key)&&!event.ctrlKey&&!event.metaKey)return;
   if(event.target.closest?.('#author-popover,.lg-dialog,.image-editor,.image-comment-box,.image-comment-marker,.image-resize'))return;

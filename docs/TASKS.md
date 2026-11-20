@@ -1,6 +1,6 @@
 # Shared Tasks board
 
-Open **Tasks** beside **Commit history**. It opens a normal tab that can be pinned,
+Press **Alt+T** to open Tasks and press it again to return to the previous tab (or the welcome screen). You can also open **Tasks** beside **Commit history**. It opens a normal tab that can be pinned,
 closed, and restored after a browser refresh. The board belongs to the open
 workspace, including when agents use the CLI from another directory.
 
@@ -60,7 +60,7 @@ underlying relationships or clearing unsent fields.
 
 Use **Add milestone** in the sidebar header to insert a milestone at the current
 row position. A cursor inside a branch inserts after that milestone and its
-tasks. Use **◇** on a board card to promote an existing task. Milestones keep
+tasks. Use the diamond-plus button on a board card to promote an existing task. Milestones keep
 their own status, description, and a completion count for their active
 descendants. Every card has a nested **Tasks** list;
 each subitem is itself a full card with a permanent ID, status, and conversation.
@@ -136,11 +136,10 @@ These are Looking Glass dimensions, not a claim about Trello's current CSS.
 Drag rows vertically to reorder siblings. Drag a row right to nest under a target,
 or left to lift one or more levels. Dragging a row right on itself nests it under
 the previous sibling. In the sidebar and card checklists, nearby rows slide aside
-to preview the drop. The gap snaps to the proposed nesting depth, with vertical
-guides marking the levels.
+to preview the drop. The indented gap names the destination, such as **Nest under Design** or **Insert before Review**.
 Dropping onto a milestone assigns the task and its subtree to that milestone.
 All card checklists use the same editable, draggable rows and saved hierarchy.
-Hover over a task in the sidebar to highlight its board card. Ctrl/Cmd+click
+Hover over a sidebar milestone or task to highlight its visible branch on the board. Edge arrows count matching board cards beyond the scroll area. Ctrl/Cmd+click
 selects multiple rows and shares selection with their board cards. Right-click
 opens task actions in either view.
 Selected descendants travel once with a selected ancestor. Archived cards must be

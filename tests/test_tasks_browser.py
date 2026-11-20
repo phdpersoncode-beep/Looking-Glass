@@ -716,3 +716,43 @@ def test_task_comment_attaches_previews_and_downloads_files(workspace_page):
     comment.get_by_role('button', name='Delete comment').click()
     expect(comment).to_have_count(0)
     assert not list(ws.attachments.directory.iterdir())
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_task_shortcut_and_branch_hover(workspace_page):
+    from playwright.sync_api import expect
+    root, page, url, ws = workspace_page
+    (root / 'plan.md').write_text('# Plan')
+    def create(title, **fields):
+        ws.tasks.mutate(dict(action='create', title=title, revision=ws.tasks.read()['revision'], **fields))
+    create('Release', milestone=True)
+    create('Prepare', parent_id=1)
+    create('Review', parent_id=2, status='done')
+    create('Sibling', parent_id=1)
+    create('Independent')
+    page.goto(url)
+    page.keyboard.press('Alt+t')
+    board = page.locator('.task-board')
+    expect(board).to_be_visible()
+    page.keyboard.press('Alt+t')
+    expect(board).to_have_count(0)
+    page.locator('.file-entry[data-path="plan.md"]').click()
+    page.keyboard.press('Alt+t')
+    expect(board).to_be_visible()
+    page.set_viewport_size({'width': 1100, 'height': 700})
+    sidebar = page.locator('#task-sidebar')
+    matches = board.locator('.sidebar-hover .task-card-title')
+    sidebar.locator('[data-id="1"]').hover()
+    expect(matches).to_have_text(['Prepare', 'Sibling', 'Review'])
+    sidebar.locator('[data-id="2"]').hover()
+    expect(matches).to_have_text(['Prepare', 'Review'])
+    expect(board.locator('.task-edge-right')).to_have_text('→ 1')
+    expect(board.locator('.task-edge-right')).to_be_visible()
+    board.locator('.task-lanes').evaluate('node => node.scrollLeft = node.scrollWidth')
+    expect(board.locator('.task-edge-right')).to_be_hidden()
+    expect(board.locator('.task-edge-left')).to_be_visible()
+    board.get_by_role('article', name='Review', exact=True).click()
+    page.get_by_label('Description', exact=True).fill('Ready to ship')
+    page.keyboard.press('Alt+t')
+    expect(page.locator('.cm-content')).to_contain_text('Plan')
+    assert next(c for c in ws.tasks.read()['cards'] if c['title'] == 'Review')['description'] == 'Ready to ship'

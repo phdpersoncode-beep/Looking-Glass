@@ -1,7 +1,7 @@
 import {mountTaskActivity} from './task-activity.mjs';
 import {cardTitle, mountTaskOutline, outlineRows, taskColumns as columns} from './task-outline.mjs';
 import {bindTaskDismiss} from './task-dialog.mjs';
-import {iconButton} from './icons.mjs';
+import {icon, iconButton} from './icons.mjs';
 import {fileReferences} from './file-references.mjs';
 import {taskDragType, taskDropItem, taskDropPreview} from './task-drop-preview.mjs';
 export function cardReference(id) { return `#C${String(id).padStart(2, "0")}`; }
@@ -132,10 +132,16 @@ function mountTasks(host, state, api, options = {}) {
   search.value = state.query || "";
   archived.type = "checkbox";
   archived.checked = !!state.archived;
-  const archiveLabel = el("label", "Show archive ");
-  archiveLabel.append(archived);
+  function iconToggle(input, label, symbol) {
+    const wrap = el('label', undefined, 'task-tool-toggle');
+    wrap.title = label;
+    input.setAttribute('aria-label', label);
+    wrap.append(input, icon(symbol));
+    return wrap;
+  }
+  const archiveLabel = iconToggle(archived, 'Show archive', 'archive');
   notice.setAttribute("role", "status");
-  const orderBoard = button('Order by sidebar', () => {
+  const orderBoard = iconButton('Order by sidebar', 'order', () => {
     const ids = outlineRows(board.cards, {includeArchived: true})
       .filter(({card}) => !card.milestone).map(({card}) => card.id);
     return change({action: 'board_order', ids});
@@ -144,21 +150,29 @@ function mountTasks(host, state, api, options = {}) {
   const muted = el("input");
   muted.type = "checkbox";
   muted.checked = !!state.muted;
-  const muteLabel = el("label", "Mute ");
-  muteLabel.append(muted);
+  const muteLabel = iconToggle(muted, 'Mute', 'sound');
+  muteLabel.append(icon('muted'));
   muted.onchange = () => {
     state.muted = muted.checked;
     localStorage.setItem("looking-glass-task-muted", String(muted.checked));
   };
   if (state.muted === void 0) muted.checked = localStorage.getItem("looking-glass-task-muted") === "true";
   tools.append(muteLabel);
-  root.append(tools, notice, lanes, bulk);
+  const frame = el('div', undefined, 'task-lanes-frame');
+  frame.append(lanes);
+  const edges = ['top', 'bottom', 'left', 'right'].map((side, index) => {
+    const badge = el('span', undefined, 'task-edge task-edge-' + side);
+    badge.hidden = true;
+    frame.append(badge);
+    return {badge, arrow: ['↑', '↓', '←', '→'][index]};
+  });
+  root.append(tools, notice, frame, bulk);
   host.append(root);
   options.onSidebarMode?.(true);
   if(options.sidebar){
     const heading=el('div',undefined,'panel-heading'), label=el('span','TASKS'), count=el('span','0');
     label.append(' ',count);heading.append(label);
-    const help=el('p','Click to open · Double-click to rename','task-outline-help');
+    const help=el('p','Click to open · Double-click to rename · Drag right to nest, left to outdent','task-outline-help');
     help.title='Enter saves; Shift+Enter adds a sibling; Ctrl/Cmd+Enter adds a subitem. Tab / Shift+Tab nest; Alt+Up/Down reorders. Drag vertically to reorder and right/left to nest or outdent. Ctrl/Cmd+click selects; right-click opens actions.';
     options.sidebar.append(heading,help);
     outline=mountTaskOutline(options.sidebar,outlineOptions({controlsHost:heading,
@@ -168,10 +182,43 @@ function mountTasks(host, state, api, options = {}) {
   }
   function setHoveredCard(id) {
     if (hoveredId === id) return;
-    lanes.querySelector('.task-card.sidebar-hover')?.classList.remove('sidebar-hover');
     hoveredId = id;
-    if (id !== null) lanes.querySelector(`.task-card[data-id="${id}"]`)?.classList.add('sidebar-hover');
+    highlightBranch();
   }
+  function highlightBranch() {
+    const matches = new Set();
+    if (hoveredId !== null) {
+      const children = new Map();
+      for (const card of board.cards) {
+        if (!children.has(card.parent_id)) children.set(card.parent_id, []);
+        children.get(card.parent_id).push(card.id);
+      }
+      matches.add(hoveredId);
+      for (const id of matches) for (const child of children.get(id) ?? []) matches.add(child);
+    }
+    for (const item of lanes.querySelectorAll('.task-card')) {
+      item.classList.toggle('sidebar-hover', matches.has(Number(item.dataset.id)));
+    }
+    updateEdges();
+  }
+  function updateEdges() {
+    const counts = [0, 0, 0, 0];
+    const rect = lanes.getBoundingClientRect();
+    for (const card of lanes.querySelectorAll('.sidebar-hover')) {
+      const box = card.getBoundingClientRect();
+      if (box.bottom <= rect.top) counts[0]++;
+      if (box.top >= rect.top + lanes.clientHeight) counts[1]++;
+      if (box.right <= rect.left) counts[2]++;
+      if (box.left >= rect.left + lanes.clientWidth) counts[3]++;
+    }
+    edges.forEach(({badge, arrow}, i) => {
+      badge.hidden = !counts[i];
+      if (counts[i]) badge.textContent = arrow + ' ' + counts[i];
+    });
+  }
+  lanes.addEventListener('scroll', updateEdges, {passive: true});
+  const viewportObserver = new ResizeObserver(updateEdges);
+  viewportObserver.observe(lanes);
   function outlineOptions(extra={}){
     return {getBoard:()=>board,state,picked,write:change,open:card=>{if(card)edit(card);},contextMenu:openContext,changed:render,create:parent=>editNew('backlog',parent),error:()=>notice.textContent,startDrag,getDrag:()=>dragSource,...extra};
   }
@@ -407,7 +454,6 @@ function mountTasks(host, state, api, options = {}) {
         if (index) addAt(card.id, 'Add task before ' + card.title);
         const item = el("article", void 0, "task-card");
         item.dataset.id = card.id;
-        item.classList.toggle('sidebar-hover', hoveredId === card.id);
         item.tabIndex = 0;
         item.setAttribute("aria-label", card.title);
         item.setAttribute("aria-selected", String(picked.has(card.id)));
@@ -442,7 +488,7 @@ function mountTasks(host, state, api, options = {}) {
             render();
           }
         };
-        const promote = button("\u25C7", () => change({action: "update", ids: [card.id], changes: {milestone: true}}), "Promote to milestone");
+        const promote = iconButton("Promote to milestone", "addMilestone", () => change({action: "update", ids: [card.id], changes: {milestone: true}}));
         promote.className = "task-promote";
         item.append(promote);
         lane.append(item);
@@ -456,6 +502,7 @@ function mountTasks(host, state, api, options = {}) {
     });
     outline?.render();outline?.updateCount();
     lanes.scrollLeft = scroll;
+    highlightBranch();
     lanePreview.settle(dropPositions);
     if (focusedId) {
       const card = lanes.querySelector('[data-id="' + focusedId + '"]');
@@ -634,7 +681,7 @@ function mountTasks(host, state, api, options = {}) {
     };
     form.oninput = form.onchange = retainDraft;
     const cancel=iconButton('Cancel','undo',()=>{drafts.delete(card.id);d.close();});cancel.title='Discard edits (Cancel)';
-    const convert = iconButton(card.milestone ? 'Convert to task' : 'Promote to milestone', 'milestone',
+    const convert = iconButton(card.milestone ? 'Convert to task' : 'Promote to milestone', card.milestone ? 'milestone' : 'addMilestone',
       () => saveAndClose(card.milestone ? {milestone: false} : {milestone: true, milestone_id: null}));
     const archive = iconButton(card.archived ? 'Restore' : 'Archive', card.archived ? 'restore' : 'archive',
       () => saveAndClose({archived: !card.archived}));
@@ -759,6 +806,7 @@ function mountTasks(host, state, api, options = {}) {
     disposed = true;
     endDrag();
     clearInterval(timer);
+    viewportObserver.disconnect();
     closeContext();contextAbort.abort();outline?.dispose();
     options.sidebar?.replaceChildren();options.onSidebarMode?.(false);
     document.querySelectorAll(".task-dialog").forEach((d) => {

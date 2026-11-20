@@ -232,6 +232,8 @@ def test_drag_preview_slides_neighbors_and_saves_only_on_drop(workspace_page, su
         page.mouse.move(x, y)
         expect(gap).to_be_visible()
         if surface != 'kanban':
+            expect(gap).to_contain_text('Move me')
+            expect(gap).to_contain_text('Insert before First')
             depth = 1 if surface == 'sidebar' else 0
             expect(group).to_have_attribute('data-task-drop-depth', str(depth))
             expect(gap).to_have_css('margin-inline-start', f'{16 * depth}px')
@@ -364,7 +366,11 @@ def test_task_list_checkbox_and_status_cycle(workspace_page, surface, status, sy
         const checkbox = row.querySelector('input[type=checkbox]');
         const indicator = row.querySelector('.task-outline-symbol');
         const label = row.querySelector('.task-outline-reference');
-        return checkbox.getBoundingClientRect().right < name.getBoundingClientRect().left &&
+        const glyph = document.createRange();
+        glyph.selectNodeContents(indicator);
+        const ink = glyph.getBoundingClientRect(), button = indicator.getBoundingClientRect();
+        return Math.abs((ink.left + ink.right - button.left - button.right) / 2) <= 1 &&
+            checkbox.getBoundingClientRect().right < name.getBoundingClientRect().left &&
             indicator.getBoundingClientRect().left >= name.getBoundingClientRect().right &&
             getComputedStyle(indicator).color === getComputedStyle(label).color &&
             parseFloat(getComputedStyle(indicator).fontSize) < parseFloat(getComputedStyle(name).fontSize);

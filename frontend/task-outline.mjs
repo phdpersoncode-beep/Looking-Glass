@@ -114,6 +114,8 @@ export function mountTaskOutline(host, options) {
   section.append(list, add, status);host.append(section);
   const nodes = new Map();
   const preview = taskDropPreview(() => nodes.values());
+  const draggedTitle = element('strong'), dropHint = element('span');
+  preview.gap.append(draggedTitle, dropHint);
   const dragEvents = new AbortController();
   let rows = [], disposed = false, rendering = false, saving = Promise.resolve();
   let drop = null, savingDrop = false, moving = null;
@@ -171,7 +173,19 @@ export function mountTaskOutline(host, options) {
     const parentAt = rows.findIndex(r => r.card.id === parent);
     const depth = parent === rootId ? 0 : rows[parentAt]?.depth + 1;
     list.dataset.taskDropDepth = Number.isFinite(depth) ? depth : 0;
+    const beforeCard = getBoard().cards.find(card => card.id === before);
+    const parentCard = getBoard().cards.find(card => card.id === parent);
+    let hint = 'Move to end of list';
+    if (drop.mode === 'inside' && parentCard) hint = 'Nest under ' + cardTitle(parentCard);
+    else if (beforeCard) hint = 'Insert before ' + cardTitle(beforeCard);
+    else if (parentCard) hint = 'Move to end of ' + cardTitle(parentCard);
+    else if (target.action === 'milestone_move') hint = 'Move to end of milestones';
+    const dragged = getBoard().cards.find(card => card.id === source.id);
+    draggedTitle.textContent = source.ids.length > 1 ? source.ids.length + ' selected cards' : cardTitle(dragged);
+    dropHint.textContent = hint;
+    preview.gap.title = hint;
     if (!Number.isFinite(depth) || (depth > 0 && !isExpanded(parent))) {
+      drop.parentRow?.setAttribute('data-drop-parent', hint);
       preview.clear();
       return;
     }
