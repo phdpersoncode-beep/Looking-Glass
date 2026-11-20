@@ -75,6 +75,12 @@ Agents use `looking-glass agent review` instead of writing the source file.
 See [the review contract](docs/REVIEW_MODE.md) and
 [agent commands](docs/AGENT_API.md#non-destructive-review-drafts).
 
+To keep an agent available during a review, copy the bundled
+`looking-glass-watcher` directory into your agent client's skills directory
+and invoke `/looking-glass-watcher` while the local server is running. Its
+default human author label is `User`. Pass `--human` if you use a different
+label. [Watcher skill](looking_glass/skills/looking-glass-watcher/SKILL.md)
+
 ## Ignore generated files
 
 Create `.looking.ignore` in the directory opened as your workspace to hide build
