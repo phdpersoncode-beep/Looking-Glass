@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {EditorState} from '@codemirror/state';
+import {python} from '@codemirror/lang-python';
+import {syntaxTree} from '@codemirror/language';
 import {pythonDefinitions} from '../frontend/python-outline.mjs';
+import {pythonScopeLabel, pythonScopesAt} from '../frontend/python-scope.mjs';
 
 test('outline distinguishes decorated async functions, classes, methods and nested definitions',()=>{
   const source='LIMIT = 5\n@decorator\nasync def run():\n    local = 1\n    def inner(): pass\nclass Part:\n    attribute = 2\n    @staticmethod\n    def build():\n        hidden = 3\n';
@@ -27,4 +31,38 @@ test('incomplete edits keep readable definitions and an empty module has an empt
 });
 test('starred module bindings are included while lambda-local assignments are omitted',()=>{
   assert.deepEqual(pythonDefinitions('first, *rest = items\nf = lambda: (hidden := 1)\n').map(d=>d.name),['first','rest','f']);
+});
+
+function scopeLabels(source, marker, crlf = false) {
+  const state = EditorState.create({
+    doc: crlf ? source.replaceAll('\n', '\r\n') : source,
+    extensions: [python(), EditorState.lineSeparator.of(crlf ? '\r\n' : '\n')]
+  });
+  const scopes = pythonScopesAt(syntaxTree(state), state.doc, source.indexOf(marker));
+  return scopes.map(scope => pythonScopeLabel(state.doc, scope));
+}
+
+test('cursor highlights its definition and containing scopes at headers, decorators and bodies', () => {
+  const source = [
+    '# 🐍 module', 'class Box:', '    kind = 0', '    @handler', '    async def café(',
+    '        self,', '        value: int = 1,', '    ) -> int:', '        def adjust():',
+    '            return value', '        return adjust()', '', '    def other(self): pass',
+    '', 'outside = "value"',
+  ].join('\n');
+  const method = 'async def café( self, value: int = 1, ) -> int:';
+  assert.deepEqual(scopeLabels(source, 'kind'), ['class Box:']);
+  for (const marker of ['    @handler', '    async def', 'value: int', 'return adjust()']) {
+    assert.deepEqual(scopeLabels(source, marker, true), [method, 'class Box:'], marker);
+  }
+  assert.deepEqual(scopeLabels(source, 'return value'), ['def adjust():', method, 'class Box:']);
+  assert.deepEqual(scopeLabels(source, 'other(self)'), ['def other(self):', 'class Box:']);
+  assert.deepEqual(scopeLabels(source, 'outside'), []);
+});
+
+test('an indented blank caret stays within the right scope after an empty or trailing body', () => {
+  const source = 'class Box:\n    def build(self):\n        pass\n        \n    \n\noutside = 1\n';
+  assert.deepEqual(scopeLabels(source, '        \n'), ['def build(self):', 'class Box:']);
+  assert.deepEqual(scopeLabels(source, '    \n\noutside'), ['class Box:']);
+  assert.deepEqual(scopeLabels(source, '\noutside'), []);
+  assert.deepEqual(scopeLabels('def build():\n    ', '    '), ['def build():']);
 });

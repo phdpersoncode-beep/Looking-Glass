@@ -50,6 +50,7 @@ import {syntaxTree, syntaxHighlighting, HighlightStyle, ensureSyntaxTree, foldab
 import {codeLanguage,shellLanguage} from './code-languages.mjs';
 import {mountPythonOutline} from './python-outline.mjs';
 import {pythonIndentation} from './python-indentation.mjs';
+import {pythonScopeView} from './python-scope.mjs';
 import {pythonNavigation,pythonPosition,definitionOffset,chooseDefinition} from './python-navigation.mjs';
 import {tags,highlightTree,classHighlighter} from '@lezer/highlight';
 import * as THREE from 'three';
@@ -615,7 +616,7 @@ function makeState(e){
   const docPath=e.sourcePath||e.path,prose=['md','markdown','txt'].includes(ext(docPath));
   return EditorState.create({doc:e.content,extensions:[EditorState.lineSeparator.of(e.diskContent.includes('\r\n')?'\r\n':'\n'),basicSetup,documentSearch,matchOverview,language(docPath),workLockSlot.of(EditorState.readOnly.of(changingWorkMode)),...(tracked?[e.reviewField]:[]),...(e.kind==='original'?[EditorState.readOnly.of(true),EditorView.editable.of(false)]:[]),syntaxHighlighting(colors),spanField,threadFocusField,gitField,gitSlot.of([]),
     themeSlot.of(theme()),liveSlot.of(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables,textSelection]:[]),
-    ...(!e.kind&&['py','pyi'].includes(ext(e.path))?[pythonIndentation(e.diskContent),pythonNavigation(guard(goToPythonDefinition))]:[]),
+    ...(!e.kind&&['py','pyi'].includes(ext(e.path))?[pythonIndentation(e.diskContent),pythonNavigation(guard(goToPythonDefinition)),pythonScopeView]:[]),
     ...(prose?[EditorView.lineWrapping,EditorView.theme({'.cm-scroller':{fontFamily:'var(--prose)',fontSize:'var(--prose-font-size)'},'.cm-content':{maxWidth:'850px',margin:'0 auto',width:'100%',minWidth:'0'},'.cm-foldGutter':{display:'none'}})]:[]),
     EditorView.domEventHandlers({paste:(event,editor)=>pasteImage(event,editor,e),contextmenu:(event,editor)=>{
       if(e.kind||editor.state.readOnly)return false;
@@ -633,7 +634,10 @@ function makeState(e){
     }),
     EditorView.scrollHandler.of(editor=>passagePosition?.editor===editor),
     keymap.of([{key:'Mod-s',run:()=>{guard(saveActive)();return true;}},{key:'Mod-Enter',run:()=>{guard(startComment)();return true;}},indentWithTab]),
-    EditorView.updateListener.of(u=>{if(u.docChanged){for(const pending of pendingImagePastes)if(pending.e===e){pending.from=u.changes.mapPos(pending.from,1);pending.to=u.changes.mapPos(pending.to,1);}if(tracked){if(!u.transactions.some(t=>t.effects.some(effect=>effect.is(remoteReview)))){for(const tr of u.transactions)if(tr.docChanged)queueReviewOperations(e,operationsFor(tr),u.state.field(e.reviewField).segments);scheduleReviewSave(e);}}e.content=u.state.sliceDoc();e.dirty=e.content!==e.diskContent;e.state=u.state;contentsController?.update();updateToolbar();renderTabs();}if(u.selectionSet)updateToolbar();if(u.selectionSet||u.docChanged||u.viewportChanged||u.geometryChanged)scheduleSelectionTools();})
+    EditorView.updateListener.of(u=>{if(u.docChanged){for(const pending of pendingImagePastes)if(pending.e===e){pending.from=u.changes.mapPos(pending.from,1);pending.to=u.changes.mapPos(pending.to,1);}if(tracked){if(!u.transactions.some(t=>t.effects.some(effect=>effect.is(remoteReview)))){for(const tr of u.transactions)if(tr.docChanged)queueReviewOperations(e,operationsFor(tr),u.state.field(e.reviewField).segments);scheduleReviewSave(e);}}e.content=u.state.sliceDoc();e.dirty=e.content!==e.diskContent;e.state=u.state;contentsController?.update();updateToolbar();renderTabs();}if(u.selectionSet)updateToolbar();
+      else if(!u.docChanged&&u.view===view&&u.view.plugin(pythonScopeView)&&syntaxTree(u.startState)!==syntaxTree(u.state))updatePythonOutline();
+      if(u.selectionSet||u.docChanged||u.viewportChanged||u.geometryChanged)scheduleSelectionTools();
+    })
   ]});
 }
 
@@ -921,6 +925,12 @@ function documentSize(content){
   return characterSummary;
 }
 
+const noPythonScopes=[];
+function updatePythonOutline(){
+  const scopes=view?.plugin(pythonScopeView)?.scopes;
+  outlineController?.setDocument(scopes?entry()?.path:null,scopes?view.state.doc:null,scopes||noPythonScopes);
+}
+
 function updateToolbar(){
   const locked=!!changingWorkMode||!!fileMutation||entry()?.reviewSync?.status==='approving'||entry()?.kind==='original';
   if(view&&view.state.readOnly!==locked)view.dispatch({effects:workLockSlot.reconfigure(EditorState.readOnly.of(locked))});
@@ -930,7 +940,7 @@ function updateToolbar(){
   markerButton.setAttribute('aria-pressed',String(!!e?.track_source_markers));
   markerButton.title='Create threads from the first 1,000 saved TODO/NOTE comments in this file; keep them in sync after saves and external edits.'+(e?.source_markers_truncated?' The 1,000-marker limit has been reached.':'');
   if(['py','pyi'].includes(type)&&!e?.kind)$('#file-info').title='Go to definition: Ctrl/Cmd+click a name. Tab indents.';else $('#file-info').removeAttribute('title');
-  outlineController?.setDocument(!e?.kind&&type==='py'?e.path:null,!e?.kind&&type==='py'?view?.state.doc||null:null);
+  updatePythonOutline();
   $('#markdown-contents').hidden=!!e?.kind||!['md','markdown'].includes(type)||e?.mode!=='live';
   for(const [id,direction] of [['font-smaller','Decrease'],['font-larger','Increase']]){const control=$('#'+id);control.setAttribute('aria-label',direction+(type==='pdf'?' PDF zoom':' document font size'));control.title=type==='pdf'?direction+' PDF zoom':direction+' document font size';control.textContent=type==='pdf'?(direction==='Increase'?'+':'−'):(direction==='Increase'?'A+':'A−');}
   $('#pdf-contents').hidden=!!e?.kind||type!=='pdf';

@@ -274,9 +274,11 @@ are not recorded as file visits.
 
 Python files have a compact **Outline** strip on the right of the reading pane.
 Expand it to browse classes, functions, methods, and module-level assigned
-variables; click a name to jump to its definition. Nested definitions are
-indented. The outline follows unsaved edits and the active Edit/Review content,
-without executing Python. Its expanded/collapsed preference is remembered.
+variables. Click a name to jump to its definition. The outline highlights the
+scope at the cursor. When that definition scrolls above the editor, its
+signature stays pinned in a single row at the top. Click the row to return to
+the definition. The outline follows unsaved edits and the active Edit/Review
+content. Its expanded/collapsed preference is remembered.
 
 Use **A− / A+** in the document toolbar to adjust document text size.
 The setting persists. Toolbar, sidebar, and search controls keep their size.

@@ -124,6 +124,87 @@ def test_python_outline_jumps_tracks_edits_and_follows_review_mode(workspace_pag
 
 
 @pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_python_cursor_highlights_outline_and_pins_scrolled_definition(workspace_page):
+    from playwright.sync_api import expect
+    root, page, url, _ = workspace_page
+    source = (
+        'MODULE = 1\nclass Box:\n    volume = 0\n'
+        '    async def pack(\n        self,\n        size: int,\n    ) -> None:\n'
+        + ''.join(f'        volume_{i:02d} = size\n' for i in range(95))
+        + '    def unpack(self): pass\n\nOUTSIDE = 2'
+    )
+    (root / 'box.py').write_text(source)
+    (root / 'note.md').write_text('A note.')
+    page.goto(url)
+    page.set_viewport_size({'width': 1050, 'height': 720})
+    open_file(page, 'box.py')
+    outline = page.locator('#code-outline')
+    outline.locator('summary').click()
+    current = outline.locator('button[aria-current=location]')
+    pin = page.locator('.python-definition-pin')
+    method = outline.get_by_role('button', name=re.compile('^method pack,'))
+    expect(current).to_have_count(0)
+    expect(pin).to_be_hidden()
+    outline.get_by_role('button', name=re.compile('^class Box,')).click()
+    expect(current).to_have_attribute('data-kind', 'class')
+    expect(pin).to_be_hidden()
+    method.click()
+    expect(current).to_have_attribute('data-kind', 'method')
+    expect(current).to_have_text('ƒpack')
+    expect(pin).to_be_hidden()
+    row_color = current.evaluate('el => getComputedStyle(el.parentElement).backgroundColor')
+    assert row_color != 'rgba(0, 0, 0, 0)'
+
+    scroller = page.locator('.cm-scroller')
+    page.keyboard.press('Control+Home')
+    expect(current).to_have_count(0)
+    scroller.evaluate('el => el.scrollTop = 620')
+    expect(pin).to_be_hidden()
+    body = page.locator('.cm-line').filter(has_text='volume_31')
+    expect(body).to_be_in_viewport()
+    body.click(position={'x': 120, 'y': 10})
+    expect(current).to_have_text('ƒpack')
+    expect(pin).to_have_text('async def pack( self, size: int, ) -> None:')
+    expect(pin).to_be_visible()
+    assert abs(pin.bounding_box()['y'] - scroller.bounding_box()['y']) <= 1
+    assert pin.evaluate('el => getComputedStyle(el).whiteSpace') == 'nowrap'
+
+    # Keep the caret in the method while scrolling the editor independently.
+    top = pin.bounding_box()['y']
+    scroller.evaluate('el => el.scrollTop += 280')
+    assert abs(pin.bounding_box()['y'] - top) <= 1
+    expect(current).to_have_text('ƒpack')
+    assert page.locator('.cm-content').evaluate('el => !el.contains(document.querySelector(".python-definition-pin"))')
+
+    page.locator('#theme').click()
+    expect(pin).to_be_visible()
+    assert current.evaluate('el => getComputedStyle(el.parentElement).backgroundColor') != row_color
+    fold = outline.get_by_role('button', name='Toggle Box outline')
+    fold.click()
+    expect(current).to_have_attribute('data-kind', 'class')
+    expect(pin).to_be_visible()
+    fold.click()
+    expect(current).to_have_attribute('data-kind', 'method')
+    pin.click()
+    expect(page.locator('.cm-activeLine')).to_contain_text('async def pack(')
+    expect(page.locator('.cm-content')).to_be_focused()
+    expect(pin).to_be_hidden()
+
+    page.keyboard.press('Control+Shift+ArrowRight')
+    page.keyboard.insert_text('assemble')
+    expect(current).to_have_text('ƒassemble')
+    scroller.evaluate('el => el.scrollTop = 620')
+    expect(pin).to_contain_text('async def assemble(')
+    page.keyboard.press('Control+End')
+    expect(page.locator('.cm-activeLine')).to_contain_text('OUTSIDE')
+    expect(current).to_have_count(0)
+    expect(pin).to_be_hidden()
+    open_file(page, 'note.md')
+    expect(outline).to_be_hidden()
+    expect(pin).to_have_count(0)
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
 def test_outline_layout_keyboard_themes_and_file_scope(workspace_page):
     from playwright.sync_api import expect
     root, page, url, _ = workspace_page
