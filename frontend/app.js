@@ -17,7 +17,7 @@ import {sourceSpans,resolveSourcePassage} from './passages.mjs';
 import {createThreadNavigator} from './thread-navigation.mjs';
 import {createNavigationController,createRequestGate,createFrameNavigator} from './navigation.mjs';
 import {createDocumentSession,createSurfaceSession} from './document-session.mjs';
-import {createAppStore,selectVisibleThreads,selectThreadSequence,threadEligible} from './app-state.mjs';
+import {compareThreadPosition,createAppStore,selectVisibleThreads,selectThreadSequence,stepThread} from './app-state.mjs';
 import {apply as applyReview,accepted as acceptedReview,ranges as reviewRanges,label as reviewLabel,pointLength} from './review-model.mjs';
 import {reviewTracking,reviewEffect,remoteReview,operationsFor} from './review-editor.mjs';
 import {prepareHTMLPreview,sourceOffsets} from './html-source.mjs';
@@ -1049,6 +1049,7 @@ async function readDiscussions(path,scope,review){
 }
 function receiveDiscussions(data,key,authoritative=true,activation=null,displayedPath=undefined){
   const sidebarFocus=!!document.activeElement?.closest('#discussion-sidebar');
+  const focusedCard=document.activeElement?.closest('.thread');
   const previous=appStore.state.threads,discussions={threads:data.threads,availableIds:data.index.map(t=>t.id)};
   appStore.dispatch(displayedPath===undefined?{type:'THREADS_RECEIVED',...discussions,activation}:{type:'DOCUMENT_DISPLAYED',path:displayedPath,discussions,activation});navigationIndex=data.index;indexTime=Date.now();
   const e=entry();
@@ -1087,6 +1088,9 @@ function receiveDiscussions(data,key,authoritative=true,activation=null,displaye
   for(const form of $$('.reply-form'))composers.render(form);
   filterThreads();if(e?.kind!=='original')refreshMarkdownHighlights();if(entry()?.kind==='history')cleanup.updateCounts?.(data.index);
   if(displayedPath!==undefined&&activation&&sidebarFocus)$(`.thread[data-thread="${appStore.state.focusedThread}"]`)?.focus({preventScroll:true});
+  if(displayedPath===undefined&&focusedCard?.hidden&&resolved.some(t=>t.id===Number(focusedCard.dataset.thread))){
+    $('#discussion-sidebar').focus({preventScroll:true});
+  }
 }
 async function refreshThreads(useCache=false,activation=null){
   if(appStore.state.requestedThread!==null&&!activation)return;
@@ -1239,38 +1243,36 @@ const arrowNavigation=createFrameNavigator({schedule:requestAnimationFrame,cance
   activate:async(thread,{current})=>{await activateThread(thread.id,thread,true,false);if(current()&&appStore.state.focusedThread===thread.id)$(`.thread[data-thread="${thread.id}"]`)?.focus({preventScroll:true});}
 });
 let navigationQueue=Promise.resolve();
-function navigate(direction,{spotlight=false,sidebarFocus=false}={}){
-  if(spotlight&&sidebarFocus){
-    const threads=selectThreadSequence(appStore.state);if(!threads.length)return Promise.resolve();
-    const at=threads.findIndex(thread=>thread.id===(appStore.state.requestedThread??appStore.state.focusedThread));
-    return arrowNavigation.request(threads[(at<0?(direction>0?0:threads.length-1):(at+direction+threads.length)%threads.length)]);
+function navigate(direction,{sidebarFocus=false}={}){
+  if(sidebarFocus){
+    const state=appStore.state;
+    // Keep resolved threads in the ordering so the current passage remains
+    // the starting point, even when resolved destinations are filtered out.
+    const sequence=selectThreadSequence({...state,showResolved:true});
+    const target=stepThread(sequence,state.requestedThread??state.focusedThread,direction,state);
+    return target ? arrowNavigation.request(target) : Promise.resolve();
   }
   navigationQueue=navigationQueue.catch(()=>{}).then(async()=>{
-    const threads=spotlight?selectThreadSequence(appStore.state):appStore.state.searchQuery?threadSearch.results.map(r=>appStore.state.threads.find(t=>t.id===r.id)).filter(Boolean):(await getNavigationIndex()).filter(t=>threadEligible(t,appStore.state)).sort((a,b)=>(a.path>b.path)-(a.path<b.path)||a.start-b.start||a.id-b.id);
-    if(!threads.length)return;
-    let at=threads.findIndex(t=>t.id===appStore.state.focusedThread);
-    if(at<0){const local=threads.map((t,i)=>t.path===appStore.state.displayedDocument?i:-1).filter(i=>i>=0);at=local.length?(direction>0?local[0]:local.at(-1)):(direction>0?0:threads.length-1);}
-    else at=(at+direction+threads.length)%threads.length;
-    await jump(threads[at].id,threads[at],spotlight,!sidebarFocus);
-    if(sidebarFocus&&appStore.state.focusedThread===threads[at].id)$(`.thread[data-thread="${threads[at].id}"]`)?.focus({preventScroll:true});
+    const sequence=appStore.state.searchQuery?selectThreadSequence({...appStore.state,showResolved:true}):
+      [...await getNavigationIndex()].sort(compareThreadPosition);
+    const state=appStore.state;
+    const target=stepThread(sequence,state.focusedThread,direction,state,state.displayedDocument);
+    if(target)await jump(target.id,target);
   });return navigationQueue;
 }
 
-async function completeThread(id,operation,completes=true){
+async function deleteDiscussion(id,messageId=null){
   const path=appStore.state.displayedDocument,scope=threadScope(),review=discussionReview(),session=entry();
   const order=selectThreadSequence(appStore.state).map(thread=>thread.id);
   const current=()=>appStore.state.displayedDocument===path&&threadScope()===scope&&discussionReview()===review&&entry()===session;
-  await operation();
-  const effects=completes&&current()?appStore.dispatch({type:'THREAD_COMPLETED',threadId:id,order}):[];
+  await api('threads/'+id+(messageId==null?'':'/messages/'+messageId),'DELETE');
+  const effects=current()?appStore.dispatch({type:'DISCUSSION_DELETED',threadId:id,order}):[];
   const reveal=effects.find(effect=>effect.type==='REVEAL_THREAD'),spotlight=threadSpotlight.active;
   await refreshThreads();
   if(reveal&&current()&&appStore.state.zen&&appStore.state.focusedThread===reveal.threadId){
     const target=appStore.state.threads.find(thread=>thread.id===reveal.threadId&&!thread.resolved);
     if(target){await jump(target.id,target,spotlight,false);if(appStore.state.focusedThread===target.id)$(`.thread[data-thread="${target.id}"]`)?.focus({preventScroll:true});}
   }
-}
-async function deleteDiscussion(id,messageId=null){
-  await completeThread(id,()=>api('threads/'+id+(messageId==null?'':'/messages/'+messageId),'DELETE'));
   if(!appStore.state.threads.some(t=>t.id===appStore.state.focusedThread))clearThreadFocus();
   if(view)view.dispatch({effects:spansEffect.of(view.state.field(spanField).filter(span=>appStore.state.threads.some(t=>t.id===span.id)))});
   notify(messageId==null?'Thread deleted':'Comment deleted');
@@ -1672,10 +1674,12 @@ document.addEventListener('wheel',()=>{passagePosition=null;}, {capture:true,pas
 document.addEventListener('touchmove',()=>{passagePosition=null;}, {capture:true,passive:true});
 document.addEventListener('keydown',event=>{
   const sidebar=event.target.closest?.('#discussion-sidebar');
-  if(sidebar&&threadSpotlight.active&&!event.defaultPrevented&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&!event.shiftKey&&!event.target.closest('input,textarea,select,[contenteditable],[role=textbox],[role=separator]')&&!document.querySelector('dialog:modal')){
-    if(['ArrowLeft','ArrowRight'].includes(event.key)){event.preventDefault();guard(()=>navigate(event.key==='ArrowRight'?1:-1,{spotlight:true,sidebarFocus:true}))();return;}
-    if(event.key==='ArrowUp'){event.preventDefault();cancelSidebarNavigation();$('#thread-search').focus({preventScroll:true});return;}
-    if(event.key==='ArrowDown'){
+  if(sidebar&&!document.body.classList.contains('tasks-view')&&!event.defaultPrevented&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&!event.shiftKey&&!event.target.closest('input,textarea,select,[contenteditable],[role=textbox],[role=separator]')&&!document.querySelector('dialog:modal')){
+    if((threadSpotlight.active||event.target===sidebar||appStore.state.zen)&&['ArrowLeft','ArrowRight'].includes(event.key)){
+      event.preventDefault();guard(()=>navigate(event.key==='ArrowRight'?1:-1,{sidebarFocus:true}))();return;
+    }
+    if(threadSpotlight.active&&event.key==='ArrowUp'){event.preventDefault();cancelSidebarNavigation();$('#thread-search').focus({preventScroll:true});return;}
+    if(threadSpotlight.active&&event.key==='ArrowDown'){
       cancelSidebarNavigation();
       const card=$(`.thread[data-thread="${appStore.state.focusedThread}"]`);
       if(card&&!card.hidden){event.preventDefault();zenCollapsed=false;collapsedThreads.delete(appStore.state.focusedThread);rememberCollapsed();filterThreads();card.querySelector('.reply-form textarea')?.focus({preventScroll:true});threadSpotlight.reveal(card);}
@@ -1734,9 +1738,11 @@ document.addEventListener('click',guard(async event=>{
   }
   if(action.dataset.action==='jump'){await focusThreadCard(id);return;}
   if(action.dataset.action==='resolve'){
+    if(appStore.state.focusedThread===id)action.closest('.thread').focus({preventScroll:true});
     action.disabled=true;
     try{
-      await completeThread(id,()=>api('threads/'+id,'PATCH',{resolved:!t.resolved}),!t.resolved);
+      await api('threads/'+id,'PATCH',{resolved:!t.resolved});
+      await refreshThreads();
     }finally{action.disabled=false;}
   }
   if(action.dataset.action==='delete-thread'||action.dataset.action==='delete-message'){

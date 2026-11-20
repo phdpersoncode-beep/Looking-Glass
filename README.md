@@ -226,10 +226,10 @@ and expand-all controls. **Zen mode** (top-bar button or **Alt+Z**; the existing
 **Ctrl+Alt+Z** and **Cmd+Alt+Z** shortcuts also work) hides the file explorer and tabs
 and expands only the focused thread. The shortcut also works inside HTML reports.
 Leaving zen restores the normal collapse settings. **Ctrl+Z remains undo.**
-Resolving or deleting a thread or comment in zen mode advances to the next open
-thread, wrapping to the first when needed. This also works in spotlight; resolving
-the final open thread clears focus and spotlight. Reopening a resolved thread does
-not advance.
+Resolving a discussion keeps you at the same passage. With focus in the sidebar
+in zen mode or spotlight, use **←/→** to move from that passage through the
+filtered thread list. Deleting a thread or comment in zen mode advances to the
+next open thread.
 
 The small copy icon beside the document path copies that file's displayed path in
 one click. The **Go to top** arrow in the toolbar, just before the text-size controls,

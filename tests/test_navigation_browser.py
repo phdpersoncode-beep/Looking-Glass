@@ -210,7 +210,7 @@ def test_markdown_tables_use_available_width_and_scroll_overflow(workspace_page,
 
 @pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
 @pytest.mark.parametrize('mode',['live','source','preview'])
-def test_zen_resolve_navigates_and_scrolls_next_open_passage(workspace_page,mode):
+def test_zen_resolve_keeps_passage_until_keyboard_navigation(workspace_page,mode):
     from playwright.sync_api import expect
     root,page,url,ws=workspace_page
     text='# Report\n\nFirst passage.\n\n'+('Paragraph.\n\n'*70)+'Second passage.\n\n'+('Paragraph.\n\n'*70)+'Third passage.\n'
@@ -220,33 +220,72 @@ def test_zen_resolve_navigates_and_scrolls_next_open_passage(workspace_page,mode
     page.goto(url);open_file(page,'note.md');page.locator('#mode').select_option(mode)
     page.locator(f'.thread[data-thread="{threads[1]["id"]}"] blockquote').click();page.locator('#zen-toggle').click()
     pane=page.locator('#surface' if mode=='preview' else '.cm-scroller')
-    page.locator('.thread.active [data-action="resolve"]').click()
-    expect(page.locator('.thread.active')).to_have_attribute('data-thread',str(threads[2]['id']))
-    highlight=page.locator('.focused-highlight')
-    expect(highlight).to_have_text(quotes[2]);expect(highlight).to_be_in_viewport()
-    expect(page.locator('#mode')).to_have_value(mode)
-    # Resolving the last passage wraps to the first remaining open thread.
-    page.locator('.thread.active [data-action="resolve"]').click()
-    expect(page.locator('.thread.active')).to_have_attribute('data-thread',str(threads[0]['id']))
-    expect(highlight).to_have_text(quotes[0]);expect(highlight).to_be_in_viewport()
+    settle(page)
+    active=page.locator('.thread.active')
     top=pane.evaluate('el=>el.scrollTop')
-    page.locator('.thread.active [data-action="resolve"]').click()
-    expect(page.locator('#thread-count')).to_have_text('0')
-    expect(page.locator('.thread.active')).to_have_count(0)
+    active.locator('[data-action="resolve"]').click()
+    expect(active).to_have_attribute('data-thread',str(threads[1]['id']))
+    expect(active).to_have_attribute('data-resolved','true')
+    expect(active).to_be_focused()
+    settle(page)
     assert abs(pane.evaluate('el=>el.scrollTop')-top)<2
-    # Reopening is not an advance operation, even with resolved cards visible.
-    page.locator('#show-resolved').check()
-    reopened = page.locator(f'.thread[data-thread="{threads[0]["id"]}"]')
-    reopened.locator('.thread-summary').click(); settle(page)
+    expect(page.locator('#mode')).to_have_value(mode)
+
+    page.keyboard.press('ArrowRight')
+    highlight=page.locator('.focused-highlight')
+    expect(active).to_have_attribute('data-thread',str(threads[2]['id']))
+    expect(highlight).to_have_text(quotes[2]);expect(highlight).to_be_in_viewport()
+    page.keyboard.press('ArrowLeft')
+    expect(active).to_have_attribute('data-thread',str(threads[0]['id']))
+    expect(highlight).to_have_text(quotes[0]);expect(highlight).to_be_in_viewport()
+
+    active.locator('[data-action="resolve"]').click()
+    expect(active).to_have_attribute('data-resolved','true')
+    page.keyboard.press('ArrowRight')
+    expect(active).to_have_attribute('data-thread',str(threads[2]['id']))
+    expect(highlight).to_be_in_viewport();settle(page)
     top=pane.evaluate('el=>el.scrollTop')
-    reopened.locator('[data-action="resolve"]').click()
+    active.locator('[data-action="resolve"]').click()
+    expect(page.locator('#thread-count')).to_have_text('0')
+    expect(active).to_have_attribute('data-resolved','true')
+    page.keyboard.press('ArrowRight')
+    settle(page)
+    expect(active).to_have_attribute('data-thread',str(threads[2]['id']))
+    assert abs(pane.evaluate('el=>el.scrollTop')-top)<2
+    active.locator('[data-action="resolve"]').click()
     expect(page.locator('#thread-count')).to_have_text('1')
     assert abs(pane.evaluate('el=>el.scrollTop')-top)<2
     assert (root/'note.md').read_text()==text
 
 
 @pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
-def test_zen_resolve_follows_thread_across_files_and_preserves_draft(workspace_page):
+def test_zen_resolve_hidden_card_leaves_keyboard_focus_in_sidebar(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    text='First passage.\n\n'+('Paragraph.\n\n'*70)+'Second passage.\n'
+    (root/'note.md').write_text(text)
+    first=ws.create_thread('note.md',0,len('First passage.'),'First review','Tester',ws.read('note.md')['version'])
+    start=text.index('Second passage.')
+    second=ws.create_thread('note.md',start,start+len('Second passage.'),'Second review','Tester',ws.read('note.md')['version'])
+    page.goto(url);open_file(page,'note.md');page.locator('#zen-toggle').click()
+    expect(page.locator('#passage-spotlight')).to_be_hidden()
+    first_card=page.locator(f'.thread[data-thread="{first["id"]}"]')
+    second_card=page.locator(f'.thread[data-thread="{second["id"]}"]')
+    expect(page.locator('.thread.active')).to_have_attribute('data-thread', str(first['id']))
+    pane=page.locator('.cm-scroller')
+    top=pane.evaluate('el=>el.scrollTop')
+    first_card.locator('[data-action="resolve"]').click()
+    expect(first_card).to_be_hidden()
+    expect(page.locator('#discussion-sidebar')).to_be_focused()
+    assert abs(pane.evaluate('el=>el.scrollTop')-top)<2
+    page.keyboard.press('ArrowRight')
+    expect(second_card).to_be_focused()
+    expect(page.locator('.focused-highlight')).to_have_text('Second passage.')
+    expect(page.locator('.focused-highlight')).to_be_in_viewport()
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_zen_resolve_waits_for_keyboard_before_cross_file_navigation(workspace_page):
     from playwright.sync_api import expect
     root,page,url,ws=workspace_page
     (root/'a.md').write_text('First passage.\n')
@@ -259,6 +298,9 @@ def test_zen_resolve_follows_thread_across_files_and_preserves_draft(workspace_p
     open_file(page,'a.md');page.locator('#thread-scope').check()
     page.locator(f'.thread[data-thread="{first["id"]}"] blockquote').click();page.locator('#zen-toggle').click()
     page.locator('.thread.active [data-action="resolve"]').click()
+    expect(page.locator('.thread.active')).to_have_attribute('data-resolved','true')
+    expect(page.locator('#document-name')).to_have_text('a.md')
+    page.keyboard.press('ArrowRight')
     expect(page.locator('#document-name')).to_have_text('b.md')
     expect(page.locator('.thread.active')).to_have_attribute('data-thread',str(second['id']))
     expect(page.locator('.focused-highlight')).to_have_text('Target passage.')
@@ -268,7 +310,7 @@ def test_zen_resolve_follows_thread_across_files_and_preserves_draft(workspace_p
 
 
 @pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
-def test_zen_resolve_scrolls_rendered_html_discussion(workspace_page):
+def test_zen_resolve_keeps_rendered_html_position_until_keyboard_navigation(workspace_page):
     from playwright.sync_api import expect
     root,page,url,ws=workspace_page
     (root/'report.html').write_text('<p>First passage.</p><div style="height:2400px"></div><p>Next passage.</p>')
@@ -278,7 +320,11 @@ def test_zen_resolve_scrolls_rendered_html_discussion(workspace_page):
     page.goto(url);open_file(page,'report.html')
     page.locator(f'.thread[data-thread="{first["id"]}"] blockquote').click();page.locator('#zen-toggle').click()
     page.locator('.thread.active [data-action="resolve"]').click()
-    expect(page.locator('.thread.active')).to_have_attribute('data-thread',str(second['id']))
+    expect(page.locator('.thread.active')).to_have_attribute('data-resolved','true')
     frame=page.frame_locator('#html-preview')
+    expect(frame.locator('p').first).to_be_in_viewport()
+    expect(frame.locator('p').last).not_to_be_in_viewport()
+    page.keyboard.press('ArrowRight')
+    expect(page.locator('.thread.active')).to_have_attribute('data-thread',str(second['id']))
     expect(frame.locator('p').last).to_be_in_viewport()
     assert frame.locator('body').evaluate("()=>CSS.highlights.get('looking-glass-active').values().next().value.toString()")=='Next passage.'

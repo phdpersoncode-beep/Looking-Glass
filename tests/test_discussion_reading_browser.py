@@ -323,7 +323,7 @@ def test_spotlight_removal_and_tab_change_restore_list(workspace_page):
 
 
 @pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
-def test_resolving_spotlight_in_zen_navigates_to_next_open_thread(workspace_page):
+def test_resolving_spotlight_in_zen_preserves_passage_and_arrow_focus(workspace_page):
     from playwright.sync_api import expect
     root,page,url,ws=workspace_page
     text='First passage.\n\n'+'Filler text.\n\n'*80+'Final passage.\n'
@@ -334,8 +334,10 @@ def test_resolving_spotlight_in_zen_navigates_to_next_open_thread(workspace_page
     pane=page.locator('.cm-scroller');before=pane.evaluate('el=>el.scrollTop')
     page.locator('#surface .passage-highlight').filter(has_text='First').first.click()
     page.locator('.thread.active [data-action=resolve]').click()
-    expect(page.locator('.thread.active')).to_have_attribute('data-resolved','false')
+    expect(page.locator('.thread.active')).to_have_attribute('data-resolved','true')
     expect(page.locator('#passage-spotlight')).to_be_visible()
+    assert abs(pane.evaluate('el=>el.scrollTop')-before)<2
+    page.keyboard.press('ArrowRight')
     expect(page.locator('.thread.active')).to_have_attribute('data-thread',str(last['id']))
     expect(page.locator('.focused-highlight')).to_have_text('Final')
     expect(page.locator('.focused-highlight')).to_be_in_viewport()

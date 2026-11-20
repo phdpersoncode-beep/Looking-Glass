@@ -1,4 +1,4 @@
-"""Sidebar keyboard navigation and zen completion share the full scoped queue."""
+"""Sidebar keyboard navigation and zen deletion use the full scoped queue."""
 import os
 
 import pytest
@@ -161,7 +161,7 @@ def test_escape_from_spotlight_fields_returns_to_current_thread_shortcuts(worksp
 @pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
 @pytest.mark.parametrize('action', ['resolve', 'delete-thread', 'delete-message'])
 @pytest.mark.parametrize('spotlight', [False, True])
-def test_zen_completion_advances_and_wraps_in_both_views(workspace_page, action, spotlight):
+def test_zen_resolution_and_deletion_with_and_without_spotlight(workspace_page, action, spotlight):
     from playwright.sync_api import expect
     root, page, url, ws = workspace_page
     threads = discussions(root, ws)
@@ -176,17 +176,28 @@ def test_zen_completion_advances_and_wraps_in_both_views(workspace_page, action,
     card.locator(f'[data-action="{action}"]').first.click()
     if action.startswith('delete'):
         page.locator('.lg-dialog button[type=submit]').click()
+    else:
+        expect(card).to_have_attribute('data-resolved', 'true')
+        expect(page.locator('.thread.active')).to_have_attribute('data-thread', str(threads[1]['id']))
+        if spotlight:
+            expect(card).to_be_focused()
+        else:
+            expect(page.locator('#discussion-sidebar')).to_be_focused()
+        page.keyboard.press('ArrowRight')
     current = page.locator('.thread.active')
     expect(current).to_have_attribute('data-thread', str(threads[2]['id']))
     expect(current).to_be_focused()
     expect(page.locator('.focused-highlight')).to_have_text('Last passage.')
     expect(page.locator('.focused-highlight')).to_be_in_viewport()
-    if spotlight:
+    if spotlight or action == 'resolve':
         expect(page.locator('#passage-spotlight')).to_be_visible()
     else:
         expect(page.locator('#passage-spotlight')).not_to_be_visible()
-    # Resolving the last passage wraps to the first open thread.
+    # Right Arrow wraps to the first open thread after the last is resolved.
     current.locator('[data-action=resolve]').click()
+    expect(current).to_have_attribute('data-thread', str(threads[2]['id']))
+    expect(current).to_have_attribute('data-resolved', 'true')
+    page.keyboard.press('ArrowRight')
     expect(current).to_have_attribute('data-thread', str(threads[0]['id']))
     expect(page.locator('.focused-highlight')).to_have_text('First passage.')
     expect(page.locator('.focused-highlight')).to_be_in_viewport()
@@ -196,7 +207,7 @@ def test_zen_completion_advances_and_wraps_in_both_views(workspace_page, action,
 
 
 @pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
-def test_last_zen_spotlight_thread_clears_and_resolving_does_not_override_new_focus(workspace_page):
+def test_resolving_preserves_manual_focus_and_the_final_spotlight(workspace_page):
     from playwright.sync_api import expect
     root, page, url, ws = workspace_page
     threads = discussions(root, ws)
@@ -224,14 +235,20 @@ def test_last_zen_spotlight_thread_clears_and_resolving_does_not_override_new_fo
     page.unroute(resolve_url)
     expect(page.locator('#thread-count')).to_have_text('2')
     expect(page.locator('.thread.active')).to_have_attribute('data-thread', str(threads[2]['id']))
-    # Complete remaining threads; the final one clears spotlight and focus.
-    for count in ['1', '0']:
-        page.locator('.thread.active [data-action=resolve]').click()
+    active = page.locator('.thread.active')
+    # Resolve the remaining threads, moving between them explicitly.
+    for index, count in [(2, '1'), (1, '0')]:
+        expect(active).to_have_attribute('data-thread', str(threads[index]['id']))
+        expect(active).to_be_focused()
+        active.locator('[data-action=resolve]').click()
         expect(page.locator('#thread-count')).to_have_text(count)
-    expect(page.locator('#passage-spotlight')).not_to_be_visible()
-    expect(page.locator('.thread.active')).to_have_count(0)
-    page.locator('#show-resolved').check(); settle(page)
-    expect(page.locator('.thread.active')).to_have_count(0)
+        expect(active).to_have_attribute('data-thread', str(threads[index]['id']))
+        expect(active).to_have_attribute('data-resolved', 'true')
+        expect(active).to_be_focused()
+        page.keyboard.press('ArrowRight')
+    expect(page.locator('#passage-spotlight')).to_be_visible()
+    expect(active).to_have_attribute('data-thread', str(threads[1]['id']))
+    expect(active).to_be_focused()
 
 
 @pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)

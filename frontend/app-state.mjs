@@ -24,10 +24,27 @@ export function initialAppState(preferences = {}) {
     showResolved: false, onlyUnattached: false, onlySourceMarkers: false, zen: false, reviewPreference: false, ...preferences};
 }
 
+export function compareThreadPosition(a, b) {
+  return (a.path > b.path) - (a.path < b.path) || a.start - b.start || a.id - b.id;
+}
+
 export function selectThreadSequence(state) {
   const threads = selectVisibleThreads({...state, spotlight: null, spotlightIds: []});
-  return state.searchQuery.trim() ? threads : threads.sort((a, b) =>
-    (a.path > b.path) - (a.path < b.path) || a.start - b.start || a.id - b.id);
+  return state.searchQuery.trim() ? threads : threads.sort(compareThreadPosition);
+}
+
+export function stepThread(sequence, from, direction, state, fallbackPath = null) {
+  let at = sequence.findIndex(thread => thread.id === from);
+  if (at < 0) {
+    const local = fallbackPath && sequence.filter(thread => thread.path === fallbackPath && threadEligible(thread, state));
+    if (local?.length) return direction > 0 ? local[0] : local.at(-1);
+    at = direction > 0 ? -1 : 0;
+  }
+  for (let step = 1; step <= sequence.length; step++) {
+    const thread = sequence[(at + step * direction + sequence.length) % sequence.length];
+    if (threadEligible(thread, state)) return thread;
+  }
+  return null;
 }
 
 export function nextOpenThread(state, id, order = selectThreadSequence(state).map(t => t.id)) {
@@ -39,10 +56,11 @@ export function nextOpenThread(state, id, order = selectThreadSequence(state).ma
   return null;
 }
 
-function reconcileFocus(state) {
+function reconcileFocus(state, preserveResolved = false) {
   const spotlightIds = passageGroup(state.threads, state.spotlight);
   let next = {...state, spotlightIds, spotlight: spotlightIds.length ? state.spotlight : null};
   if (next.zen && !next.spotlight) {
+    if (preserveResolved && next.threads.some(t => t.id === next.focusedThread && t.resolved)) return next;
     const visible = selectVisibleThreads(next).filter(t => !t.resolved);
     if (!visible.some(t => t.id === next.focusedThread)) next.focusedThread = visible[0]?.id ?? null;
   }
@@ -62,13 +80,13 @@ export function transition(state, event) {
       if (event.origin && event.origin !== 'document-highlight') effects.push({type: 'REVEAL_THREAD', threadId: event.threadId, origin: event.origin});
       break;
     }
-    case 'THREAD_COMPLETED': {
+    case 'DISCUSSION_DELETED': {
       if (!state.zen || state.focusedThread !== event.threadId) break;
       const thread = nextOpenThread(state, event.threadId, event.order);
       const spotlight = thread && state.spotlight ? {path: thread.path, seeds: [thread]} : null;
       next = {...state, focusedThread: thread?.id ?? null, spotlight,
         spotlightIds: passageGroup(state.threads, spotlight)};
-      if (thread) effects.push({type: 'REVEAL_THREAD', threadId: thread.id, origin: 'zen-completion'});
+      if (thread) effects.push({type: 'REVEAL_THREAD', threadId: thread.id, origin: 'zen-deletion'});
       break;
     }
     case 'THREAD_NAVIGATION_REQUESTED': next = {...state, requestedThread: event.threadId}; break;
@@ -79,7 +97,7 @@ export function transition(state, event) {
       next = {...state, threads: event.threads};
       if (event.activation && event.threads.some(t => t.id === event.activation.threadId)) {
         next = transition(next, {type: 'THREAD_ACTIVATED', ...event.activation}).state;
-      } else next = reconcileFocus(next);
+      } else next = reconcileFocus(next, true);
       if(event.availableIds&&!event.availableIds.includes(next.focusedThread))next.focusedThread=null;
       break;
     }
