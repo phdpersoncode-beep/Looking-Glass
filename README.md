@@ -148,7 +148,9 @@ and embedded controls keep their normal behavior. Search stays in the same posit
 above the spotlight header, with a total thread count for the selected file scope.
 While spotlight is open and the sidebar or a thread has focus, **←/→** moves through
 the scoped, filtered thread list, **↑** focuses search, and **↓** focuses the current
-reply. Text fields keep their native arrow keys. Escape from the reply or search
+reply. **Ctrl+Enter** (or **Cmd+Enter**) resolves a focused discussion card. In the
+reply field, the same shortcut posts the reply. Text fields keep their native
+arrow keys. Escape from the reply or search
 field returns keyboard focus to the current thread, keeping spotlight, the search
 query, and unsent replies/attachments intact. Arrow shortcuts work immediately;
 press Escape again from the card to return to the list. Navigation preserves reply drafts.

@@ -17,6 +17,49 @@ def discussions(root, ws):
 
 
 @pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+@pytest.mark.parametrize('modifier', ['Control', 'Meta'])
+def test_resolve_shortcut_keeps_replies_and_passage_navigation(workspace_page, modifier):
+    from playwright.sync_api import expect
+    root, page, url, ws = workspace_page
+    threads = discussions(root, ws)
+    page.goto(url); open_file(page, 'note.md')
+    first = page.locator(f'.thread[data-thread="{threads[0]["id"]}"]')
+    first.locator('blockquote').click()
+    expect(first).to_be_focused()
+    resolve = first.get_by_role('button', name='Resolve thread', exact=True)
+    expect(resolve).to_have_attribute('aria-keyshortcuts', 'Control+Enter Meta+Enter')
+    shortcut = f'{modifier}+Enter'
+
+    reply = first.locator('.reply-form textarea')
+    reply.fill('Confirmed in the latest draft.')
+    reply.press(shortcut)
+    expect(first.locator('.message').last).to_contain_text('Confirmed in the latest draft.')
+    expect(first).to_have_attribute('data-resolved', 'false')
+    expect(reply).to_be_focused()
+    page.keyboard.press('Escape')
+    expect(first).to_be_focused()
+
+    patches = []
+    page.on('request', lambda request: patches.append(request.url)
+            if request.method == 'PATCH' and '/api/threads/' in request.url else None)
+    pane = page.locator('.cm-scroller')
+    before = pane.evaluate('el => el.scrollTop')
+    page.keyboard.press(shortcut)
+    expect(first).to_have_attribute('data-resolved', 'true')
+    expect(first).to_be_focused()
+    page.keyboard.press(shortcut)
+    settle(page)
+    assert patches == [f'{url}/api/threads/{threads[0]["id"]}']
+    assert abs(pane.evaluate('el => el.scrollTop') - before) < 2
+    expect(page.locator('#comment-dialog')).to_be_hidden()
+
+    page.keyboard.press('ArrowRight')
+    next_card = page.locator(f'.thread[data-thread="{threads[1]["id"]}"]')
+    expect(next_card).to_be_focused()
+    expect(page.locator('.focused-highlight')).to_have_text('Middle passage.')
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
 def test_spotlight_arrows_keep_sidebar_focus_drafts_and_search_position(workspace_page):
     from playwright.sync_api import expect
     root, page, url, ws = workspace_page
