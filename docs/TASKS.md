@@ -89,6 +89,8 @@ Done → Backlog**. The checkbox on the left still completes or reopens the task
 Click a row to select it. Up and Down select adjacent visible rows. Enter opens
 the selected card, and Escape clears selection. The pen at the right opens
 details on click and appears on hover or keyboard focus.
+Selected cards have the same soft tint on the board, in the sidebar, and in
+card checklists. A thin inset outline marks keyboard focus.
 
 Double-click a row to edit its name in place. Click within the field to position
 the caret while editing. Enter saves and moves to the next row; Up/Down
