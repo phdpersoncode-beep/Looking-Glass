@@ -204,6 +204,13 @@ def create_app(root):
         tag=hashlib.sha256(json.dumps([items,index],ensure_ascii=False).encode()).hexdigest()
         if request.if_none_match.contains(tag):
             return Response(status=304,headers={'ETag':'"'+tag+'"'})
+        for thread in items:
+            activity = [
+                thread['created_at'], thread['resolved'],
+                [(m['id'], m['created_at'], m['author'], m['body']) for m in thread['messages']],
+                thread['attachments'],
+            ]
+            thread['activity'] = hashlib.sha256(json.dumps(activity, ensure_ascii=False).encode()).hexdigest()
         response=jsonify(threads=items,index=index,html=render_template('threads.html',threads=items,all_files=all_files,active=None))
         response.set_etag(tag)
         return response

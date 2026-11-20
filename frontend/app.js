@@ -49,6 +49,7 @@ import {json} from '@codemirror/lang-json';
 import {syntaxTree, syntaxHighlighting, HighlightStyle, ensureSyntaxTree, foldable, foldEffect, unfoldAll} from '@codemirror/language';
 import {codeLanguage,shellLanguage} from './code-languages.mjs';
 import {mountPythonOutline} from './python-outline.mjs';
+import {pythonIndentation} from './python-indentation.mjs';
 import {pythonNavigation,pythonPosition,definitionOffset,chooseDefinition} from './python-navigation.mjs';
 import {tags,highlightTree,classHighlighter} from '@lezer/highlight';
 import * as THREE from 'three';
@@ -614,7 +615,7 @@ function makeState(e){
   const docPath=e.sourcePath||e.path,prose=['md','markdown','txt'].includes(ext(docPath));
   return EditorState.create({doc:e.content,extensions:[EditorState.lineSeparator.of(e.diskContent.includes('\r\n')?'\r\n':'\n'),basicSetup,documentSearch,matchOverview,language(docPath),workLockSlot.of(EditorState.readOnly.of(changingWorkMode)),...(tracked?[e.reviewField]:[]),...(e.kind==='original'?[EditorState.readOnly.of(true),EditorView.editable.of(false)]:[]),syntaxHighlighting(colors),spanField,threadFocusField,gitField,gitSlot.of([]),
     themeSlot.of(theme()),liveSlot.of(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables,textSelection]:[]),
-    ...(!e.kind&&['py','pyi'].includes(ext(e.path))?pythonNavigation(guard(goToPythonDefinition)):[]),
+    ...(!e.kind&&['py','pyi'].includes(ext(e.path))?[pythonIndentation(e.diskContent),pythonNavigation(guard(goToPythonDefinition))]:[]),
     ...(prose?[EditorView.lineWrapping,EditorView.theme({'.cm-scroller':{fontFamily:'var(--prose)',fontSize:'var(--prose-font-size)'},'.cm-content':{maxWidth:'850px',margin:'0 auto',width:'100%',minWidth:'0'},'.cm-foldGutter':{display:'none'}})]:[]),
     EditorView.domEventHandlers({paste:(event,editor)=>pasteImage(event,editor,e),contextmenu:(event,editor)=>{
       if(e.kind||editor.state.readOnly)return false;
@@ -1039,6 +1040,32 @@ function threadScope(){return appStore.state.scope;}
 const discussionCache=new Map();let lastThreadHTML='',lastThreadKey='',navigationIndex=[],indexTime=0;
 const discussionView=createDiscussionView($('#threads'),{composers,renderBody:(host,source)=>{renderMarkdown(host,source,highlightMarkdown);linkThreadReferences(host);linkFileReferences(host);markdownDiagrams(host);}});
 const discussionRetention=createDiscussionRetention();
+const viewedActivityPrefix='looking-glass-viewed-thread-activity:'+root+':';
+const viewedActivity=new Map();
+function readViewedActivity(id){
+  if(!viewedActivity.has(id)){
+    let activity=null;
+    try{activity=localStorage.getItem(viewedActivityPrefix+id);}catch{}
+    viewedActivity.set(id,activity);
+  }
+  return viewedActivity.get(id);
+}
+function markThreadViewed(thread){
+  if(!thread?.activity||readViewedActivity(thread.id)===thread.activity)return;
+  viewedActivity.set(thread.id,thread.activity);
+  try{localStorage.setItem(viewedActivityPrefix+thread.id,thread.activity);}catch{}
+  const indicator=$(`#threads .thread[data-thread="${thread.id}"]>.thread-update`);
+  if(indicator)indicator.hidden=true;
+}
+window.addEventListener('storage',event=>{
+  if(event.key===null)viewedActivity.clear();
+  else if(event.key.startsWith(viewedActivityPrefix)){
+    const id=Number(event.key.slice(viewedActivityPrefix.length));
+    if(!Number.isSafeInteger(id)||id<=0)return;
+    viewedActivity.delete(id);
+  }else return;
+  filterThreads();
+});
 async function readDiscussions(path,scope,review){
   const key=scope+':'+(path||'')+':'+(review||''),cached=discussionCache.get(key);
   const response=await fetch('/api/discussions?'+new URLSearchParams({path:path||'',scope,...(review?{review}: {})}),{headers:{'X-Looking-Glass-Token':token,...(cached?{'If-None-Match':cached.etag}:{})}});
@@ -1051,6 +1078,7 @@ function receiveDiscussions(data,key,authoritative=true,activation=null,displaye
   const sidebarFocus=!!document.activeElement?.closest('#discussion-sidebar');
   const focusedCard=document.activeElement?.closest('.thread');
   const previous=appStore.state.threads,discussions={threads:data.threads,availableIds:data.index.map(t=>t.id)};
+  if(activation)markThreadViewed(data.threads.find(t=>t.id===activation.threadId));
   appStore.dispatch(displayedPath===undefined?{type:'THREADS_RECEIVED',...discussions,activation}:{type:'DOCUMENT_DISPLAYED',path:displayedPath,discussions,activation});navigationIndex=data.index;indexTime=Date.now();
   const e=entry();
   if(e?.kind==='original'){
@@ -1120,10 +1148,15 @@ async function getNavigationIndex(){
   return navigationIndex;
 }
 function filterThreads(){
-  threadSearch.update(appStore.state.threads,threadSpotlight.active,$('#show-resolved').checked,discussionReview(),appStore.state.onlyUnattached,appStore.state.onlySourceMarkers);
+  const {threads}=appStore.state;
+  threadSearch.update(threads,threadSpotlight.active,$('#show-resolved').checked,discussionReview(),appStore.state.onlyUnattached,appStore.state.onlySourceMarkers);
   const visible=new Set(selectVisibleThreads(appStore.state).map(t=>t.id));
+  const activityById=new Map(threads.map(t=>[t.id,t.activity]));
   $$('.thread').forEach(t=>{
     const id=Number(t.dataset.thread);
+    const update=t.querySelector('.thread-update');
+    const activity=activityById.get(id);
+    if(update)update.hidden=!activity||readViewedActivity(id)===activity;
     t.hidden=!visible.has(id);
     t.classList.toggle('active',id===appStore.state.focusedThread);
     t.classList.toggle('collapsed',appStore.state.zen?(id!==appStore.state.focusedThread||zenCollapsed):collapsedThreads.has(id));
@@ -1187,6 +1220,7 @@ function showThread(id,focused=false,ids=[id],reveal=true,origin=null){
   passageActivation++;
   if(discussionsHidden)setDiscussionsHidden(false);
   zenCollapsed=false;if(!appStore.state.zen){collapsedThreads.delete(id);rememberCollapsed();}
+  markThreadViewed(appStore.state.threads.find(thread=>thread.id===id));
   appStore.dispatch({type:'THREAD_ACTIVATED',threadId:id,spotlight:focused,ids,origin});
   const card=$('.thread[data-thread="'+id+'"]');
   if(!focused&&reveal)threadSpotlight.reveal(card);

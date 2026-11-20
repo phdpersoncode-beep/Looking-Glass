@@ -48,6 +48,15 @@ losing a marker anchor in a saved Review resolves it, as discussion resolution i
 shared between modes. New markers in Review import only after approval writes
 the source. No provisional Review text is written to disk by tracking.
 
+## Python indentation
+
+In `.py` and `.pyi` files, Enter uses syntax-aware indentation for suites and
+bracketed expressions. Tab and Shift+Tab use the same indentation unit. The
+editor defaults to four spaces and follows an existing space or tab style when
+it finds a multiline suite near the start of the file. Enter keeps the
+indentation of an indented blank line and adds one level for an explicit
+backslash continuation.
+
 ## Python definitions
 
 In `.py` and `.pyi` files, Ctrl+click a name to go to its definition (Cmd+click

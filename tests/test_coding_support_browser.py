@@ -18,6 +18,46 @@ def replace_source(page, source):
     page.keyboard.insert_text(source)
 
 
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+@pytest.mark.parametrize('review', [False, True])
+def test_python_enter_and_tab_share_indentation(workspace_page, review):
+    from playwright.sync_api import expect
+    from test_review_mode_browser import wait_saved
+    root, page, url, ws = workspace_page
+    original = 'threshold = 5\r\nif threshold > 3: # start here'
+    path = root / 'main.py'
+    path.write_bytes(original.encode())
+    page.goto(url)
+    open_file(page, 'main.py')
+    if review:
+        page.locator('#work-mode').click()
+        expect(page.locator('#work-mode')).to_have_attribute('aria-checked', 'true')
+        expect(page.locator('#work-mode')).to_be_enabled()
+
+    page.locator('.cm-content').focus()
+    page.keyboard.press('Control+End')
+    page.keyboard.press('Enter')
+    line = page.locator('.cm-activeLine')
+    assert line.text_content() == '    '
+    page.keyboard.press('Tab')
+    assert line.text_content() == '        '
+    page.keyboard.press('Shift+Tab')
+    assert line.text_content() == '    '
+    page.keyboard.insert_text('if threshold < 7:')
+    page.keyboard.press('Enter')
+    assert line.text_content() == '        '
+    page.keyboard.insert_text('pass')
+    expected = original + '\r\n    if threshold < 7:\r\n        pass'
+    page.keyboard.press('Control+s')
+    if review:
+        wait_saved(page)
+        assert ws.reviews.read(ws.reviews.list()[0]['id'])['content'] == expected
+        assert path.read_bytes() == original.encode()
+    else:
+        expect(page.locator('#dirty')).to_have_text('')
+        assert path.read_bytes() == expected.encode()
+
+
 @pytest.mark.parametrize('workspace_page', ['chromium','firefox'], indirect=True)
 def test_markdown_marker_tracking_filter_navigation_reply_and_restart(workspace_page):
     from playwright.sync_api import expect

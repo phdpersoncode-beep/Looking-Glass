@@ -6,6 +6,74 @@ from test_requested_features import workspace_page,open_file
 pytestmark=[pytest.mark.browser,pytest.mark.skipif(not os.environ.get('LOOKING_GLASS_BROWSER'),reason='Set LOOKING_GLASS_BROWSER')]
 
 
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_amber_dot_tracks_unviewed_discussion_activity(workspace_page):
+    from playwright.sync_api import expect
+    root, page, url, ws = workspace_page
+    text = 'First passage.\n\nSecond passage.\n'
+    (root / 'note.md').write_text(text)
+    version = ws.read('note.md')['version']
+    first = ws.create_thread('note.md', 0, 14, 'First comment', 'Agent', version)['id']
+    second = ws.create_thread('note.md', 16, 31, 'Second comment', 'Agent', version)['id']
+    page.goto(url)
+    open_file(page, 'note.md')
+    page.set_viewport_size({'width': 1050, 'height': 760})
+    first_card = page.locator(f'.thread[data-thread="{first}"]')
+    second_card = page.locator(f'.thread[data-thread="{second}"]')
+    first_dot = first_card.get_by_role('img', name='Unviewed update')
+    second_dot = second_card.get_by_role('img', name='Unviewed update')
+    expect(first_dot).to_be_visible()
+    expect(second_dot).to_be_visible()
+    light = first_dot.evaluate('el => getComputedStyle(el).backgroundColor')
+    page.locator('#theme').click()
+    assert first_dot.evaluate('el => getComputedStyle(el).backgroundColor') != light
+    first_card.locator('.thread-heading .jump').click()
+    expect(first_dot).to_have_count(0)
+    page.locator('#all-discussions').click()
+    expect(second_dot).to_be_visible()
+    first_card.get_by_role('button', name=f'Collapse thread {first}').click()
+    page.reload()
+    expect(first_card.get_by_role('button', name=f'Expand thread {first}')).to_be_visible()
+    expect(first_dot).to_have_count(0)
+    expect(second_dot).to_be_visible()
+
+    # Anchor movement alone leaves the viewed revision intact.
+    ws.save('note.md', 'Intro.\n\n' + text, version)
+    expect(page.locator('.cm-content')).to_contain_text('Intro.')
+    expect(first_dot).to_have_count(0)
+
+    ws.reply(first, 'External reply', 'Agent')
+    expect(first_dot).to_be_visible(timeout=8000)
+    first_card.get_by_role('button', name=f'Expand thread {first}').click()
+    expect(first_card.get_by_text('External reply')).to_be_visible()
+    expect(first_dot).to_have_count(0)
+    reply = first_card.locator('textarea')
+    reply.fill('Unsent draft')
+    reply.evaluate('el => el.setSelectionRange(1, 5)')
+    message = ws.get_thread(first)['messages'][-1]['id']
+    ws.edit_message(first, message, 'Edited external reply')
+    expect(first_card.get_by_text('Edited external reply')).to_be_visible(timeout=8000)
+    expect(first_dot).to_be_visible()
+    expect(reply).to_be_focused()
+    expect(reply).to_have_value('Unsent draft')
+    assert reply.evaluate('el => [el.selectionStart, el.selectionEnd]') == [1, 5]
+    first_card.locator('.thread-heading .jump').click()
+    expect(first_dot).to_have_count(0)
+    page.reload()
+    expect(first_card.get_by_text('Edited external reply')).to_be_visible()
+    expect(first_dot).to_have_count(0)
+    expect(second_dot).to_be_visible()
+    other_tab = page.context.new_page()
+    try:
+        other_tab.goto(url)
+        other_card = other_tab.locator(f'.thread[data-thread="{second}"]')
+        expect(other_card.get_by_role('img', name='Unviewed update')).to_be_visible()
+        other_card.locator('.thread-heading .jump').click()
+        expect(second_dot).to_have_count(0)
+    finally:
+        other_tab.close()
+
+
 def endpoint(locator,offset):
     return locator.evaluate('''(host,offset)=>{
       const walker=document.createTreeWalker(host,NodeFilter.SHOW_TEXT);let node;

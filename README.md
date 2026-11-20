@@ -143,6 +143,9 @@ Cards keep their original order, and the focused view stays open while you read,
 collapse threads, or write replies. Click the quoted passage, thread number, or
 navigation arrows when you want to move the document to a discussion. Clicking a
 collapsed comment icon also navigates to its passage and opens sidebar spotlight.
+An amber dot marks a thread with unviewed activity, including new threads, reply
+or attachment changes, and resolve or reopen actions. Opening the thread clears
+the dot for the version you opened. The browser remembers this for each workspace.
 Clicking a thread card's general area opens spotlight too; text selection, links,
 and embedded controls keep their normal behavior. Search stays in the same position
 above the spotlight header, with a total thread count for the selected file scope.
