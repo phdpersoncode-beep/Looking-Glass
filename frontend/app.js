@@ -502,7 +502,7 @@ async function closeTab(path,returning=false,{keepOpen=false}={}){
   if (!keepOpen) {disposeReport(e);e.reviewSync?.dispose();tabs.delete(path);}
   remember();renderTabs();
   if(!appStore.state.displayedDocument&&tabs.size&&!keepOpen)await openFile([...tabs.keys()].at(-1));
-  else if(!appStore.state.displayedDocument){lastThreadHTML='';lastThreadKey='';clearSurface();const welcome=document.createElement('div');welcome.className='welcome';welcome.innerHTML='<h1>Open a file to begin.</h1>';$('#surface').append(welcome);$('#threads').replaceChildren();discussionView.reset();appStore.dispatch({type:'THREADS_RECEIVED',threads:[]});$('#thread-count').textContent='0';updateToolbar();await refreshThreads();}
+  else if(!appStore.state.displayedDocument){lastThreadHTML='';lastThreadKey='';clearSurface();const welcome=document.createElement('div');welcome.className='welcome';welcome.innerHTML='<h1>Open a file to begin.</h1>';$('#surface').append(welcome);$('#threads').replaceChildren();discussionView.reset();appStore.dispatch({type:'THREADS_RECEIVED',threads:[]});updateToolbar();await refreshThreads();}
 }
 
 function imageRangeAt(wrap){
@@ -1054,8 +1054,6 @@ function markThreadViewed(thread){
   if(!thread?.activity||readViewedActivity(thread.id)===thread.activity)return;
   viewedActivity.set(thread.id,thread.activity);
   try{localStorage.setItem(viewedActivityPrefix+thread.id,thread.activity);}catch{}
-  const indicator=$(`#threads .thread[data-thread="${thread.id}"]>.thread-update`);
-  if(indicator)indicator.hidden=true;
 }
 window.addEventListener('storage',event=>{
   if(event.key===null)viewedActivity.clear();
@@ -1092,9 +1090,6 @@ function receiveDiscussions(data,key,authoritative=true,activation=null,displaye
   }
   const retained=authoritative?discussionRetention.accept(discussionReview()?'pending-reviews':'ordinary',data.index.map(thread=>thread.id)):null;
   if(retained)composers.prune(retained);
-  $('#thread-count').textContent=appStore.state.threads.filter(t=>!t.resolved).length;
-  const total=appStore.state.threads.length,closed=appStore.state.threads.filter(t=>t.resolved).length;
-  const totalText=`${total} ${total===1?'thread':'threads'} · ${total-closed} open · ${closed} closed`;if($('#thread-total').textContent!==totalText)$('#thread-total').textContent=totalText;
   if(view&&e&&e.kind!=='original'){
     const old=view.state.field(spanField),byId=new Map(appStore.state.threads.map(t=>[t.id,t]));
     const spans=e.dirty?old.filter(s=>byId.has(s.id)).map(s=>({...s,resolved:byId.get(s.id).resolved})):spansFor(appStore.state.threads,e.content);
@@ -1151,12 +1146,23 @@ function filterThreads(){
   const {threads}=appStore.state;
   threadSearch.update(threads,threadSpotlight.active,$('#show-resolved').checked,discussionReview(),appStore.state.onlyUnattached,appStore.state.onlySourceMarkers);
   const visible=new Set(selectVisibleThreads(appStore.state).map(t=>t.id));
-  const activityById=new Map(threads.map(t=>[t.id,t.activity]));
+  const unread=new Set();
+  let closed=0;
+  for(const thread of threads){
+    if(thread.resolved)closed++;
+    if(thread.activity&&readViewedActivity(thread.id)!==thread.activity)unread.add(thread.id);
+  }
+  const total=threads.length,openCount=String(total-closed);
+  const totalText=`${total} ${total===1?'thread':'threads'} · ${openCount} open · ${closed} closed`;
+  const unreadText=`${unread.size} unread`;
+  if($('#thread-count').textContent!==openCount)$('#thread-count').textContent=openCount;
+  if($('#thread-total').textContent!==totalText)$('#thread-total').textContent=totalText;
+  if($('#thread-unread-count').textContent!==unreadText)$('#thread-unread-count').textContent=unreadText;
+  $('#thread-unread').hidden=unread.size===0;
   $$('.thread').forEach(t=>{
     const id=Number(t.dataset.thread);
     const update=t.querySelector('.thread-update');
-    const activity=activityById.get(id);
-    if(update)update.hidden=!activity||readViewedActivity(id)===activity;
+    if(update)update.hidden=!unread.has(id);
     t.hidden=!visible.has(id);
     t.classList.toggle('active',id===appStore.state.focusedThread);
     t.classList.toggle('collapsed',appStore.state.zen?(id!==appStore.state.focusedThread||zenCollapsed):collapsedThreads.has(id));
@@ -1165,7 +1171,7 @@ function filterThreads(){
   });
 }
 appStore.subscribe((state,previous,event)=>{
-  if(state.threads===previous.threads&&state.focusedThread===previous.focusedThread&&state.spotlight===previous.spotlight&&state.zen===previous.zen&&state.searchQuery===previous.searchQuery&&state.scope===previous.scope&&state.showResolved===previous.showResolved&&state.onlyUnattached===previous.onlyUnattached)return;
+  if(event.type!=='THREAD_ACTIVATED'&&state.threads===previous.threads&&state.focusedThread===previous.focusedThread&&state.spotlight===previous.spotlight&&state.zen===previous.zen&&state.searchQuery===previous.searchQuery&&state.scope===previous.scope&&state.showResolved===previous.showResolved&&state.onlyUnattached===previous.onlyUnattached)return;
   if(state.focusedThread!==previous.focusedThread)zenCollapsed=false;
   threadSpotlight.capture();filterThreads();threadSpotlight.render();
   if(state.focusedThread!==previous.focusedThread){zenCollapsed=false;previewThreads();cleanup.highlight?.(state.threads,state.focusedThread);refreshMarkdownHighlights();if(view&&event.origin!=='sidebar-navigation'&&!event.activation)view.dispatch({effects:threadFocusEffect.of(state.focusedThread)});}

@@ -15,6 +15,9 @@ def test_amber_dot_tracks_unviewed_discussion_activity(workspace_page):
     version = ws.read('note.md')['version']
     first = ws.create_thread('note.md', 0, 14, 'First comment', 'Agent', version)['id']
     second = ws.create_thread('note.md', 16, 31, 'Second comment', 'Agent', version)['id']
+    (root / 'other.md').write_text('Another file.\n')
+    other = ws.create_thread('other.md', 0, 7, 'Closed comment', 'Agent', ws.read('other.md')['version'])
+    ws.update_thread(other['id'], resolved=True)
     page.goto(url)
     open_file(page, 'note.md')
     page.set_viewport_size({'width': 1050, 'height': 760})
@@ -22,13 +25,39 @@ def test_amber_dot_tracks_unviewed_discussion_activity(workspace_page):
     second_card = page.locator(f'.thread[data-thread="{second}"]')
     first_dot = first_card.get_by_role('img', name='Unviewed update')
     second_dot = second_card.get_by_role('img', name='Unviewed update')
+    unread = page.locator('#thread-unread')
+    summary_dot = unread.locator('.thread-update-dot')
     expect(first_dot).to_be_visible()
     expect(second_dot).to_be_visible()
+    expect(unread).to_have_text('2 unread')
+    expect(summary_dot).to_be_visible()
+    assert unread.evaluate('''el => {
+        const badge = el.getBoundingClientRect();
+        const totals = document.querySelector('#thread-total').getBoundingClientRect();
+        return badge.left > totals.right && Math.abs(badge.top - totals.top) <= 1;
+    }''')
     light = first_dot.evaluate('el => getComputedStyle(el).backgroundColor')
+    assert summary_dot.evaluate('el => getComputedStyle(el).backgroundColor') == light
     page.locator('#theme').click()
-    assert first_dot.evaluate('el => getComputedStyle(el).backgroundColor') != light
+    dark = first_dot.evaluate('el => getComputedStyle(el).backgroundColor')
+    assert dark != light and summary_dot.evaluate('el => getComputedStyle(el).backgroundColor') == dark
+    page.locator('#discussion-resize').press('Home')
+    assert unread.evaluate('''el =>
+        el.getBoundingClientRect().right <= el.closest('.thread-totals').getBoundingClientRect().right
+    ''')
+
+    scope = page.locator('#thread-scope')
+    scope.check()
+    expect(unread).to_have_text('3 unread')
+    page.locator('#thread-search').fill('First comment')
+    expect(page.locator('#thread-search-status')).to_contain_text('1 match')
+    expect(unread).to_have_text('3 unread')
+    page.locator('#thread-search-clear').click()
+    scope.uncheck()
+    expect(unread).to_have_text('2 unread')
     first_card.locator('.thread-heading .jump').click()
     expect(first_dot).to_have_count(0)
+    expect(unread).to_have_text('1 unread')
     page.locator('#all-discussions').click()
     expect(second_dot).to_be_visible()
     first_card.get_by_role('button', name=f'Collapse thread {first}').click()
@@ -36,6 +65,7 @@ def test_amber_dot_tracks_unviewed_discussion_activity(workspace_page):
     expect(first_card.get_by_role('button', name=f'Expand thread {first}')).to_be_visible()
     expect(first_dot).to_have_count(0)
     expect(second_dot).to_be_visible()
+    expect(unread).to_have_text('1 unread')
 
     # Anchor movement alone leaves the viewed revision intact.
     ws.save('note.md', 'Intro.\n\n' + text, version)
@@ -44,9 +74,11 @@ def test_amber_dot_tracks_unviewed_discussion_activity(workspace_page):
 
     ws.reply(first, 'External reply', 'Agent')
     expect(first_dot).to_be_visible(timeout=8000)
+    expect(unread).to_have_text('2 unread')
     first_card.get_by_role('button', name=f'Expand thread {first}').click()
     expect(first_card.get_by_text('External reply')).to_be_visible()
     expect(first_dot).to_have_count(0)
+    expect(unread).to_have_text('1 unread')
     reply = first_card.locator('textarea')
     reply.fill('Unsent draft')
     reply.evaluate('el => el.setSelectionRange(1, 5)')
@@ -54,6 +86,7 @@ def test_amber_dot_tracks_unviewed_discussion_activity(workspace_page):
     ws.edit_message(first, message, 'Edited external reply')
     expect(first_card.get_by_text('Edited external reply')).to_be_visible(timeout=8000)
     expect(first_dot).to_be_visible()
+    expect(unread).to_have_text('2 unread')
     expect(reply).to_be_focused()
     expect(reply).to_have_value('Unsent draft')
     assert reply.evaluate('el => [el.selectionStart, el.selectionEnd]') == [1, 5]
@@ -63,6 +96,7 @@ def test_amber_dot_tracks_unviewed_discussion_activity(workspace_page):
     expect(first_card.get_by_text('Edited external reply')).to_be_visible()
     expect(first_dot).to_have_count(0)
     expect(second_dot).to_be_visible()
+    expect(unread).to_have_text('1 unread')
     other_tab = page.context.new_page()
     try:
         other_tab.goto(url)
@@ -70,6 +104,7 @@ def test_amber_dot_tracks_unviewed_discussion_activity(workspace_page):
         expect(other_card.get_by_role('img', name='Unviewed update')).to_be_visible()
         other_card.locator('.thread-heading .jump').click()
         expect(second_dot).to_have_count(0)
+        expect(unread).to_be_hidden()
     finally:
         other_tab.close()
 

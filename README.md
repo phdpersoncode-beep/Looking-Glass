@@ -152,6 +152,8 @@ collapsed comment icon also navigates to its passage and opens sidebar spotlight
 An amber dot marks a thread with unviewed activity, including new threads, reply
 or attachment changes, and resolve or reopen actions. Opening the thread clears
 the dot for the version you opened. The browser remembers this for each workspace.
+The unread count beside the sidebar totals follows the current file scope and
+disappears when every thread in that scope has been viewed.
 Clicking a thread card's general area opens spotlight too; text selection, links,
 and embedded controls keep their normal behavior. Search stays in the same position
 above the spotlight header, with a total thread count for the selected file scope.
