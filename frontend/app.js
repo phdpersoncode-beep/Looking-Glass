@@ -1,4 +1,4 @@
-import {isZenShortcut} from './keyboard-shortcuts.mjs';
+import {fileHistoryDirection,isZenShortcut} from './keyboard-shortcuts.mjs';
 import {normalizeInputTransaction,normalizeClipboardInput} from './editor-input.mjs';
 import {matchOverview} from './match-overview.mjs';
 import {mountOutlineResize} from './outline-resize.mjs';
@@ -655,9 +655,9 @@ function cancelSidebarNavigation(){
   appStore.dispatch({type:'THREAD_NAVIGATION_CANCELLED'});
 }
 function openFile(path){cancelSidebarNavigation();return navigation.open(path);}
-async function openTaskDocument(session,path,id){
+async function openTaskDocument(session,path,position){
   if(path.includes('//'))throw new Error('Choose a workspace file.');
-  const previous=session.tasks.documentReturn, jump={path,id};
+  const previous=session.tasks.documentReturn, jump={...position,path};
   session.tasks.documentReturn=jump;
   try{
     const result=await openFile(path);
@@ -798,7 +798,7 @@ async function loadFile(path,request){
 }
 
 async function mountFileSurface(e){
-  if(e.kind==='tasks')cleanup=mountTasks($('#surface'),e.tasks??={},api,{openDocument:(path,id)=>openTaskDocument(e,path,id),
+  if(e.kind==='tasks')cleanup=mountTasks($('#surface'),e.tasks??={},api,{openDocument:(path,position)=>openTaskDocument(e,path,position),
     downloadAttachment:file=>fetchAttachment(`task-attachments/${file.entry_id}/${file.id}`),author:()=>authorName,sidebar:$('#task-sidebar'),onSidebarMode:active=>{
     document.body.classList.toggle('tasks-view',active);
     $('#discussion-sidebar').setAttribute('aria-label',active?'Task hierarchy':'Discussions');
@@ -928,8 +928,7 @@ function updateToolbar(){
   markerButton.disabled=locked||!e||viewer||e.trackingMarkers||e.workMode==='review'||!['py','pyi','md','markdown','sh','bash','yaml','yml','toml','r','rb','pl','js','mjs','cjs','ts','tsx','jsx','c','h','cpp','hpp','cs','java','go','rs','css','scss','swift','kt','php','html','htm','sql','lua'].includes(type);
   markerButton.setAttribute('aria-pressed',String(!!e?.track_source_markers));
   markerButton.title='Create threads from the first 1,000 saved TODO/NOTE comments in this file; keep them in sync after saves and external edits.'+(e?.source_markers_truncated?' The 1,000-marker limit has been reached.':'');
-  $('#python-definition').hidden=!!e?.kind||!['py','pyi'].includes(type);
-  if(['py','pyi'].includes(type)&&!e?.kind)$('#file-info').title='Go to definition: Ctrl/Cmd+click a name, or F12 at the cursor. Tab indents.';else $('#file-info').removeAttribute('title');
+  if(['py','pyi'].includes(type)&&!e?.kind)$('#file-info').title='Go to definition: Ctrl/Cmd+click a name. Tab indents.';else $('#file-info').removeAttribute('title');
   outlineController?.setDocument(!e?.kind&&type==='py'?e.path:null,!e?.kind&&type==='py'?view?.state.doc||null:null);
   $('#markdown-contents').hidden=!!e?.kind||!['md','markdown'].includes(type)||e?.mode!=='live';
   for(const [id,direction] of [['font-smaller','Decrease'],['font-larger','Increase']]){const control=$('#'+id);control.setAttribute('aria-label',direction+(type==='pdf'?' PDF zoom':' document font size'));control.title=type==='pdf'?direction+' PDF zoom':direction+' document font size';control.textContent=type==='pdf'?(direction==='Increase'?'+':'−'):(direction==='Increase'?'A+':'A−');}
@@ -1552,6 +1551,7 @@ window.addEventListener('message',guard(async event=>{
   }
   if(message.type==='comment')await startComment();
   if(message.type==='quick-open')await showQuickOpen();
+  if(message.type==='file-history'&&[-1,1].includes(message.direction)&&!document.querySelector('dialog:modal'))historyControls.step(message.direction);
   if(message.type==='collapse-files')$('#collapse-files').click();
   if(message.type==='zen')toggleZen();
   if(message.type==='exit-spotlight'){passageActivation++;clearSpotlight();}
@@ -1603,6 +1603,13 @@ document.addEventListener('focusin',event=>{if(appStore.state.requestedThread!==
 document.addEventListener('scroll',scheduleSelectionTools,true);
 window.addEventListener('resize',()=>{scheduleSelectionTools();if($('#comment-dialog').open){const location=selectionLocation();if(location)placeNearSelection($('#comment-dialog'),location);}});
 document.addEventListener('keydown',event=>{
+  const direction = fileHistoryDirection(event);
+  if (direction) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!document.querySelector('dialog:modal')) historyControls.step(direction);
+    return;
+  }
   if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='s'&&!document.querySelector('dialog:modal')){event.preventDefault();guard(saveActive)();return;}
   if (event.altKey && !event.shiftKey && !event.ctrlKey && !event.metaKey && event.code === 'KeyT') {
     event.preventDefault();
@@ -1818,7 +1825,6 @@ $('#track-source-markers').onclick=guard(async()=>{
     if(entry()===e){await refreshThreads();notify(result.truncated?'Tracking the first 1,000 comments; this file has additional TODO / NOTE markers':result.enabled?'Tracking saved TODO / NOTE comments':'Source comment tracking paused');}
   }finally{e.trackingMarkers=false;updateToolbar();}
 });
-$('#python-definition').onclick=guard(()=>view&&goToPythonDefinition(view,view.state.selection.main.head));
 $('#thread-scope').checked=localStorage.getItem('looking-glass-thread-scope:'+root)==='all';
 $('#thread-scope').onchange=guard(async()=>{cancelSidebarNavigation();appStore.dispatch({type:'FILTERS_CHANGED',filters:{scope:$('#thread-scope').checked?'all':'file'}});clearSpotlight();localStorage.setItem('looking-glass-thread-scope:'+root,threadScope());await refreshThreads(true);});
 async function setMode(value){if(fileMutation)await fileMutation;const e=entry();if(!e||e.mode===value)return;await suspendHTMLPreview();syncState();e.mode=value;view?.destroy();view=null;cleanup();cleanup=()=>{};mountDocument(e);await e.ready;await refreshThreads();remember();}

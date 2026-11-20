@@ -205,6 +205,14 @@ def test_drag_preview_slides_neighbors_and_saves_only_on_drop(workspace_page, su
                              revision=ws.tasks.read()['revision']))
     page.goto(url)
     page.locator('#tasks-open').click()
+    page.evaluate("""() => {
+        const original = DataTransfer.prototype.setDragImage;
+        DataTransfer.prototype.setDragImage = function(image, x, y) {
+            window.outlineDragImage = image instanceof HTMLCanvasElement &&
+                image.getContext('2d').getImageData(0, 0, image.width, image.height).data.some(value => value !== 0);
+            return original.call(this, image, x, y);
+        };
+    }""")
     if surface == 'kanban':
         group = page.locator('.task-lane[data-status="in_progress"]')
         source = page.locator('.task-card[data-id="4"]')
@@ -235,8 +243,9 @@ def test_drag_preview_slides_neighbors_and_saves_only_on_drop(workspace_page, su
         page.mouse.move(x, y)
         expect(gap).to_be_visible()
         if surface != 'kanban':
-            expect(gap).to_contain_text('Move me')
-            expect(gap).to_contain_text('Insert before First')
+            expect(gap).to_be_empty()
+            assert gap.get_attribute('title') is None
+            assert page.evaluate('window.outlineDragImage')
             depth = 1 if surface == 'sidebar' else 0
             expect(gap).to_have_css('margin-inline-start', f'{16 * depth}px')
             assert group.evaluate('list => getComputedStyle(list, "::after").content') == 'none'

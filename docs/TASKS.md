@@ -28,12 +28,16 @@ Use the archive icon in **Done** to archive the tasks shown in that column.
 **Show archive** switches the board to archived tasks. The sidebar keeps
 archived tasks in their original hierarchy, where you can open and restore them.
 Click a card (or press Enter while focused) to open its centered detail popup.
+Opening from the board selects that card and clears the previous selection.
+Closing its details deselects it.
 Edit the card's name directly in its heading. Milestones show their M-number
 prefix beside the editable name and their permanent #C reference underneath. Compact status
 and milestone dropdowns sit side by side directly below the heading, above the
 description. Status symbols match the board columns (◌, ◐, ◎, ✓); ◇ marks milestone
 assignment. Changing status in the editor is the keyboard alternative
-to dragging. All titles and descriptions are treated as plain text.
+to dragging. Titles are plain text. Descriptions display rendered Markdown.
+Use the pen beside **Description** to edit the source and the checkmark to preview it.
+Closing the card saves the source.
 
 The upper-right toolbar beside × includes **Cancel** to discard field edits,
 promotion/demotion, archive/restore, and delete. Each control has a tooltip
@@ -117,9 +121,10 @@ and closes the popup. Unposted comments and their selected files remain in the
 tab session. If another writer changed the board, the popup keeps your edits
 open so you can review and acknowledge the latest revision before closing again.
 
-Type `@` in a card description or comment to find a workspace file. Description
-references appear under **Related files**, and references in posted comments
-open from the conversation. For a path with spaces, use `@"research notes.md"`.
+Type `@` in a card description or comment to find a workspace file. References
+appear in the rendered text. While editing a description, they're listed under
+**Related files**.
+For a path with spaces, use `@"research notes.md"`.
 Open a reference to read or discuss the document in its normal tab. The return
 button beside the document name reopens the same card with its description and
 comment drafts intact.
@@ -139,8 +144,9 @@ centers horizontally and vertically; height fits content up to that available sp
 For example, at 1600px wide it occupies 48% of the screen, and at 1100px about 70%.
 These are Looking Glass dimensions, not a claim about Trello's current CSS.
 
-Drag vertically to reorder siblings. Use Tab and Shift+Tab on a selected row to
-change its nesting. The sidebar heading lists the selection shortcuts.
+Drag vertically to reorder siblings. A dashed outline marks the drop position.
+Use Tab and Shift+Tab on a selected row to change its nesting. The sidebar
+heading lists the selection shortcuts.
 All card checklists use the same editable, draggable rows and saved hierarchy.
 Hover over a sidebar milestone or task to highlight its visible branch on the board. Edge arrows count matching board cards beyond the scroll area. Ctrl/Cmd+click
 selects multiple rows and shares selection with their board cards. Right-click
@@ -190,8 +196,9 @@ version onward; past changes cannot be reconstructed.
 
 Polling updates the open timeline without clearing unsent comments, replacing
 unchanged entries, or resetting card edit fields. Comment drafts remain available
-when reopening a card in the same tab session. Comments are plain text, including
-literal HTML. The browser initially loads the latest 100 entries and can load up to
+when reopening a card in the same tab session. Posted comments display sanitized
+Markdown, and the CLI and API retain the original source. The browser initially
+loads the latest 100 entries and can load up to
 1,000; the CLI/API can page further back with `before`. Unchanged activity polls
 return 304. Comments and activity deletion do not require a board revision; they
 never overwrite card fields. Concurrent card changes still require review before

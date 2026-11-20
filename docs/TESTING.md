@@ -5,7 +5,7 @@ existing ones; browser sharding changes where tests run, never which cases run.
 
 | Behavior | Main coverage |
 | --- | --- |
-| Opt-in TODO/NOTE comment threads, literal-string exclusion, persistence/replies/origins, conservative anchors, auto-resolution, Review approval, import bounds, marker search/navigation filters, Python Ctrl/Cmd+click/F12, imports/scopes/Unicode/CRLF, draft/history/undo preservation, stale-result rejection, ambiguity picker, worker deadlines/busy handling and static-only inference | `test_source_markers.py`, `test_python_navigation.py`, `python-navigation.test.mjs`, `test_coding_support_browser.py` |
+| Opt-in TODO/NOTE comment threads, literal-string exclusion, persistence/replies/origins, conservative anchors, auto-resolution, Review approval, import bounds, marker search/navigation filters, Python Ctrl/Cmd+click, imports/scopes/Unicode/CRLF, draft/history/undo preservation, stale-result rejection, ambiguity picker, worker deadlines/busy handling and static-only inference | `test_source_markers.py`, `test_python_navigation.py`, `python-navigation.test.mjs`, `test_coding_support_browser.py` |
 | Image paste, PNG/JPEG validation, disk updates, rename aliases/escaped filenames, original recovery, drawing/eraser, persistent image threads, large/narrow themed layouts and edge markers, symbol controls, keyboard comment/reply submission, duplicate-send/error handling, exact-embed deletion/cancel/undo in Edit/Review, stale saves, stable arrow navigation, centered per-embed resize/undo/Review/table/CRLF persistence, draggable markers with cancellation/conflicts and automatic drop exit, per-comment/whole-thread deletion with cancel/retry/draft retention/last-marker cleanup, portable synthetic Firefox paste, and themed application dialogs | `test_images.py`, `markdown-images.test.mjs`, `test_images_browser.py`, `test_dialogs_browser.py` |
 | Edit/save, undo/redo, find/replace, tabs, external changes and conflict recovery | `test_browser.py`, `test_workspace.py`, `test_app_integration_browser.py` |
 | Non-destructive review, human/agent provenance, removed text, autosave, approval and concurrent edits | `test_reviews.py`, `review-model.test.mjs`, `test_review_mode_browser.py` |
@@ -22,7 +22,7 @@ existing ones; browser sharding changes where tests run, never which cases run.
 | Repeated spotlight arrows, unavailable anchors, explicit original context, stable reading surfaces, thin themed reading scrollbars and native scrolling | `test_spotlight_regressions_browser.py` |
 | Native oversized downloads without browser buffering, expiring file-scoped download URLs, document top/copy controls, stable spotlight search, sidebar arrow focus, scoped queues and zen resolve/delete advancement | `test_file_downloads.py`, `test_reading_controls_browser.py`, `test_spotlight_controls_browser.py`, `app-state.test.mjs` |
 | Monospace line numbers through editing and narrow layouts, uniform rounded fenced code, quiet multiline blockquotes in both themes | `test_reading_pane_polish_browser.py` |
-| Recent-file Back/Forward, history dropdown/clear, rapid and failed navigation, saved visits, preserved drafts/scroll, Python outline parsing/jumps/live edits/review and layouts | `file-history.test.mjs`, `python-outline.test.mjs`, `test_file_navigation_outline_browser.py` |
+| Recent-file Back/Forward shortcuts from editor and rendered HTML, history dropdown/clear, rapid and failed navigation, saved visits, preserved drafts/scroll, Python outline parsing/jumps/live edits/review, wheel scrolling, and layouts | `file-history.test.mjs`, `python-outline.test.mjs`, `test_file_navigation_outline_browser.py` |
 | Git explorer colors/ignore rules/status-only refresh, recent-first fuzzy picker, resizable outline persistence/keyboard limits, whole-document occurrence markers/jumps/clearing and bounded dense matches | `test_explorer_status.py`, `test_navigation_additions_browser.py`, `match-overview.test.mjs` |
 | Explorer new-file/new-folder creation at root or in selected folders, collision/cancel/dirty-tab preservation, visible file-cap warnings and ignore refresh, Alt+Z from editor/HTML with preserved undo, immediate movable image draft pins with failed-send retry, and explorer rename/delete/copy, recoverable trash, stale/collision/protected-path rejection, preserved review/discussion/image/PDF metadata, empty-folder drag/drop, Alt+Q, Python outline folding, file-mention fuzzy completion/ignore rules, agent references and navigation | `test_file_operations.py`, `test_explorer_creation_browser.py`, `test_workspace_ignore.py`, `test_workspace_ignore_browser.py`, `test_explorer_browser.py`, `file-references.test.mjs`, `file-history.test.mjs` |
 | Thread references across files/resolved/HTML/unattached targets, preserved replies, literal interval brackets, horizontal filters, unattached-only lists/search/navigation and status counts | `markdown-links.test.mjs`, `app-state.test.mjs`, `test_thread_reference_polish_browser.py` |
@@ -144,11 +144,13 @@ parent deletion/demotion, CLI subtree reads/moves, and database snapshot round t
 Both browser engines exercise inline names, preserved draft/caret during agent
 polls, explicit conflict review, Tab/Shift+Tab indentation, Alt+arrow ordering,
 keyboard/checklist creation, sibling ordering by dragging titles, drag exclusion
-for row controls, cross-parent drag rejection,
+for row controls, text-free drop previews, cross-parent drag rejection,
 shared Ctrl+click/context actions, clickable references/card popups, and
 discussion/task sidebar resize/collapse/restoration in both themes and narrow panes.
 Task list journeys also exercise click to select, Enter or pen to open, double-click to rename, mouse
-caret placement, and folding an individual branch in both lists. The board
+caret placement, and folding an individual branch in both lists. Board-to-detail
+checks cover selection transfer and clearing, Markdown source editing, sanitized
+descriptions and comments, and document references. The board
 journey verifies insertion at the sidebar cursor, sidebar-only milestones,
 truncated filter labels with full hover text, status symbols, and filtered Done
 archiving with archived rows still visible and restorable in the plan.

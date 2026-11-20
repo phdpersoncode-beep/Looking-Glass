@@ -1,5 +1,24 @@
 export const taskDragType = 'application/x-looking-glass-cards';
 
+export function setTaskRowDragImage(event) {
+  const row = event.currentTarget;
+  const {left, top, width, height} = row.getBoundingClientRect();
+  const ghost = document.createElement('canvas');
+  ghost.width = Math.ceil(width);
+  ghost.height = Math.ceil(height);
+  const paint = ghost.getContext('2d');
+  paint.strokeStyle = getComputedStyle(row).getPropertyValue('--muted').trim();
+  paint.setLineDash([4, 3]);
+  paint.beginPath();
+  paint.roundRect(1, 1, ghost.width - 2, ghost.height - 2, 4);
+  paint.stroke();
+  ghost.setAttribute('aria-hidden', 'true');
+  ghost.style.cssText = 'position:fixed;left:-10000px;top:0;pointer-events:none';
+  (row.closest('dialog') ?? document.body).append(ghost);
+  event.dataTransfer.setDragImage(ghost, event.clientX - left, event.clientY - top);
+  requestAnimationFrame(() => ghost.remove());
+}
+
 // Use layout coordinates for hit testing even while items are sliding into place.
 export function taskDropItem(container, clientY, selector) {
   const y = clientY - container.getBoundingClientRect().top - container.clientTop;

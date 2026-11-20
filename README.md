@@ -180,11 +180,11 @@ pauses imports and keeps existing discussions. New Review markers import on
 approval. Tracking handles up to 1,000 markers per file and shows when that limit
 is reached in the icon’s tooltip.
 
-In Python, **Ctrl+click** (or **Cmd+click**) a name to go to its definition, or
-press **F12** at the cursor. The ↗ button beside the filename exposes the same
-command. Functions, classes, methods, scoped variables and imports resolve through
+In Python, **Ctrl+click** (or **Cmd+click**) a name to go to its definition.
+Functions, classes, methods, scoped variables and imports resolve through
 static analysis of the current buffer and saved workspace modules. Ambiguous
-names offer a definition chooser. File Back/Forward preserves drafts and undo.
+names offer a definition chooser. **Alt+←** and **Alt+→** move through file
+history and preserve drafts and undo.
 Local completion suggestions already work with **Ctrl+Space** and **Enter**;
 **Tab** continues to indent. See [coding support and completion options](docs/CODING_SUPPORT.md)
 for scope, limits and estimates.

@@ -1,5 +1,6 @@
 import { iconButton } from "./icons.mjs";
 import { linkFileReferences } from "./file-references.mjs";
+import { renderMarkdown } from "./markdown-render.mjs";
 const activityTime = new Intl.DateTimeFormat(undefined, {month:"short", day:"numeric", hour:"2-digit", minute:"2-digit"});
 const statuses = { backlog: "Backlog", in_progress: "In progress", to_review: "To review", done: "Done" };
 const labels = { title: "Title", description: "Description", status: "Status", milestone: "Milestone", milestone_id: "Assignment", milestone_number:"Milestone number", archived: "Archive", position: "Order", parent_id:"Parent", outline_position:"Checklist order" };
@@ -163,8 +164,8 @@ function mountTaskActivity(dialog, id, { api, download, state, write, getRevisio
       item.append(meta);
       if (entry.kind === "comment") {
         if (entry.body) {
-          const body = node("p", entry.body);
-          linkFileReferences(body);
+          const body = node("div", undefined, "comment-markdown task-markdown");
+          renderMarkdown(body, entry.body, linkFileReferences);
           item.append(body);
         }
         if (entry.attachments?.length) {

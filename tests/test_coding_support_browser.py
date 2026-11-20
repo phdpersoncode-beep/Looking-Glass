@@ -118,14 +118,14 @@ def test_python_ctrl_click_import_alias_and_back_preserve_draft_undo(workspace_p
 
 
 @pytest.mark.parametrize('workspace_page', ['chromium','firefox'], indirect=True)
-def test_python_f12_current_buffer_review_unicode_and_tab_indentation(workspace_page):
+def test_python_ctrl_click_current_buffer_review_unicode_and_tab_indentation(workspace_page):
     from playwright.sync_api import expect
     root,page,url,_ = workspace_page
     source='def café():\r\n    return 2\r\nvalue = "🦊"; café()\r\n'
     (root/'main.py').write_bytes(source.encode())
     page.goto(url); open_file(page,'main.py')
     reference=page.locator('.cm-line').filter(has_text='value =').get_by_text('café',exact=True)
-    reference.click(); page.keyboard.press('F12')
+    reference.click(modifiers=['Control'])
     expect(page.locator('.cm-activeLine')).to_contain_text('def café')
     expect(page.locator('#notice')).to_contain_text('Definition · main.py:1')
     page.locator('#work-mode').click(); expect(page.locator('#work-mode')).to_have_attribute('aria-checked','true')
@@ -133,9 +133,8 @@ def test_python_f12_current_buffer_review_unicode_and_tab_indentation(workspace_
     replace_source(page, '# changed draft\ndef draft_only():\n    return 1\ndraft_only()\n'.replace('\n','\r\n'))
     expect(page.locator('.cm-content')).to_contain_text('draft_only()')
     expect(page.locator('.cm-line')).to_have_count(5)
-    page.locator('.cm-line').filter(has_text=re.compile('^draft_only')).click()
-    page.keyboard.press('Home'); page.keyboard.press('ArrowRight')
-    page.keyboard.press('F12'); expect(page.locator('.cm-activeLine')).to_contain_text('def draft_only')
+    page.locator('.cm-line').filter(has_text=re.compile('^draft_only')).get_by_text('draft_only', exact=True).click(modifiers=['Control'])
+    expect(page.locator('.cm-activeLine')).to_contain_text('def draft_only')
     page.keyboard.press('Control+End'); page.keyboard.press('Tab'); page.keyboard.insert_text('x = 1')
     expect(page.locator('.cm-activeLine')).to_have_text('    x = 1')
     assert (root/'main.py').read_bytes() == source.encode()
@@ -176,8 +175,9 @@ def test_python_dirty_destination_and_missing_definition_keep_reading_stable(wor
     reference.click(); reference.click(modifiers=['Control'])
     expect(page.locator('#notice')).to_contain_text('destination draft')
     expect(page.locator('#document-name')).to_have_text('main.py')
-    page.locator('.cm-line').filter(has_text=re.compile('^missing')).get_by_text('missing',exact=True).click()
-    page.keyboard.press('F12'); expect(page.locator('#notice')).to_have_text('No definition found in this workspace.')
+    missing = page.locator('.cm-line').filter(has_text=re.compile('^missing')).get_by_text('missing', exact=True)
+    missing.click(); missing.click(modifiers=['Control'])
+    expect(page.locator('#notice')).to_have_text('No definition found in this workspace.')
     expect(page.locator('.cm-activeLine')).to_contain_text('missing()')
     open_file(page,'helper.py'); expect(page.locator('#dirty')).to_contain_text('Unsaved')
     expect(page.locator('.cm-content')).to_contain_text('# held draft')
@@ -199,7 +199,7 @@ def test_definition_picker_and_cross_file_review_navigation(workspace_page):
     expect(dialog).to_be_visible(); expect(dialog.locator('nav button')).to_have_count(2)
     page.keyboard.press('Escape'); expect(dialog).not_to_be_visible()
     expect(page.locator('#document-name')).to_have_text('main.py')
-    page.keyboard.press('F12'); expect(dialog).to_be_visible()
+    reference.click(modifiers=['Control']); expect(dialog).to_be_visible()
     dialog.get_by_role('button',name='build · b.py:1',exact=True).click()
     expect(page.locator('#document-name')).to_have_text('b.py')
     expect(page.locator('.cm-activeLine')).to_contain_text('def build')
@@ -245,8 +245,7 @@ def test_crlf_multiline_clipboard_and_undo_preserve_review(workspace_page,review
         Object.defineProperty(event,'clipboardData',{value:transfer});el.dispatchEvent(event);
     }''',pasted)
     expect(page.locator('.cm-line')).to_have_count(4)
-    page.locator('.cm-line').filter(has_text=re.compile('^café')).click()
-    page.keyboard.press('Home');page.keyboard.press('ArrowRight');page.keyboard.press('F12')
+    page.locator('.cm-line').filter(has_text=re.compile('^café')).get_by_text('café', exact=True).click(modifiers=['Control'])
     expect(page.locator('#notice')).to_contain_text('Definition · paste.py:1')
     page.keyboard.press('Control+s')
     if review:

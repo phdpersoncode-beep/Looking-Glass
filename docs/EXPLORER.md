@@ -53,6 +53,8 @@ For a Python file, open **Python outline** on the right. A small chevron beside 
 class or function folds its nested definitions; clicking the name still jumps to
 its source line. The small stacked-panel minus/plus icons match the sidebar controls and collapse
 or expand all nested outline elements. Each file's fold choices persist across navigation and reloads.
+Wheel or trackpad scrolling moves through long outlines. The thin scrollbar
+shows your position.
 
 In a new comment, reply, or comment edit, type **@** followed by part of a file
 path. The fuzzy picker uses the same scoring as Quick Open and refreshes its
@@ -92,6 +94,7 @@ collapsed. Dense occurrences share a marker within each line band to keep the
 overview responsive (at most 250 bands). Editor modes use their current draft;
 changing files or modes creates the appropriate overview for that surface.
 
+Use **Alt+←** and **Alt+→** to move back and forward through file visits.
 **Ctrl+P** opens the fuzzy file picker with the most recent file visits first,
 using the history dropdown's order with duplicate paths removed. Other workspace
 files follow alphabetically. Type to filter; Up/Down choose a result and Enter

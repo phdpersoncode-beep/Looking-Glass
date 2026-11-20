@@ -50,8 +50,8 @@ the source. No provisional Review text is written to disk by tracking.
 
 ## Python definitions
 
-In `.py` and `.pyi` files use Ctrl+click, Cmd+click, F12, or the filename's ↗
-button. Modifier hover underlines the identifier. A chooser handles multiple
+In `.py` and `.pyi` files, Ctrl+click a name to go to its definition (Cmd+click
+on macOS). Modifier hover underlines the identifier. A chooser handles multiple
 definitions. Workspace functions, classes, methods, scoped variables, import
 aliases and relative package imports use Jedi 0.19.2 static analysis. The current
 buffer can be unsaved or in Review. Other modules use their saved disk contents.

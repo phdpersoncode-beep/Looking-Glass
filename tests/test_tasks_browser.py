@@ -20,6 +20,8 @@ def test_reopening_clean_card_and_saving_only_edited_fields(workspace_page):
         pass
     card.click()
     description = page.get_by_label('Description', exact=True)
+    expect(page.locator('.task-description-preview')).to_have_text('Agent notes')
+    page.get_by_role('button', name='Edit description').click()
     expect(description).to_have_value('Agent notes')
     description.fill('My review notes')
     ws.tasks.mutate(dict(action='update', ids=[1], changes={'status':'to_review'}, revision=2))
@@ -109,7 +111,7 @@ def test_shared_planning_board(workspace_page):
     page.locator('.task-checklist').get_by_role('button', name='Open #C02', exact=True).click()
     page.get_by_role('button', name='Cancel', exact=True).click()
     release.locator('..').get_by_role('button', name='Open card details').click()
-    expect(page.get_by_label('Description', exact=True)).to_have_value('Milestone description')
+    expect(page.locator('.task-description-preview')).to_have_text('Milestone description')
     assert next(card for card in ws.tasks.read()['cards'] if card['id'] == 1)['description'] == 'Milestone description'
     page.get_by_role('button', name='Close card', exact=True).click()
     expect(page.locator('.task-dialog')).to_have_count(0)

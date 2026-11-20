@@ -26,11 +26,11 @@ def test_file_arrows_dropdown_and_clear_preserve_drafts_and_scroll(workspace_pag
     page.keyboard.press('Control+Home'); settle(page)
     page.locator('.cm-scroller').evaluate('el=>el.scrollTop=700'); settle(page)
     before = page.locator('.cm-scroller').evaluate('el=>el.scrollTop')
-    open_file(page, 'b.txt'); back.click()
+    open_file(page, 'b.txt'); page.keyboard.press('Alt+ArrowLeft')
     expect(page.locator('#document-name')).to_have_text('a.txt'); settle(page)
     assert abs(page.locator('.cm-scroller').evaluate('el=>el.scrollTop')-before) < 2
     expect(page.locator('#dirty')).to_contain_text('Unsaved')
-    forward.click(); expect(page.locator('#document-name')).to_have_text('b.txt')
+    page.keyboard.press('Alt+ArrowRight'); expect(page.locator('#document-name')).to_have_text('b.txt')
     back.click(); expect(page.locator('#document-name')).to_have_text('a.txt')
     open_file(page, 'c.txt'); expect(forward).to_be_disabled()
     page.locator('#file-history summary').click()
@@ -80,6 +80,14 @@ def test_history_handles_failed_and_rapid_navigation_context_and_reload(workspac
     page.reload(); expect(page.locator('#document-name')).to_have_text('c.txt')
     page.locator('#file-history summary').click()
     expect(page.locator('#file-history nav button')).to_have_text(['c.txt', 'b.txt', 'a.txt'])
+    (root/'report.html').write_text('<p>Rendered report</p>')
+    page.reload(); expect(page.locator('#document-name')).to_have_text('c.txt')
+    open_file(page, 'report.html')
+    page.frame_locator('#html-preview').locator('p').click()
+    page.keyboard.press('Alt+ArrowLeft')
+    expect(page.locator('#document-name')).to_have_text('c.txt')
+    page.keyboard.press('Alt+ArrowRight')
+    expect(page.locator('#document-name')).to_have_text('report.html')
 
 
 @pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
@@ -119,19 +127,29 @@ def test_python_outline_jumps_tracks_edits_and_follows_review_mode(workspace_pag
 def test_outline_layout_keyboard_themes_and_file_scope(workspace_page):
     from playwright.sync_api import expect
     root, page, url, _ = workspace_page
-    (root/'part.py').write_text('class Part:\n    def build(self): pass\n')
+    (root/'part.py').write_text('class Part:\n    def build(self): pass\n' +
+                               ''.join(f'\ndef step_{i:02d}(): pass\n' for i in range(50)))
     (root/'note.md').write_text('# A note\n\nProse.')
     page.goto(url); open_file(page, 'part.py')
     outline = page.locator('#code-outline'); summary = outline.locator('summary')
     for theme, width in [('light', 1440), ('dark', 900)]:
         if page.locator('html').get_attribute('data-theme') != theme:
             page.locator('#theme').click()
-        page.set_viewport_size({'width': width, 'height': 800})
+        page.set_viewport_size({'width': width, 'height': 620})
         summary.focus(); page.keyboard.press('Enter')
         expect(outline.locator('nav')).to_be_visible(); settle(page)
         pane_box = page.locator('.reading-pane').bounding_box(); outline_box = outline.bounding_box()
         assert outline_box['x'] > pane_box['x']
         assert outline_box['x'] + outline_box['width'] <= pane_box['x'] + pane_box['width'] + 1
+        scroll = outline.locator('nav')
+        expect(scroll).to_have_css('scrollbar-width', 'thin')
+        assert scroll.bounding_box()['y'] + scroll.bounding_box()['height'] <= outline_box['y'] + outline_box['height'] + 1
+        scroll.hover()
+        page.mouse.wheel(0, 4000)
+        last = outline.get_by_role('button', name=re.compile('^function step_49,'))
+        expect(last).to_be_in_viewport()
+        last.click()
+        expect(page.locator('.cm-activeLine')).to_contain_text('def step_49')
         outline.get_by_role('button', name=re.compile('^class Part,')).focus()
         page.keyboard.press('Escape')
         expect(summary).to_be_focused()

@@ -2,7 +2,8 @@ import {mountTaskActivity} from './task-activity.mjs';
 import {cardTitle, mountTaskOutline, outlineRows, taskColumns as columns} from './task-outline.mjs';
 import {bindTaskDismiss} from './task-dialog.mjs';
 import {icon, iconButton} from './icons.mjs';
-import {fileReferences} from './file-references.mjs';
+import {fileReferences,linkFileReferences} from './file-references.mjs';
+import {renderMarkdown} from './markdown-render.mjs';
 import {taskDragType, taskDropItem, taskDropPreview} from './task-drop-preview.mjs';
 export function cardReference(id) { return `#C${String(id).padStart(2, "0")}`; }
 export function displayReference(card) { return card.reference || cardReference(card.id); }
@@ -389,7 +390,7 @@ function mountTasks(host, state, api, options = {}) {
             const card = board.cards.find(c => c.id === resume.id);
             delete state.documentReturn;
             if (card) {
-              await edit(card);
+              await edit(card, resume);
               const content = document.querySelector('.task-detail-content');
               if (content) {
                 restoreTaskFocus(content.closest('dialog'), resume.focus);
@@ -527,14 +528,14 @@ function mountTasks(host, state, api, options = {}) {
           if (e.ctrlKey || e.metaKey) {
             picked.has(card.id) ? picked.delete(card.id) : picked.add(card.id);
             render();
-          } else edit(card);
+          } else edit(card, {fromBoard: true});
         };
         item.oncontextmenu=e=>openContext(e,card.id);
         item.onkeydown = (e) => {
           if (e.target !== item) return;
           if (e.key === "Enter") {
             e.preventDefault();
-            edit(card);
+            edit(card, {fromBoard: true});
           }
           if (e.key === " ") {
             e.preventDefault();
@@ -622,7 +623,7 @@ function mountTasks(host, state, api, options = {}) {
     d.showModal();
     title.focus();
   }
-  async function edit(card) {
+  async function edit(card, {fromBoard = false, descriptionEditing} = {}) {
     const previous = document.querySelector('.task-detail[open]');
     if (previous?.cardId === card.id) {
       previous.querySelector('[aria-label=Title]').focus();
@@ -645,7 +646,7 @@ function mountTasks(host, state, api, options = {}) {
     status.parentElement.classList.add('task-status-field');parent.parentElement.classList.add('task-milestone-field');
     status.title='Status';parent.title='Milestone';
     d.cardId=card.id;
-    d.returnPosition = () => ({id: card.id, top: content.scrollTop, focus: taskFocus(d)});
+    d.returnPosition = () => ({id: card.id, top: content.scrollTop, focus: taskFocus(d), fromBoard, descriptionEditing});
     const actions=el('div',undefined,'task-detail-actions'), content=el('div',undefined,'task-detail-content');
     const close=iconButton('Close card','close',()=>d.saveAndClose());
     actions.setAttribute('role','toolbar');actions.setAttribute('aria-label','Card actions');close.classList.add('task-detail-close');
@@ -665,6 +666,17 @@ function mountTasks(host, state, api, options = {}) {
     description.value = draft?.description ?? card.description;
     description.maxLength = 100000;
     description.dataset.taskFileMentions = '';
+    const descriptionField = description.parentElement;
+    const label = descriptionField.querySelector('label');
+    const descriptionHeading = el('div',undefined,'task-description-heading');
+    const preview = el('div',undefined,'comment-markdown task-markdown task-description-preview');
+    const toggleDescription = iconButton('Edit description','pen',() => {
+      showDescription(!descriptionEditing);
+      if (descriptionEditing) description.focus({preventScroll:true});
+    });
+    descriptionHeading.append(label, toggleDescription);
+    descriptionField.prepend(descriptionHeading);
+    descriptionField.append(preview);
     const related = el('div',undefined,'task-related-files');
     const fileLinks = el('div',undefined,'task-file-links');
     const hint = el('p','Type @ to link a workspace file.','task-file-hint');
@@ -672,12 +684,30 @@ function mountTasks(host, state, api, options = {}) {
     description.setAttribute('aria-describedby',hint.id);
     related.append(el('h3','Related files'),fileLinks);
     form.append(hint,related);
+    function showDescription(editing) {
+      descriptionEditing = editing;
+      description.hidden = hint.hidden = !editing;
+      preview.hidden = editing;
+      if (!editing) {
+        if (description.value.trim()) renderMarkdown(preview, description.value, linkFileReferences);
+        else preview.textContent = 'No description';
+      }
+      const action = editing ? 'Preview description' : 'Edit description';
+      toggleDescription.setAttribute('aria-label',action);
+      toggleDescription.title = action;
+      toggleDescription.replaceChildren(icon(editing ? 'check' : 'pen'));
+      refreshRelatedFiles();
+    }
     let linkedPaths = [];
     const refreshRelatedFiles = () => {
+      if (!descriptionEditing) {
+        related.hidden = true;
+        return;
+      }
       const paths = [...new Set(fileReferences(description.value).map(ref => ref.path))].filter(path => !path.includes('//'));
+      related.hidden = !paths.length;
       if (paths.length === linkedPaths.length && paths.every((path,index) => path === linkedPaths[index])) return;
       linkedPaths = paths;
-      related.hidden = !paths.length;
       fileLinks.replaceChildren(...paths.map(path => {
         const link = el('a',path);
         link.href = '#file-' + encodeURIComponent(path);
@@ -686,8 +716,7 @@ function mountTasks(host, state, api, options = {}) {
         return link;
       }));
     };
-    related.hidden = true;
-    refreshRelatedFiles();
+    showDescription(descriptionEditing ?? !description.value.trim());
     for (const [value, symbol, label] of columns) {
       const o = el("option", symbol+' '+label);
       o.value = value;
@@ -750,7 +779,7 @@ function mountTasks(host, state, api, options = {}) {
       event.stopPropagation();
       retainDraft();
       try {
-        await options.openDocument(link.dataset.fileReference,card.id);
+        await options.openDocument(link.dataset.fileReference,d.returnPosition());
       } catch (problem) {
         error.textContent = problem.message;
         error.scrollIntoView({block:'nearest'});
@@ -767,7 +796,7 @@ function mountTasks(host, state, api, options = {}) {
       }
       if (!form.reportValidity()) return false;
       saving = true;
-      const controls = [close, cancel, convert, archive, remove, title, description, status, parent];
+      const controls = [close, cancel, convert, archive, remove, title, description, toggleDescription, status, parent];
       const enabled = controls.filter(control => !control.disabled);
       enabled.forEach(control => control.disabled = true);
       if (pendingWrite) await pendingWrite;
@@ -823,6 +852,14 @@ function mountTasks(host, state, api, options = {}) {
     });
     d.refreshActivity=activity.refresh;
     d.addEventListener("close", activity.dispose);
+    if (fromBoard) {
+      picked.clear();
+      picked.add(card.id);
+      refreshSelection();
+      d.addEventListener('close', () => {
+        if (picked.delete(card.id) && !disposed) refreshSelection();
+      });
+    }
     d.showModal();
     const titleResize=new ResizeObserver(sizeTitle);titleResize.observe(title);
     d.addEventListener('close',()=>titleResize.disconnect());

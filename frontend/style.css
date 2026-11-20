@@ -32,12 +32,12 @@ dialog:modal{margin:auto}.directory-list{height:260px;overflow:auto;margin-top:8
 .prose-editor .cm-scroller {font-family:var(--prose);font-size:var(--prose-font-size,18px);}
 /* A quiet position indicator, using the current theme's purple and muted tones. */
 .reading-pane{--reading-scroll-thumb:color-mix(in srgb,var(--purple) 25%,var(--muted));--reading-scroll-hover:color-mix(in srgb,var(--purple) 55%,var(--muted))}
-.reading-pane :is(#surface,.cm-scroller,.original-reading,.jsonl-raw,.jsonl-detail,.image-viewport){scrollbar-width:thin;scrollbar-color:var(--reading-scroll-thumb) transparent}
-.reading-pane :is(#surface,.cm-scroller,.original-reading,.jsonl-raw,.jsonl-detail,.image-viewport)::-webkit-scrollbar{width:6px;height:6px}
-.reading-pane :is(#surface,.cm-scroller,.original-reading,.jsonl-raw,.jsonl-detail,.image-viewport)::-webkit-scrollbar-track{background:transparent}
-.reading-pane :is(#surface,.cm-scroller,.original-reading,.jsonl-raw,.jsonl-detail,.image-viewport)::-webkit-scrollbar-thumb{background:var(--reading-scroll-thumb);border-radius:999px}
-.reading-pane :is(#surface,.cm-scroller,.original-reading,.jsonl-raw,.jsonl-detail,.image-viewport)::-webkit-scrollbar-thumb:hover{background:var(--reading-scroll-hover)}
-.reading-pane :is(#surface,.cm-scroller,.original-reading,.jsonl-raw,.jsonl-detail,.image-viewport)::-webkit-scrollbar-corner{background:transparent}
+.reading-pane :is(#surface,.cm-scroller,.original-reading,.jsonl-raw,.jsonl-detail,.image-viewport,.code-outline nav){scrollbar-width:thin;scrollbar-color:var(--reading-scroll-thumb) transparent}
+.reading-pane :is(#surface,.cm-scroller,.original-reading,.jsonl-raw,.jsonl-detail,.image-viewport,.code-outline nav)::-webkit-scrollbar{width:6px;height:6px}
+.reading-pane :is(#surface,.cm-scroller,.original-reading,.jsonl-raw,.jsonl-detail,.image-viewport,.code-outline nav)::-webkit-scrollbar-track{background:transparent}
+.reading-pane :is(#surface,.cm-scroller,.original-reading,.jsonl-raw,.jsonl-detail,.image-viewport,.code-outline nav)::-webkit-scrollbar-thumb{background:var(--reading-scroll-thumb);border-radius:999px}
+.reading-pane :is(#surface,.cm-scroller,.original-reading,.jsonl-raw,.jsonl-detail,.image-viewport,.code-outline nav)::-webkit-scrollbar-thumb:hover{background:var(--reading-scroll-hover)}
+.reading-pane :is(#surface,.cm-scroller,.original-reading,.jsonl-raw,.jsonl-detail,.image-viewport,.code-outline nav)::-webkit-scrollbar-corner{background:transparent}
 .font-controls{display:flex;gap:2px;margin-left:auto}.font-controls button{border:0;padding:3px 5px;font-size:11px}
 #surface :is(.markdown-preview,.comment-markdown){font-size:var(--prose-font-size,18px)}.jsonl-row code{font-size:var(--document-font-size,14px)}
 #surface .md-h1,#surface :is(.markdown-preview,.comment-markdown) h1{font-size:calc(30px + var(--document-font-step,0px))}#surface .md-h2,#surface :is(.markdown-preview,.comment-markdown) h2{font-size:calc(24px + var(--document-font-step,0px))}#surface .md-h3{font-size:calc(20px + var(--document-font-step,0px))}#surface .md-h4,#surface .md-h5,#surface .md-h6{font-size:var(--prose-font-size,18px)}#surface .md-code{font-size:calc(12px + var(--document-font-step,0px))}#surface :is(.markdown-preview,.comment-markdown) code{font-size:calc(13px + var(--document-font-step,0px))}
@@ -259,7 +259,7 @@ html[data-theme="dark"] { --review-human: #78d49a; --review-agent: #84b4ff; --re
 .code-outline summary{display:flex;align-items:center;gap:7px;height:36px;padding:6px;cursor:pointer;list-style:none;color:var(--muted);font:10px var(--font-sans);white-space:nowrap}
 .code-outline summary>svg{flex-shrink:0}.code-outline:not([open]) summary>span,.code-outline:not([open]) .outline-chevron{display:none}
 .code-outline .outline-chevron{margin-left:auto}.code-outline[open] summary{border-bottom:1px solid var(--border)}
-.code-outline nav{height:calc(100% - 36px);overflow:auto;scrollbar-width:thin}
+.code-outline nav{position:absolute;inset:66px 0 0;overflow:auto;overscroll-behavior:contain;padding-block-end:4px}
 .code-outline nav button{display:flex;align-items:center;gap:7px;width:100%;padding:6px 8px 6px calc(8px + var(--outline-depth)*12px);border:0;border-radius:0;text-align:left;font:11px/1.6 var(--mono)}
 .outline-symbol{flex-shrink:0;width:12px;text-align:center;color:var(--muted)}.outline-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .code-outline [data-kind=class] .outline-symbol{color:var(--purple)}
@@ -378,7 +378,7 @@ html[data-theme="dark"] { --review-human: #78d49a; --review-agent: #84b4ff; --re
 .drop-target{box-shadow:inset 0 0 0 2px var(--purple);background:var(--selection)}
 a[data-file-reference]{color:var(--purple);text-decoration:none;border-radius:3px;padding:0 2px}a[data-file-reference]:hover{background:var(--selection);text-decoration:underline}
 .outline-tools{display:flex;justify-content:flex-end;gap:4px;padding:3px 6px;height:30px;border-bottom:1px solid var(--border)}.outline-tools button{display:grid;place-items:center;padding:0 5px;border:0;color:var(--muted)}
-.code-outline nav{height:calc(100% - 66px)}.outline-item>.outline-item{margin-left:12px}.outline-item>div:not(.outline-row){padding-left:12px}
+.outline-item>.outline-item{margin-left:12px}.outline-item>div:not(.outline-row){padding-left:12px}
 .outline-row{display:flex;align-items:center}.code-outline nav .outline-fold{width:22px;flex:0 0 22px;padding:4px 0;text-align:center;justify-content:center}.code-outline nav .outline-row>button[data-kind]{min-width:0;flex:1;padding:5px 6px}.outline-row:not(:has(.outline-fold)){padding-left:22px}
 #track-source-markers[aria-pressed=true]{color:var(--purple);background:var(--selection)}.source-marker-flag{display:inline-block;font:10px var(--mono);color:var(--purple);margin:4px 0}.cm-content .python-definition-link{color:var(--purple);text-decoration:underline;cursor:pointer}
 .definition-choices nav{display:grid;gap:6px;margin:12px 0}.definition-choices nav button{white-space:normal;overflow-wrap:anywhere;text-align:left}
@@ -438,11 +438,17 @@ body.outline-resizing,body.outline-resizing *{cursor:col-resize!important;user-s
 .task-activity-meta{display:flex;align-items:baseline;gap:8px;color:var(--muted);font-size:11px}
 .task-activity-meta time{font-size:10px;white-space:nowrap}
 .task-activity-meta svg{width:14px;height:14px}
-.task-activity-entry p{white-space:pre-wrap;margin:0}
+.task-update p{white-space:pre-wrap;margin:0}
 .task-comment{position:relative;padding:5px 30px 6px 2px;border-bottom:1px solid var(--border)}
 .task-comment .task-activity-meta strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .task-comment .task-activity-meta .icon-button{position:absolute;top:3px;right:0;width:26px;height:26px;padding:4px}
-.task-comment>p{margin-top:2px}
+.task-activity .task-markdown,.task-detail .task-markdown{padding:0;margin:0;font:12px/1.6 var(--font-sans);color:var(--text);overflow-wrap:anywhere}
+.task-comment .task-markdown{margin-top:3px}
+.task-markdown p{margin:0 0 .65em}.task-markdown h1,.task-markdown h2,.task-markdown h3{font-size:14px;line-height:1.35}
+.task-markdown pre{overflow:auto}.task-markdown .markdown-table-scroll{margin-block:.5em}
+.task-description-heading{display:flex;justify-content:space-between;align-items:center}
+.task-description-heading .icon-button{width:25px;height:25px;padding:4px;border:0;color:var(--muted)}
+.task-detail .task-description-preview{padding:9px 10px;border:1px solid var(--border);border-radius:5px}
 .task-comment-form{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:8px;margin-top:10px}
 .task-detail .task-comment-form textarea{min-height:44px;padding:5px 8px;font-size:12px;line-height:1.4}
 .task-comment-actions{display:flex;align-items:center;gap:4px}
@@ -515,7 +521,7 @@ body.tasks-view .task-sidebar:not([hidden]){display:flex}
 .task-lane,.task-outline-list{position:relative;overflow-anchor:none}
 :is(.task-card,.task-outline-row).task-drag-origin{position:absolute;inset:0 auto auto 0;width:0;height:0;min-height:0;margin:0;padding:0;border:0;overflow:hidden;opacity:0;pointer-events:none}
 .task-drop-preview{flex:none;border:1px dashed color-mix(in srgb,var(--purple) 65%,var(--border));border-radius:5px;background:color-mix(in srgb,var(--purple) 8%,var(--paper))}
-.task-outline-list>.task-drop-preview{display:block;align-content:center;padding-inline:9px;white-space:nowrap;text-overflow:ellipsis;font-size:10px;color:var(--muted);position:relative;--task-guide:color-mix(in srgb,var(--muted) 65%,var(--border));border-color:var(--task-guide);background:color-mix(in srgb,var(--muted) 6%,transparent)}
+.task-outline-list>.task-drop-preview{border-color:color-mix(in srgb,var(--muted) 65%,var(--border));background:transparent}
 /* Keep the native drop target stable while the preview moves its children. */
 .task-drag-active :is(.task-lane,.task-outline-list)>:not(.task-drag-source){pointer-events:none}
 .task-lane>.task-drop-preview{margin-bottom:14px}
@@ -562,9 +568,6 @@ body.tasks-view .task-sidebar:not([hidden]){display:flex}
 .task-edge-top{top:4px}.task-edge-bottom{bottom:8px}
 .task-edge-left,.task-edge-right{top:50%;transform:translateY(-50%)}
 .task-edge-left{left:4px}.task-edge-right{right:4px}
-.task-outline-list>.task-drop-preview>strong{color:var(--text);font-weight:500}
-.task-outline-list>.task-drop-preview>:is(strong,span){display:block;overflow:hidden;text-overflow:ellipsis}
-
 .task-outline-row>.task-outline-pen{margin-inline-start:auto;width:22px;height:22px;color:var(--muted);opacity:0}
 .task-outline-pen svg{width:13px;height:13px}
 .task-outline-row:is(:hover,:focus-within)>.task-outline-pen{opacity:1}
