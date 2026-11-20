@@ -9,6 +9,8 @@ closed, and restored after a browser refresh. The board belongs to the open
 workspace, including when agents use the CLI from another directory.
 
 The four columns are **◌ Backlog**, **◐ In progress**, **◎ To review**, and **✓ Done**.
+Each column starts with room for one card and its add control, then grows with
+its cards.
 Drag a card onto another card to insert before it, or onto a column to append.
 While dragging, a preview gap shows where the card will land and nearby cards
 slide into the proposed positions. The board order is saved on drop. With
@@ -164,9 +166,10 @@ its nearest surviving parent. Deleting or demoting a milestone keeps its tasks,
 lifts direct children to the root, and unassigns the subtree. Archiving a milestone preserves its task relationships;
 its tasks remain visible and the archived milestone is unavailable for new assignments.
 
-Moving a task into Done produces a brief confetti burst and a soft synthesized
-ding. Reduced-motion preferences suppress confetti. **Mute** persists in this
-browser. Browser audio policy may suppress sound until audio is permitted. Polling
+Moving a task into Done produces a brief animated confetti burst, including
+with reduced motion enabled, and a soft synthesized ding. **Mute** controls
+the ding and persists in this browser. Browser audio policy may suppress sound
+until audio is permitted. Polling
 agent changes never plays completion effects. No audio files or external assets
 are downloaded.
 

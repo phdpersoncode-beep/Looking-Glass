@@ -219,10 +219,15 @@ def test_archived_milestone_and_completion_preferences(workspace_page):
     expect(page.get_by_label('Milestone',exact=True)).to_have_value('1')
     page.get_by_label('Status',exact=True).select_option('done')
     page.get_by_role('button',name='Close card',exact=True).click()
+    expect(page.locator('.task-detail')).to_have_count(0)
     expect(page.locator('.task-lane[data-status=done] .task-card')).to_have_count(1)
     assert page.evaluate('window.taskDings') == 1
     assert ws.tasks.read()['cards'][1]['milestone_id'] == 1
-    expect(page.locator('.task-confetti')).to_have_count(0)
+    confetti = page.locator('.task-board > .task-confetti')
+    first_bit = confetti.locator('i').first
+    expect(first_bit).to_have_css('animation-name', 'task-celebrate')
+    assert first_bit.evaluate('bit => bit.getAnimations().some(animation => animation.playState === "running")')
+    expect(confetti).to_have_count(0)
     page.get_by_label('Mute',exact=True).check()
     page.get_by_role('article',name='Task',exact=True).click()
     page.get_by_label('Status',exact=True).select_option('backlog')
@@ -232,9 +237,34 @@ def test_archived_milestone_and_completion_preferences(workspace_page):
     page.get_by_label('Status',exact=True).select_option('done')
     page.get_by_role('button',name='Close card',exact=True).click()
     expect(page.locator('.task-lane[data-status=done] .task-card')).to_have_count(1)
+    expect(first_bit).to_have_css('animation-name', 'task-celebrate')
     assert page.evaluate('window.taskDings') == 1
     page.reload()
     expect(page.get_by_label('Mute',exact=True)).to_be_checked()
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_board_columns_fit_one_card_and_grow_with_more(workspace_page):
+    from playwright.sync_api import expect
+    _, page, url, ws = workspace_page
+    for title, status in [('Queued', 'backlog'), ('Writing', 'in_progress'), ('Reviewing', 'in_progress')]:
+        ws.tasks.mutate(dict(action='create', title=title, status=status, revision=ws.tasks.read()['revision']))
+    page.goto(url)
+    page.locator('#tasks-open').click()
+    single = page.get_by_role('region', name='Backlog', exact=True)
+    empty = page.get_by_role('region', name='Done', exact=True)
+    multiple = page.get_by_role('region', name='In progress', exact=True)
+    card = single.get_by_role('article')
+    add = single.get_by_role('button', name='Add task to Backlog', exact=True)
+    expect(card).to_have_count(1)
+    expect(empty.get_by_role('button', name='Add task to Done', exact=True)).to_be_visible()
+    for width in (1440, 900):
+        page.set_viewport_size({'width': width, 'height': 780})
+        lane_box, card_box, add_box = single.bounding_box(), card.bounding_box(), add.bounding_box()
+        assert 0 <= add_box['y'] - (card_box['y'] + card_box['height']) <= 4
+        assert 5 <= (lane_box['y'] + lane_box['height']) - (add_box['y'] + add_box['height']) <= 14
+        assert abs(empty.bounding_box()['height'] - lane_box['height']) <= 2
+        assert multiple.bounding_box()['height'] >= lane_box['height'] + card_box['height']
 
 
 @pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)

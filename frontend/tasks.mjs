@@ -297,21 +297,25 @@ function mountTasks(host, state, api, options = {}) {
     }
     select.value = value;
   }
-  function celebrate() {
-    if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      const burst = el("div", void 0, "task-confetti");
-      for (let i = 0; i < 18; i++) {
-        const bit = el("i");
-        bit.style.setProperty("--x", `${(Math.random() - 0.5) * 260}px`);
-        bit.style.setProperty("--y", `${30 + Math.random() * 100}px`);
-        bit.style.setProperty("--r", `${Math.random() * 360}deg`);
-        burst.append(bit);
-      }
-      const popup=document.querySelector('.task-detail[open]');
-      if(popup){const rect=popup.getBoundingClientRect();burst.style.position='fixed';burst.style.left=(rect.left+rect.width*.75)+'px';burst.style.top=(rect.top+Math.min(rect.height/2,140))+'px';}
-      (popup||root).append(burst);
-      setTimeout(() => burst.remove(), 950);
+  function celebrate(completionOnBoard) {
+    const burst = el("div", void 0, "task-confetti");
+    burst.setAttribute('aria-hidden', 'true');
+    for (let i = 0; i < 18; i++) {
+      const bit = el("i");
+      bit.style.setProperty("--x", `${(Math.random() - 0.5) * 260}px`);
+      bit.style.setProperty("--y", `${30 + Math.random() * 100}px`);
+      bit.style.setProperty("--r", `${Math.random() * 360}deg`);
+      burst.append(bit);
     }
+    const popup = completionOnBoard ? null : document.querySelector('.task-detail[open]');
+    if (popup) {
+      const rect = popup.getBoundingClientRect();
+      burst.style.position = 'fixed';
+      burst.style.left = (rect.left + rect.width * .75) + 'px';
+      burst.style.top = (rect.top + Math.min(rect.height / 2, 140)) + 'px';
+    }
+    (popup || root).append(burst);
+    setTimeout(() => burst.remove(), 950);
     if (!muted.checked) {
       try {
         const Audio = window.AudioContext || window.webkitAudioContext;
@@ -331,15 +335,15 @@ function mountTasks(host, state, api, options = {}) {
       }
     }
   }
-  function change(data, revision = board.revision, files = []) {
+  function change(data, revision = board.revision, settings) {
     if (pendingWrite) {
       notice.textContent = "Another task change is saving. Try again in a moment.";
       return Promise.resolve(false);
     }
-    pendingWrite = write(data, revision, files).finally(() => { pendingWrite = null; });
+    pendingWrite = write(data, revision, settings).finally(() => { pendingWrite = null; });
     return pendingWrite;
   }
-  async function write(data, revision, files) {
+  async function write(data, revision, {files = [], completionOnBoard = false} = {}) {
     notice.textContent = "";
     try {
       const old = board;
@@ -358,7 +362,7 @@ function mountTasks(host, state, api, options = {}) {
         render();
       }
       const incomplete = new Set(old.cards.filter(c => c.status !== 'done').map(c => c.id));
-      if (next.cards.some(c => !c.milestone && c.status === 'done' && incomplete.has(c.id))) celebrate();
+      if (next.cards.some(c => !c.milestone && c.status === 'done' && incomplete.has(c.id))) celebrate(completionOnBoard);
       return true;
     } catch (error) {
       fail(error);
@@ -800,7 +804,7 @@ function mountTasks(host, state, api, options = {}) {
       const enabled = controls.filter(control => !control.disabled);
       enabled.forEach(control => control.disabled = true);
       if (pendingWrite) await pendingWrite;
-      const saved = d.open && await change({action: 'update', ids: [card.id], changes}, revision);
+      const saved = d.open && await change({action: 'update', ids: [card.id], changes}, revision, {completionOnBoard: true});
       saving = false;
       enabled.forEach(control => control.disabled = false);
       if (saved) {
@@ -840,7 +844,7 @@ function mountTasks(host, state, api, options = {}) {
     const activity = mountTaskActivity(content, card.id, {
       api, download: options.downloadAttachment, state, getRevision:()=>board.revision,
       write:async (data, files)=>{
-        const before=board.revision, saved=await change(data, before, files);
+        const before=board.revision, saved=await change(data, before, {files});
         // A comment does not change card fields. Only acknowledge our own
         // activity write when no other writer changed the card in between.
         if(saved && revision===before && board.revision===before+1) {

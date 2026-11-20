@@ -168,6 +168,8 @@ multiline Unicode headings, required-name validation, checklist context menus an
 completion feedback in the modal layer, and internal scrolling above a stable
 visible board. Hierarchy creation waits for
 the previous detail to close and scopes its Title locator to the create dialog.
+`test_tasks_browser.py` checks animated completion with reduced motion and
+sound muted, plus compact columns with zero, one, or several cards.
 
 `test_task_controls_browser.py` exercises compact symbol-bearing metadata below
 the editable heading and above Description, header icon Save/archive/restore/delete
