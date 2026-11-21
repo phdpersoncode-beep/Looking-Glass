@@ -568,7 +568,7 @@ class MarkdownImage extends WidgetType {
     const wrap=el.querySelector('.markdown-image'),img=wrap?.querySelector('img');if(!img)return false;
     const caption=imageCaption(this.alt);img._displayCaption=this.alt;img.alt=caption.alt;wrap.style.width=caption.width?caption.width+'px':'';return true;
   }
-  toDOM(){const host=document.createElement('span'),img=document.createElement('img');img.setAttribute('src',this.href);img.alt=this.alt;host.append(img);imageTools.mount(img);return host;}
+  toDOM(){const host=document.createElement('span'),img=document.createElement('img');img.alt=this.alt;host.append(img);imageTools.mount(img,this.href);return host;}
   ignoreEvent(){return true;}
 }
 function applyImageChanges(e,changes){
