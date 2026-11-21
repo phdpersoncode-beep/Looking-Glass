@@ -4,6 +4,27 @@ export function todoRanges(text) {
   return Array.from(text.matchAll(todoPattern), match => ({from: match.index, to: match.index + match[0].length}));
 }
 
+// Append successive slices of the same text while keeping TODO styling inside
+// existing passage and review marks, even when a slice ends mid-word.
+export function todoTextAppender(text, ranges) {
+  let next = 0;
+  return (host, from = 0, to = text.length) => {
+    for (; next < ranges.length && ranges[next].from < to; next++) {
+      const range = ranges[next];
+      const start = Math.max(from, range.from);
+      const end = Math.min(to, range.to);
+      if (from < start) host.append(text.slice(from, start));
+      const todo = document.createElement('span');
+      todo.className = 'md-todo';
+      todo.textContent = text.slice(start, end);
+      host.append(todo);
+      from = end;
+      if (end < range.to) break;
+    }
+    if (from < to) host.append(text.slice(from, to));
+  };
+}
+
 export function styleMarkdownTodos(host) {
   const walker = document.createTreeWalker(host, NodeFilter.SHOW_TEXT);
   const pending = [];
@@ -14,16 +35,7 @@ export function styleMarkdownTodos(host) {
   }
   for (const {text, ranges} of pending) {
     const fragment = document.createDocumentFragment();
-    let at = 0;
-    for (const {from, to} of ranges) {
-      fragment.append(text.data.slice(at, from));
-      const todo = document.createElement('span');
-      todo.className = 'md-todo';
-      todo.textContent = text.data.slice(from, to);
-      fragment.append(todo);
-      at = to;
-    }
-    fragment.append(text.data.slice(at));
+    todoTextAppender(text.data, ranges)(fragment);
     text.replaceWith(fragment);
   }
 }

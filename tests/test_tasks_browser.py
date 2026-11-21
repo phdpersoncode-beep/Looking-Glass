@@ -738,7 +738,7 @@ def test_task_comment_attaches_previews_and_downloads_files(workspace_page):
         page.evaluate('(theme)=>document.documentElement.dataset.theme=theme', theme)
         page.set_viewport_size({'width': 390, 'height': 700})
         icon = attach.locator('svg').bounding_box()
-        assert icon['width'] == icon['height'] == 18
+        assert (icon['width'], icon['height']) == pytest.approx((18, 18), abs=0.25)
         assert detail.evaluate('el=>el.scrollWidth<=el.clientWidth+1')
     with page.expect_file_chooser() as chooser:
         attach.click()

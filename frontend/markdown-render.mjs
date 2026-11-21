@@ -2,7 +2,7 @@ import {label as reviewLabel} from './review-model.mjs';
 import {Renderer} from 'marked';
 import {markdown as marked,isMathFence,mathPlaceholder,hydrateMath} from './markdown-math.mjs';
 import {mappedMarkdownHTML,visibleMap} from './markdown-source.mjs';
-import {styleMarkdownTodos,todoRanges} from './markdown-todo.mjs';
+import {styleMarkdownTodos,todoRanges,todoTextAppender} from './markdown-todo.mjs';
 export {tokenPositions,mappedMarkdownHTML} from './markdown-source.mjs';
 import DOMPurify from 'dompurify';
 
@@ -137,17 +137,21 @@ export function mountMappedMarkdown(host,source,offset=0,decorate=()=>{},formula
         }
         const idsAt=at=>spans.filter(s=>s.from<map[at].to&&s.to>map[at].from).map(s=>s.id);
         const changeAt=at=>reviewChanges.find(s=>s.kind==='insert'&&s.from<map[at].to&&s.to>map[at].from);
-        const todos=leaf._todos;
-        for(let at=0,todoIndex=0;at<map.length;) {
+        const appendText=todoTextAppender(leaf._text,leaf._todos);
+        for(let at=0;at<map.length;) {
           while(ghostAt<ghosts.length&&ghosts[ghostAt].from<=map[at].from)addGhost(ghosts[ghostAt++]);
-          if(todos[todoIndex]?.to<=at)todoIndex++;
-          const todoRange=todos[todoIndex],todo=todoRange&&todoRange.from<=at;
-          const limit=todoRange?(todo?todoRange.to:todoRange.from):map.length;
           const ids=idsAt(at),change=changeAt(at);let end=at+1;
-          while(end<limit&&idsAt(end).join(',')===ids.join(',')&&changeAt(end)===change&&!(ghostAt<ghosts.length&&ghosts[ghostAt].from<=map[end].from))end++;
-          const text=leaf._text.slice(at,end);
-          if(ids.length||change||todo){const resolved=ids.length&&ids.every(id=>spans.find(s=>s.id===id)?.resolved);const mark=document.createElement('span');mark.className=(ids.length?'passage-highlight'+(resolved?' resolved-passage':ids.includes(active)&&!spans.find(s=>s.id===active)?.resolved?' focused-highlight':''):'')+(change?' '+(change.role==='agent'?'review-agent':'review-human'):'');if(todo)mark.classList.add('md-todo');if(ids.length){mark.dataset.anchor=String(ids.includes(active)?active:ids[0]);mark.dataset.anchors=ids.join(',');}if(change)mark.title=reviewLabel(change);mark.textContent=text;fragment.append(mark);}
-          else fragment.append(document.createTextNode(text));at=end;
+          while(end<map.length&&idsAt(end).join(',')===ids.join(',')&&changeAt(end)===change&&!(ghostAt<ghosts.length&&ghosts[ghostAt].from<=map[end].from))end++;
+          if(ids.length||change){
+            const resolved=ids.length&&ids.every(id=>spans.find(s=>s.id===id)?.resolved);
+            const mark=document.createElement('span');
+            mark.className=(ids.length?'passage-highlight'+(resolved?' resolved-passage':ids.includes(active)&&!spans.find(s=>s.id===active)?.resolved?' focused-highlight':''):'')+(change?' '+(change.role==='agent'?'review-agent':'review-human'):'');
+            if(ids.length){mark.dataset.anchor=String(ids.includes(active)?active:ids[0]);mark.dataset.anchors=ids.join(',');}
+            if(change)mark.title=reviewLabel(change);
+            appendText(mark,at,end);
+            fragment.append(mark);
+          }else appendText(fragment,at,end);
+          at=end;
         }
         while(ghostAt<ghosts.length)addGhost(ghosts[ghostAt++]);
         target.replaceChildren(fragment);
