@@ -1,4 +1,4 @@
-import {Decoration,ViewPlugin,keymap} from '@codemirror/view';
+import {Decoration,ViewPlugin} from '@codemirror/view';
 import {syntaxTree} from '@codemirror/language';
 
 export function pythonPosition(doc, at){
@@ -29,8 +29,7 @@ function identifier(editor,pos){
   return ['VariableName','PropertyName'].includes(node.name)?word:null;
 }
 export function pythonNavigation(lookup){
-  return [keymap.of([{key:'F12',run:editor=>{lookup(editor,editor.state.selection.main.head);return true;}}]),
-    ViewPlugin.fromClass(class{
+  return [ViewPlugin.fromClass(class{
       decorations=Decoration.none;
       update(update){if(update.docChanged)this.decorations=Decoration.none;}
       mark(editor,event){

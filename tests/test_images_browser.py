@@ -520,12 +520,26 @@ def test_discussion_image_previews_keep_controls_out_during_refresh(workspace_pa
     image=setup_disk_image(root,ws);text=(root/'notes.md').read_text();start=text.index('![')
     embed=f"![](.looking-glass/images/{image['id']}_{image['name']})"
     thread=ws.images.comment(image['id'],dict(path='notes.md',version=ws.read('notes.md')['version'],start=start,end=start+len('![](photo.png)'),reference='photo.png',x=.5,y=.5,body='Read this image.\n\n'+embed,author='User'))
+    endpoint=f"**/api/images/{image['id']}/content"
+    pending=[]
+    page.route(endpoint,lambda route:pending.append(route))
     page.goto(url);open_file(page,'notes.md')
-    preview=page.locator('.comment-markdown .markdown-image');expect(preview.locator('img')).to_be_visible()
+    preview=page.locator('.comment-markdown .markdown-image')
+    pixels=preview.locator('img')
+    try:
+        expect(pixels).to_be_attached()
+        # A raw URL can queue an error that Firefox delivers after the blob load starts.
+        assert pixels.get_attribute('src') is None
+    finally:
+        for route in pending:route.continue_()
+        page.unroute(endpoint)
+    expect(pixels).to_be_visible()
+    assert pixels.evaluate('img=>img.complete && img.naturalWidth > 0')
     expect(preview.locator('button')).to_have_count(0)
     # A real discussion refresh must not add markers or editing controls to a preview.
     ws.reply(thread['id'],'Refresh this discussion','Agent')
     expect(page.locator('.comment-markdown').last).to_contain_text('Refresh this discussion',timeout=10000)
+    expect(pixels).to_be_visible()
     expect(preview.locator('button')).to_have_count(0)
     expect(page.locator('#surface .image-comment-marker')).to_have_count(1)
 

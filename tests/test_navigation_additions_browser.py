@@ -79,6 +79,62 @@ def test_occurrence_scrollbar_map_jumps_keeps_selection_and_clears(workspace_pag
 
 
 @pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_discussion_scrollbar_markers_coexist_group_and_jump(workspace_page):
+    root,page,url,ws=workspace_page
+    text='needle at top 🙂\r\n\r\n'+('ordinary prose line\r\n\r\n'*230)+'last needle with two passages\r\n'
+    (root/'long.md').write_bytes(text.encode())
+    (root/'other.txt').write_text('An unrelated document')
+    version=ws.read('long.md')['version']
+    ids=[]
+    for quote in ('needle at top','last needle','two passages'):
+        start=text.index(quote)
+        ids.append(ws.create_thread('long.md',start,start+len(quote),quote,'Reviewer',version)['id'])
+    ws.update_thread(ids[0],resolved=True)
+    page.goto(url);open_file(page,'long.md')
+    markers=page.get_by_role('navigation',name='Discussion locations')
+    first=markers.get_by_role('button',name=f'Go to thread #{ids[0]}')
+    group=markers.get_by_role('button',name='2 threads here')
+    expect(first).to_be_visible()
+    expect(first).to_have_class('cm-thread-marker cm-thread-marker-resolved')
+    expect(group).to_be_visible()
+    assert group.bounding_box()['y']>first.bounding_box()['y']+100
+    page.locator('.cm-content').press('Control+Home')
+    page.keyboard.press('Control+Shift+ArrowRight')
+    matches=page.get_by_role('navigation',name='Selected text matches')
+    match=matches.get_by_role('button',name='Matching text, line 463')
+    expect(match).to_be_visible()
+    for theme in ('light','dark'):
+        page.evaluate('(theme)=>document.documentElement.dataset.theme=theme',theme)
+        assert match.bounding_box()['x']>group.bounding_box()['x']+group.bounding_box()['width']
+        assert match.evaluate('el=>getComputedStyle(el).backgroundColor')!=group.evaluate('el=>getComputedStyle(el).backgroundColor')
+    match.click()
+    expect(page.locator('.cm-content')).to_contain_text('last needle with two passages')
+    group.click()
+    choices=markers.get_by_role('group',name='Threads at this location')
+    expect(choices.get_by_role('button',name=f'Thread #{ids[1]}')).to_be_focused()
+    page.keyboard.press('Escape')
+    expect(choices).not_to_be_visible()
+    expect(group).to_be_focused()
+    group.press('Enter')
+    choices.get_by_role('button',name=f'Thread #{ids[2]}').click()
+    expect(page.locator(f'.thread.active[data-thread="{ids[2]}"]')).to_be_visible()
+    expect(page.locator(f'.cm-content [data-anchor="{ids[2]}"]')).to_be_in_viewport()
+    page.keyboard.press('ArrowRight')
+    expect(matches).not_to_be_visible()
+    expect(group).to_be_visible()
+    ws.delete_thread(ids[2])
+    remaining=markers.get_by_role('button',name=f'Go to thread #{ids[1]}')
+    expect(remaining).to_be_visible()
+    remaining.click()
+    expect(page.locator(f'.thread.active[data-thread="{ids[1]}"]')).to_be_visible()
+    open_file(page,'other.txt')
+    expect(markers).not_to_be_visible()
+    open_file(page,'long.md')
+    page.locator('#mode').select_option('source')
+    expect(remaining).to_be_visible()
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
 def test_recent_picker_keeps_closed_outside_visits_and_selection_during_refresh(workspace_page):
     root,page,url,ws=workspace_page
     outside=root.parent/('outside-'+root.name+'.txt');outside.write_text('Outside')

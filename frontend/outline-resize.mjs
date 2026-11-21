@@ -1,10 +1,10 @@
-export function mountOutlineResize(host,{storageKey,changed=()=>{}}){
+export function mountOutlineResize(host,{storageKey,widthProperty='--outline-width',label='Resize Python outline',changed=()=>{}}){
   const handle=document.createElement('div');handle.className='outline-resize';handle.tabIndex=0;
-  for(const [name,value] of Object.entries({role:'separator','aria-label':'Resize Python outline','aria-orientation':'vertical','aria-controls':host.id}))handle.setAttribute(name,value);
+  for(const [name,value] of Object.entries({role:'separator','aria-label':label,'aria-orientation':'vertical','aria-controls':host.id}))handle.setAttribute(name,value);
   handle.title='Drag to resize outline · double-click to reset';host.append(handle);
   let width=Number(localStorage.getItem(storageKey))||190,drag=null;
   const limits=()=>({min:140,max:Math.max(140,Math.min(600,host.parentElement.clientWidth*(innerWidth<=1100?.8:1)-(innerWidth<=1100?0:260)))});
-  function size(){const {min,max}=limits(),value=Math.round(Math.max(min,Math.min(max,width)));host.parentElement.style.setProperty('--outline-width',value+'px');handle.setAttribute('aria-valuemin',min);handle.setAttribute('aria-valuemax',Math.floor(max));handle.setAttribute('aria-valuenow',value);changed();}
+  function size(){const {min,max}=limits(),value=Math.round(Math.max(min,Math.min(max,width)));host.parentElement.style.setProperty(widthProperty,value+'px');handle.setAttribute('aria-valuemin',min);handle.setAttribute('aria-valuemax',Math.floor(max));handle.setAttribute('aria-valuenow',value);if(!host.hidden)changed();}
   const save=()=>localStorage.setItem(storageKey,String(width));
   function finish(cancel=false){if(!drag)return;if(cancel)width=drag.width;drag=null;document.body.classList.remove('outline-resizing');size();save();}
   handle.onpointerdown=e=>{if(e.button!==0)return;e.preventDefault();e.stopPropagation();handle.focus({preventScroll:true});drag={x:e.clientX,width:host.getBoundingClientRect().width};handle.setPointerCapture(e.pointerId);document.body.classList.add('outline-resizing');};

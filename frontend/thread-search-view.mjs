@@ -112,5 +112,5 @@ export function createThreadSearchView(sidebar,{onInput,onOpen,onRefresh,loadInd
     const placeholder=host.querySelector('.empty-discussions');if(placeholder)placeholder.hidden=enabled;
     return enabled?matches:null;
   }
-  return {update,get query(){return input.value.trim();},get results(){return results;}};
+  return {update,get query(){return input.value.trim();}};
 }

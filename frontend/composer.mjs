@@ -2,8 +2,10 @@ import {requestText} from './dialogs.mjs';
 // Clipboard paste uses the native paste event: no clipboard permission prompt.
 export function createComposers({token,api,onError}){
   const drafts=new Map(),bound=new WeakSet(),signatures=new WeakMap(),limit=64*1024*1024;
-  const key=form=>form.id==='comment-form'?'new':'reply:'+form.closest('.thread').dataset.thread;
-  const forms=()=>document.querySelectorAll('#comment-form,.reply-form');
+  const selector='#comment-form,.reply-form,.task-comment-form';
+  const key=form=>form.id==='comment-form'?'new':form.dataset.taskCard?'task:'+form.dataset.taskCard:'reply:'+form.closest('.thread').dataset.thread;
+  const forms=()=>document.querySelectorAll(selector);
+  const files=form=>drafts.get(key(form))?.files||[];
   function render(form){
     const draft=drafts.get(key(form)),files=draft?.files||[],host=form.querySelector('.pending-files');
     if(!bound.has(form)){if(draft?.body)form.querySelector('textarea').value=draft.body;bound.add(form);}
@@ -21,7 +23,11 @@ export function createComposers({token,api,onError}){
       remove.onclick=()=>{if(item.url)URL.revokeObjectURL(item.url);files.splice(index,1);render(form);};chip.append(name,remove);host.append(chip);
     });
   }
-  function complete(form,sentBody){const id=key(form),field=form.querySelector('textarea');const body=field.value===sentBody?'':field.value;clear(form);field.value=body;if(body)drafts.set(id,{body,files:[],sending:true});}
+  function complete(form,sentBody){
+    const id=key(form),current=[...forms()].find(candidate=>key(candidate)===id)||form,field=current.querySelector('textarea');
+    const body=field.value===sentBody?'':field.value;
+    clear(current);field.value=body;if(body)drafts.set(id,{body,files:[],sending:true});
+  }
   function clear(form){const id=key(form),draft=drafts.get(id);for(const item of draft?.files||[])if(item.url)URL.revokeObjectURL(item.url);drafts.delete(id);render(form);}
   function status(form,text,error=false){const field=form.querySelector('.composer-status');field.textContent=text;field.hidden=!text;field.classList.toggle('error',error);}
   function queue(form,files,clipboard=false){
@@ -37,22 +43,22 @@ export function createComposers({token,api,onError}){
   }
   function setSending(form,value){const id=key(form),draft=drafts.get(id)||{files:[]};draft.sending=value;drafts.set(id,draft);for(const current of forms())if(key(current)===id)render(current);if(!value&&!draft.files.length&&!draft.body)drafts.delete(id);}
   async function post(route,data,form){
-    const files=drafts.get(key(form))?.files||[];
-    if(!files.length)return api(route,'POST',data);
-    const body=new FormData();body.append('data',JSON.stringify(data));for(const item of files)body.append('files',item.file,item.name);
+    const attachments=files(form);
+    if(!attachments.length)return api(route,'POST',data);
+    const body=new FormData();body.append('data',JSON.stringify(data));for(const item of attachments)body.append('files',item.file,item.name);
     const result=await fetch('/api/'+route,{method:'POST',headers:{'X-Looking-Glass-Token':token},body});
     const payload=await result.json();if(!result.ok){const error=new Error(payload.error||'Unable to send attachments');error.status=result.status;throw error;}return payload;
   }
   function receive(form,files,clipboard=false){try{queue(form,files,clipboard);}catch(error){status(form,error.message,true);onError(error.message);}}
-  document.addEventListener('input',event=>{const form=event.target.closest?.('.reply-form');if(!form||!event.target.matches('textarea'))return;const id=key(form),draft=drafts.get(id)||{files:[],sending:false};draft.body=event.target.value;drafts.set(id,draft);});
+  document.addEventListener('input',event=>{const form=event.target.closest?.('.reply-form,.task-comment-form');if(!form||!event.target.matches('textarea'))return;const id=key(form),draft=drafts.get(id)||{files:[],sending:false};draft.body=event.target.value;drafts.set(id,draft);});
   document.addEventListener('click',event=>{const button=event.target.closest('.attach-trigger');if(button){event.preventDefault();button.closest('form').querySelector('.attach-files').click();}});
   document.addEventListener('change',event=>{if(event.target.matches('.attach-files')){const input=event.target;receive(input.closest('form'),[...input.files]);input.value='';}});
   document.addEventListener('paste',event=>{
-    const form=event.target.closest?.('#comment-form,.reply-form');if(!form||!event.target.matches('textarea'))return;
+    const form=event.target.closest?.(selector);if(!form||!event.target.matches('textarea'))return;
     const files=[...(event.clipboardData?.items||[])].filter(item=>item.kind==='file'&&item.type.startsWith('image/')).map(item=>item.getAsFile()).filter(Boolean);
     if(files.length){event.preventDefault();receive(form,files,true);}
   });
-  document.addEventListener('keydown',event=>{if(event.target.matches('.reply-form textarea')&&(event.ctrlKey||event.metaKey)&&event.key==='Enter'){event.preventDefault();event.target.closest('form').requestSubmit();}});
-  function prune(ids){for(const [id,draft] of drafts)if(id.startsWith('reply:')&&!ids.has(Number(id.slice(6)))){for(const item of draft.files)if(item.url)URL.revokeObjectURL(item.url);drafts.delete(id);}}
-  return {render,clear,complete,status,setSending,post,prune,hasPending:()=>[...drafts.values()].some(d=>d.files.length||d.body),isSending:form=>!!drafts.get(key(form))?.sending};
+  document.addEventListener('keydown',event=>{if(event.target.matches('.reply-form textarea,.task-comment-form textarea')&&(event.ctrlKey||event.metaKey)&&event.key==='Enter'){event.preventDefault();event.target.closest('form').requestSubmit();}});
+  function prune(ids,prefix='reply:'){for(const [id,draft] of drafts)if(id.startsWith(prefix)&&!ids.has(Number(id.slice(prefix.length)))){for(const item of draft.files)if(item.url)URL.revokeObjectURL(item.url);drafts.delete(id);}}
+  return {render,clear,complete,status,setSending,post,prune,files,hasPending:()=>[...drafts.values()].some(d=>d.files.length||d.body),isSending:form=>!!drafts.get(key(form))?.sending};
 }

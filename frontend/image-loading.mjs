@@ -1,5 +1,4 @@
-// Listen before assigning src, including when replacing a failed relative URL.
-// Gecko may still expose the previous request to decode() in that same task.
+// Listen before assigning src so cached loads cannot race handler registration.
 export function loadImage(image, source){
   return new Promise((resolve,reject)=>{
     const clear=()=>{image.removeEventListener('load',loaded);image.removeEventListener('error',failed);};

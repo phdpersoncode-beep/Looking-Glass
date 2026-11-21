@@ -210,15 +210,31 @@ export function createImageTools({token,api,context,comment,focus,error,changed,
     img.addEventListener('load',()=>handle.setAttribute('aria-valuenow',Math.round(wrap.getBoundingClientRect().width)),{once:true});
     wrap.append(handle);
   }
-  function mount(img){
-    if(img.closest('.markdown-image'))return;
-    const src=img.getAttribute('src'),owner=context();owner.readonly||=!!img.closest('.comment-markdown');let id=imageID(src);
-    // Reserve layout while the replacement image request loads.
-    const wrap=document.createElement('span');wrap.className='markdown-image';wrap.style.visibility='hidden';if(owner.readonly)wrap.dataset.imageReadonly='';img._displayCaption??=img.alt;const caption=imageCaption(img._displayCaption);if(caption.width)wrap.style.width=caption.width+'px';img.alt=caption.alt;img.draggable=false;img.replaceWith(wrap);const pixels=document.createElement('span');pixels.className='image-pixels';pixels.append(img);wrap.append(pixels);
-    let url;const dispose=()=>{if(url)URL.revokeObjectURL(url);};
+  function mount(original,src=original.getAttribute('src')){
+    if(!src||original.closest('.markdown-image'))return;
+    const owner=context();owner.readonly||=!!original.closest('.comment-markdown');
+    let id=imageID(src);
+    const relative=!/^(?:https?:|data:|blob:|\/)/i.test(src);
+    const authenticated=!!id||relative;
+    // HTML-rendered images can already have a raw request in flight. Give the
+    // authenticated load its own element so an old Gecko error cannot reject it.
+    let img=original;
+    if(authenticated&&(original.hasAttribute('src')||original.hasAttribute('srcset'))){
+      img=document.createElement('img');
+      for(const {name,value} of original.attributes){
+        if(name!=='src'&&name!=='srcset')img.setAttribute(name,value);
+      }
+    }
+    if(!authenticated&&!img.hasAttribute('src'))img.src=src;
+    const wrap=document.createElement('span');wrap.className='markdown-image';wrap.style.visibility='hidden';if(owner.readonly)wrap.dataset.imageReadonly='';
+    img._displayCaption=original._displayCaption??original.alt;
+    const caption=imageCaption(img._displayCaption);if(caption.width)wrap.style.width=caption.width+'px';img.alt=caption.alt;img.draggable=false;
+    original.replaceWith(wrap);const pixels=document.createElement('span');pixels.className='image-pixels';pixels.append(img);wrap.append(pixels);
+    let url;
+    const dispose=()=>{if(url){URL.revokeObjectURL(url);url=null;}};
     const observer=new MutationObserver(()=>{if(!wrap.isConnected){dispose();observer.disconnect();}});queueMicrotask(()=>observer.observe(document.body,{childList:true,subtree:true}));
     run(async()=>{
-      if(!id&&/\.(?:png|jpe?g)$/i.test(src||'')&&!/^(?:https?:|data:|blob:|\/)/i.test(src||'')){
+      if(!id&&relative&&/\.(?:png|jpe?g)$/i.test(src)){
         const path=imagePath(src,owner.path);
         const meta=await api('images/import','POST',{path});id=meta.id;
       }
@@ -227,7 +243,7 @@ export function createImageTools({token,api,context,comment,focus,error,changed,
         const controls=document.createElement('span');controls.className='image-actions';
         const pencil=iconButton('Annotate image','pen',run(()=>editor(id)));pencil.classList.add('image-pencil');
         const trash=iconButton('Delete image','trash',run(()=>remove(wrap)));trash.classList.add('image-delete');controls.append(pencil,trash);if(owner.mode==='live'){const source=iconButton('Edit image source','code',()=>editSource(wrap));controls.append(source);}wrap.append(controls);wrap.oncontextmenu=e=>{e.preventDefault();run(()=>rename(id))();};markers(pixels,id);
-      }else if(!/^(?:https?:|data:|blob:|\/)/i.test(src||'')){
+      }else if(relative){
         const path=imagePath(src,owner.path);
         url=URL.createObjectURL(await (await request('binary?'+new URLSearchParams({path}))).blob());await loadImage(img,url);
       }
@@ -236,9 +252,8 @@ export function createImageTools({token,api,context,comment,focus,error,changed,
         resizeHandle(wrap,img);
         if(owner.mode==='live'&&!wrap.querySelector('.image-actions')){const controls=document.createElement('span');controls.className='image-actions';controls.append(iconButton('Edit image source','code',()=>editSource(wrap)));wrap.append(controls);}
       }
-      if(!wrap.isConnected)dispose();
-    })();
+    })().finally(()=>{if(!wrap.isConnected)dispose();});
   }
-  function refresh(id){for(const wrap of document.querySelectorAll('.markdown-image[data-image-id]:not([data-image-readonly])')){if(!id||wrap.dataset.imageId===id){markers(wrap.querySelector('.image-pixels'),wrap.dataset.imageId);if(id){const img=wrap.querySelector('img');wrap.replaceWith(img);img.setAttribute('src',references.get(id)||`.looking-glass/images/${id}_image.png`);mount(img);}}}}
+  function refresh(id){for(const wrap of document.querySelectorAll('.markdown-image[data-image-id]:not([data-image-readonly])')){if(!id||wrap.dataset.imageId===id){markers(wrap.querySelector('.image-pixels'),wrap.dataset.imageId);if(id){const img=wrap.querySelector('img');wrap.replaceWith(img);mount(img,references.get(id)||`.looking-glass/images/${id}_image.png`);}}}}
   return {upload,mount,refresh,rename,editor,reference:id=>references.get(id)};
 }

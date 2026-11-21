@@ -75,6 +75,12 @@ Agents use `looking-glass agent review` instead of writing the source file.
 See [the review contract](docs/REVIEW_MODE.md) and
 [agent commands](docs/AGENT_API.md#non-destructive-review-drafts).
 
+To keep an agent available during a review, copy the bundled
+`looking-glass-watcher` directory into your agent client's skills directory
+and invoke `/looking-glass-watcher` while the local server is running. Its
+default human author label is `User`. Pass `--human` if you use a different
+label. [Watcher skill](looking_glass/skills/looking-glass-watcher/SKILL.md)
+
 ## Ignore generated files
 
 Create `.looking.ignore` in the directory opened as your workspace to hide build
@@ -143,12 +149,21 @@ Cards keep their original order, and the focused view stays open while you read,
 collapse threads, or write replies. Click the quoted passage, thread number, or
 navigation arrows when you want to move the document to a discussion. Clicking a
 collapsed comment icon also navigates to its passage and opens sidebar spotlight.
+An amber dot marks a thread with unviewed activity, including new threads, reply
+or attachment changes, and resolve or reopen actions. Opening the thread clears
+the dot for the version you opened. The browser remembers this for each workspace.
+Writing or editing your own comment keeps an already-read thread read. Unviewed
+changes from another writer still show the dot.
+The unread count beside the sidebar totals follows the current file scope and
+disappears when every thread in that scope has been viewed.
 Clicking a thread card's general area opens spotlight too; text selection, links,
 and embedded controls keep their normal behavior. Search stays in the same position
 above the spotlight header, with a total thread count for the selected file scope.
 While spotlight is open and the sidebar or a thread has focus, **←/→** moves through
 the scoped, filtered thread list, **↑** focuses search, and **↓** focuses the current
-reply. Text fields keep their native arrow keys. Escape from the reply or search
+reply. **Ctrl+Enter** (or **Cmd+Enter**) resolves a focused discussion card. In the
+reply field, the same shortcut posts the reply. Text fields keep their native
+arrow keys. Escape from the reply or search
 field returns keyboard focus to the current thread, keeping spotlight, the search
 query, and unsent replies/attachments intact. Arrow shortcuts work immediately;
 press Escape again from the card to return to the list. Navigation preserves reply drafts.
@@ -167,6 +182,11 @@ keeps the same numbered gutter. Fenced code uses one background and rounded
 corners in live Markdown and preview; blockquotes use a quiet rule, upright text,
 and a subtle themed background. Bare square brackets such as `[0, 1]` stay literal;
 explicit Markdown links and references with definitions keep their link styling.
+Standalone `TODO` tokens use monospace and a purple highlight in rendered
+Markdown, including discussion replies and card descriptions.
+In the editor, purple scrollbar markers jump to attached discussions and amber
+markers jump to matches for the selected text. A purple marker with several nearby
+discussions opens a list to choose from. Resolved discussions use a fainter marker.
 
 For `# TODO`, `#TODO`, `# NOTE` and `#NOTE` comments, enable **Track TODO / NOTE**
 using the comment/check icon next to the author pen at the top of the right sidebar
@@ -180,11 +200,11 @@ pauses imports and keeps existing discussions. New Review markers import on
 approval. Tracking handles up to 1,000 markers per file and shows when that limit
 is reached in the icon’s tooltip.
 
-In Python, **Ctrl+click** (or **Cmd+click**) a name to go to its definition, or
-press **F12** at the cursor. The ↗ button beside the filename exposes the same
-command. Functions, classes, methods, scoped variables and imports resolve through
+In Python, **Ctrl+click** (or **Cmd+click**) a name to go to its definition.
+Functions, classes, methods, scoped variables and imports resolve through
 static analysis of the current buffer and saved workspace modules. Ambiguous
-names offer a definition chooser. File Back/Forward preserves drafts and undo.
+names offer a definition chooser. **Alt+←** and **Alt+→** move through file
+history and preserve drafts and undo.
 Local completion suggestions already work with **Ctrl+Space** and **Enter**;
 **Tab** continues to indent. See [coding support and completion options](docs/CODING_SUPPORT.md)
 for scope, limits and estimates.
@@ -218,16 +238,18 @@ copy icon beside each expanded thread number copies its `#123` reference.
 
 Both sidebars use stacked-panel minus/plus icons to collapse/expand all folders
 or threads, and panel icons to hide/show the sidebar itself.
+Sidebar tools share a horizontal centerline with the hide/show control in their
+row. When the right sidebar is narrow, its label moves below the tools.
 Drag the discussions divider to resize it; the width persists. Collapse a thread
 with its chevron and reopen it with its comment icon. The header also has collapse-all
 and expand-all controls. **Zen mode** (top-bar button or **Alt+Z**; the existing
 **Ctrl+Alt+Z** and **Cmd+Alt+Z** shortcuts also work) hides the file explorer and tabs
 and expands only the focused thread. The shortcut also works inside HTML reports.
 Leaving zen restores the normal collapse settings. **Ctrl+Z remains undo.**
-Resolving or deleting a thread or comment in zen mode advances to the next open
-thread, wrapping to the first when needed. This also works in spotlight; resolving
-the final open thread clears focus and spotlight. Reopening a resolved thread does
-not advance.
+Resolving a discussion keeps you at the same passage. With focus in the sidebar
+in zen mode or spotlight, use **←/→** to move from that passage through the
+filtered thread list. Deleting a thread or comment in zen mode advances to the
+next open thread.
 
 The small copy icon beside the document path copies that file's displayed path in
 one click. The **Go to top** arrow in the toolbar, just before the text-size controls,
@@ -259,9 +281,14 @@ are not recorded as file visits.
 
 Python files have a compact **Outline** strip on the right of the reading pane.
 Expand it to browse classes, functions, methods, and module-level assigned
-variables; click a name to jump to its definition. Nested definitions are
-indented. The outline follows unsaved edits and the active Edit/Review content,
-without executing Python. Its expanded/collapsed preference is remembered.
+variables. Click a name to jump to its definition. The outline highlights the
+scope at the cursor. When that definition scrolls above the editor, its
+signature stays pinned in a single row at the top. Click the row to return to
+the definition. The outline follows unsaved edits and the active Edit/Review
+content. Its expanded/collapsed preference is remembered.
+Live Markdown has a matching **Contents** strip. Click a heading to jump to it
+while keeping the list open. Drag the left edge to set the width or focus the
+separator and use the arrow keys. The browser remembers the width and open state.
 
 Use **A− / A+** in the document toolbar to adjust document text size.
 The setting persists. Toolbar, sidebar, and search controls keep their size.
@@ -342,6 +369,18 @@ your system monospace font. The top-right button switches light/dark themes.
 Tabs have pin and close buttons. Right-click a tab to close the other unpinned
 tabs. Unsaved tabs ask before discarding edits. Pinned tabs are protected by
 “Close other tabs”, but can still be closed individually.
+
+## Plan tasks and milestones
+
+Open **Tasks** beside **Commit history** for a pinnable Kanban tab with draggable
+cards, fuzzy search, milestone filtering, and bulk selection. Cards have stable
+`#C01` identities and conversations with comments and change updates. The right
+sidebar holds milestones, active tasks, and archived tasks in one hierarchy.
+Drag a milestone to reorder its branch and update its number. Use the Done
+column's archive icon to archive the completed tasks currently shown.
+Click a row in the sidebar or a card checklist to select it, press Enter or use its pen to open details, double-click
+to rename it, and use its triangle to fold the branch. People and agents share
+the same persisted board through `looking-glass tasks`. [Task board guide](docs/TASKS.md)
 
 ## Work alongside a coding agent
 

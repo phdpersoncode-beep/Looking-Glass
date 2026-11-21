@@ -12,11 +12,28 @@ def settle(page):
 
 
 def align_bottom(target,pane):
-    target.evaluate('''(el,selector)=>{
-      const walker=document.createTreeWalker(el,NodeFilter.SHOW_TEXT),node=walker.nextNode();
-      const range=document.createRange();range.setStart(node,2);range.setEnd(node,3);
-      const r=range.getBoundingClientRect(),pane=document.querySelector(selector),b=pane.getBoundingClientRect();
-      pane.scrollTop+=(r.top+r.bottom)/2-(b.bottom-8);
+    return target.evaluate('''async(el,selector)=>{
+      const pane=document.querySelector(selector),id=el.dataset.anchor;
+      const deadline=performance.now()+4000;
+      let aligned=0;
+      while(performance.now()<deadline){
+        const current=el.isConnected?el:pane.querySelector(`.passage-highlight[data-anchor="${CSS.escape(id)}"]`);
+        if(current){
+          const walker=document.createTreeWalker(current,NodeFilter.SHOW_TEXT),node=walker.nextNode();
+          const range=document.createRange();range.setStart(node,2);range.setEnd(node,3);
+          const r=range.getBoundingClientRect(),b=pane.getBoundingClientRect();
+          const point={x:r.left+.5,y:(r.top+r.bottom)/2};
+          const delta=point.y-(b.bottom-8);
+          // Width changes can rebuild CodeMirror's virtual lines after the
+          // first scroll. Confirm the same text is in reach before clicking.
+          if(Math.abs(delta)>1){pane.scrollTop+=delta;aligned=0;}
+          else if(current.contains(document.elementFromPoint(point.x,point.y))){
+            if(++aligned===3)return point;
+          }else aligned=0;
+        }else aligned=0;
+        await new Promise(requestAnimationFrame);
+      }
+      throw new Error('The passage did not settle at the bottom of the reading pane');
     }''',pane)
 
 
@@ -36,8 +53,8 @@ def test_low_formatted_highlight_holds_clicked_text(workspace_page,mode,hidden):
     expect(target).to_be_visible();settle(page)
     if hidden:page.locator('#discussions-toggle').click();settle(page)
     pane_selector='#surface' if mode=='preview' else '.cm-scroller';pane=page.locator(pane_selector)
-    target.scroll_into_view_if_needed();settle(page);align_bottom(target,pane_selector);settle(page)
-    point=endpoint(target,2);before=pane.evaluate('el=>el.scrollTop')
+    target.scroll_into_view_if_needed()
+    point=align_bottom(target,pane_selector);before=pane.evaluate('el=>el.scrollTop')
     page.mouse.click(**point);expect(page.locator('#passage-spotlight')).to_be_visible();settle(page)
     expect(page.locator('.thread.active')).to_have_attribute('data-thread',str(thread['id']))
     assert abs(endpoint(target,2)['y']-point['y'])<2
@@ -69,8 +86,8 @@ def test_low_native_highlight_holds_position(workspace_page,mode,hidden):
     if hidden:page.locator('#discussions-toggle').click();settle(page)
     if mode=='table':
         target=page.locator('.md-table .passage-highlight').filter(has_text=quote).first
-        target.scroll_into_view_if_needed();align_bottom(target,'.cm-scroller');settle(page)
-        point=endpoint(target,2);before=point['y'];page.mouse.click(**point)
+        target.scroll_into_view_if_needed()
+        point=align_bottom(target,'.cm-scroller');before=point['y'];page.mouse.click(**point)
     else:
         frame=page.frame_locator('#html-preview');target=frame.locator('#p30 strong');target.scroll_into_view_if_needed()
         # Stop the sidebar jump animation before recording this click's baseline.
@@ -97,6 +114,7 @@ def test_sidebar_icon_navigates_and_spotlights(workspace_page,mode):
     (root/name).write_text(text);at=text.index(quote);t=ws.create_thread(name,at,at+len(quote),'Review target.','Reviewer',ws.read(name)['version'])
     page.goto(url);open_file(page,name)
     if mode!='html':page.locator('#mode').select_option(mode)
+    expect(page.locator(f'.thread[data-thread="{t["id"]}"]')).to_be_visible()
     page.locator('#collapse-threads').click();sidebar=page.locator('.discussion-content');saved=sidebar.evaluate('el=>el.scrollTop')
     page.locator('.thread-summary svg').click()
     heading=page.locator('#passage-spotlight');expect(heading).to_be_visible();settle(page)

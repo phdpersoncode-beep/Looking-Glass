@@ -27,7 +27,7 @@ export function mountFileMentions({api,error}){
     popup.querySelector('[aria-selected=true]')?.scrollIntoView({block:'nearest'});
   }
   document.addEventListener('input',async event=>{
-    if(!event.target.matches('#comment-body,.reply-form textarea,#edit-comment-body'))return;
+    if(!event.target.matches('#comment-body,.reply-form textarea,#edit-comment-body,textarea[data-task-file-mentions]'))return;
     const target=event.target,at=target.selectionStart,match=/(?:^|\s)@("[^"\n]*|[^\s@]*)$/.exec(target.value.slice(0,at));
     if(!match)return close();close();field=target;query={from:at-match[1].length-1,to:at};const current=++request;
     await new Promise(resolve=>setTimeout(resolve,120));if(current!==request)return;

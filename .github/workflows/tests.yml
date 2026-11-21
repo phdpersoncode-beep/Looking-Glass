@@ -7,6 +7,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+env:
+  # Hash of the Linux x86-64 wheel used by both Ubuntu runners.
+  UV_REQUIREMENT: uv==0.12.23 --hash=sha256:565c6e2874dbeae86c02f3dea97255e878fec672659a73d4930c6b93fcab2fff
 jobs:
   fast:
     if: github.event_name != 'pull_request' || github.event.action != 'labeled'
@@ -15,17 +18,21 @@ jobs:
       cancel-in-progress: true
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
           cache: npm
-      - run: python -m pip install uv
+      - run: |
+          printf '%s\n' "$UV_REQUIREMENT" > "$RUNNER_TEMP/uv-requirement.txt"
+          python -m pip install --require-hashes --only-binary=:all: -r "$RUNNER_TEMP/uv-requirement.txt"
       - run: uv sync --locked
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       - run: npm test
       - run: uv run pytest -m 'not browser' -q
       - run: uv run python scripts/verify_browser_shards.py 4
@@ -48,11 +55,15 @@ jobs:
       matrix:
         shard: [0, 1, 2, 3]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
-      - run: python -m pip install uv
+      - run: |
+          printf '%s\n' "$UV_REQUIREMENT" > "$RUNNER_TEMP/uv-requirement.txt"
+          python -m pip install --require-hashes --only-binary=:all: -r "$RUNNER_TEMP/uv-requirement.txt"
       - run: uv sync --locked
       - run: uv run playwright install --with-deps chromium firefox
       - run: uv run pytest -m browser --browser-shard=${{ matrix.shard }}/4 -q --durations=10
