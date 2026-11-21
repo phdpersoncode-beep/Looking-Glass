@@ -102,8 +102,10 @@ unchanged. Test servers use a shorter idle polling interval so shutdown doesn't
 wait up to half a second per case; application polling is unchanged.
 
 Reading-position checks finish preceding navigation and wait for stable editor
-geometry/fonts before recording their baseline. HTML alignment uses instant
-scrolling to stop an earlier sidebar animation. The preservation assertions and
+geometry/fonts before recording their baseline. Low-passage checks confirm that
+the target text is reachable at the bottom edge after virtual lines settle.
+HTML alignment uses instant scrolling to stop an earlier sidebar animation.
+The preservation assertions and
 deadlines remain unchanged; separate cases also exercise reports that request
 smooth scrolling during a highlight click and verify normal wheel navigation.
 JSONL comparison checks sample frames starting at the row click and again after

@@ -20,10 +20,10 @@ def test_copy_permanent_card_reference_and_create_nested_tasks_inline(workspace_
     if chromium:
         page.context.grant_permissions(['clipboard-read','clipboard-write'])
     else:
-        page.add_init_script("""() => {
+        page.add_init_script("""(() => {
           const write = navigator.clipboard.writeText.bind(navigator.clipboard);
           navigator.clipboard.writeText = async text => { await write(text); window.copiedCard = text; };
-        }""")
+        })()""")
     page.goto(url);page.locator('#tasks-open').click()
     copy=page.get_by_role('button',name='Copy card reference',exact=False)
     expect(copy).to_have_count(0)

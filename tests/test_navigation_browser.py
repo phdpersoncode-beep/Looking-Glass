@@ -193,7 +193,8 @@ def test_markdown_tables_use_available_width_and_scroll_overflow(workspace_page,
     assert small.locator('td').first.evaluate('el=>parseFloat(getComputedStyle(el).paddingTop)')<=4
     assert small.locator('td').first.evaluate('el=>parseFloat(getComputedStyle(el).paddingLeft)')<=6
     assert large.evaluate('el=>el.scrollWidth>el.clientWidth')
-    assert large.bounding_box()['width']>page.locator('.document-panel').bounding_box()['width']-80
+    # The side outline is outside the reading surface available to tables.
+    assert large.bounding_box()['width']>page.locator('#surface').bounding_box()['width']-80
     # Wide tables scroll inside their own region; the document stays in place.
     large.scroll_into_view_if_needed();large.focus();page.keyboard.press('ArrowRight')
     page.wait_for_function('()=>document.querySelectorAll(".markdown-table-scroll")[1].scrollLeft>0')
