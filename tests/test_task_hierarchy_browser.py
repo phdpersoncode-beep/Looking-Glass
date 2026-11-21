@@ -86,8 +86,11 @@ def test_outline_keyboard_edits_hierarchy_details_and_sidebar_restore(workspace_
     expect(page.locator('.task-detail')).to_have_count(0)
     # Keyboard creation adds a full card subitem, also visible on the board.
     name=sidebar.get_by_label('Task name 3',exact=True);name.focus();name.press('Control+Enter')
-    page.locator('.task-dialog:not(.task-detail)').get_by_label('Title',exact=True).fill('New checklist item')
-    page.get_by_role('button',name='Create',exact=True).click()
+    new_title=sidebar.get_by_role('textbox',name='New task title')
+    expect(new_title).to_be_focused()
+    expect(page.locator('.task-dialog')).to_have_count(0)
+    assert new_title.bounding_box()['y']>sidebar.locator('.task-outline-row[data-id="8"]').bounding_box()['y']
+    new_title.fill('New checklist item');new_title.press('Enter')
     expect(sidebar.locator('.task-outline-row[data-id="9"]')).to_have_attribute('data-depth','2')
     expect(page.locator('.task-card[data-id="9"]')).to_contain_text('New checklist item')
     page.get_by_role('button',name='Hide task list',exact=True).click()
@@ -104,6 +107,65 @@ def test_outline_keyboard_edits_hierarchy_details_and_sidebar_restore(workspace_
     page.reload()
     expect(page.get_by_role('separator',name='Resize task list')).to_have_attribute('aria-valuenow',width)
     expect(sidebar.locator('.task-outline-row[data-id="9"]')).to_have_attribute('data-depth','2')
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_board_background_and_closing_sidebar_card_clear_selection(workspace_page):
+    from playwright.sync_api import expect
+    _,page,url,ws=workspace_page
+    seed(ws)
+    page.goto(url);page.locator('#tasks-open').click()
+    sidebar=page.locator('#task-sidebar')
+    row=sidebar.locator('.task-outline-row[data-id="3"]')
+    card=page.locator('.task-card[data-id="3"]')
+    bulk=page.locator('.task-bulk')
+    row.click(position={'x':5,'y':17})
+    expect(row).to_have_attribute('aria-selected','true')
+    expect(card).to_have_attribute('aria-selected','true')
+    expect(bulk).to_contain_text('1 selected')
+    lanes=page.locator('.task-lanes')
+    lanes.click(position={'x':30,'y':lanes.bounding_box()['height']-15})
+    expect(row).to_have_attribute('aria-selected','false')
+    expect(card).to_have_attribute('aria-selected','false')
+    expect(bulk).to_be_hidden()
+    row.click(position={'x':5,'y':17})
+    row.get_by_role('button',name='Open card details').click()
+    details=page.locator('.task-detail')
+    expect(details).to_be_visible()
+    expect(row).to_have_attribute('aria-selected','true')
+    details.get_by_role('button',name='Close card').click()
+    expect(details).to_have_count(0)
+    expect(row).to_have_attribute('aria-selected','false')
+    expect(card).to_have_attribute('aria-selected','false')
+    expect(bulk).to_be_hidden()
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_sidebar_add_task_in_place_keeps_draft_and_cancels(workspace_page):
+    from playwright.sync_api import expect
+    _,page,url,ws=workspace_page
+    change=seed(ws)
+    page.goto(url);page.locator('#tasks-open').click()
+    sidebar=page.locator('#task-sidebar')
+    add=sidebar.get_by_role('button',name='+ Add task',exact=True)
+    draft=sidebar.get_by_role('textbox',name='New task title')
+    add.click()
+    expect(draft).to_be_focused()
+    expect(page.locator('.task-dialog')).to_have_count(0)
+    expect(sidebar.get_by_label('Task name 5',exact=True)).to_be_visible()
+    draft.fill('Discard this task');draft.press('Escape')
+    expect(draft).to_have_count(0);expect(add).to_be_focused()
+    add.click();draft.fill('Add next to the existing tasks')
+    draft.evaluate('el=>el.setSelectionRange(6,6)')
+    change(action='create',title='Intervening workspace task')
+    expect(sidebar.get_by_label('Task name 7',exact=True)).to_have_value('Intervening workspace task')
+    expect(draft).to_have_value('Add next to the existing tasks')
+    expect(draft).to_be_focused()
+    assert draft.evaluate('el=>el.selectionStart')==6
+    draft.press('Enter')
+    expect(sidebar.get_by_label('Task name 8',exact=True)).to_have_value('Add next to the existing tasks')
+    expect(page.locator('.task-lane[data-status="backlog"] .task-card[data-id="8"]')).to_be_visible()
+    expect(draft).to_have_count(0)
 
 
 @pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)

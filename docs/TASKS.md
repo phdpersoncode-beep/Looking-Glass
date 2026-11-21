@@ -99,6 +99,8 @@ the selected card, and Escape clears selection. The pen at the right opens
 details on click and appears on hover or keyboard focus.
 Selected cards have the same soft tint on the board, in the sidebar, and in
 card checklists. A thin inset outline marks keyboard focus.
+Click an empty area of the board to clear the selection. Closing a card's
+details deselects that card.
 
 Double-click a row to edit its name in place. Click within the field to position
 the caret while editing. Enter saves and moves to the next row; Up/Down
@@ -109,9 +111,9 @@ Alt+Up/Down reorders siblings. Shift+Enter creates a sibling and Ctrl/Cmd+Enter
 creates a subitem; **+ Add task/subitem** is the pointer equivalent. Inline drafts
 and caret survive unrelated polling;
 stale names require explicit review before overwriting the latest saved title.
-In card details, these shortcuts and **+ Add subitem** open a new row in the
-checklist. Press Enter or click **Create** to save. Press Escape or click the
-row’s cancel button to discard the new task and stay on the current card.
+These shortcuts and **+ Add task/subitem** open a new row in the sidebar or
+the card checklist. Press Enter or click **Create** to save. Press Escape or
+click the row’s cancel button to discard the new task.
 
 Both the plan sidebar and each card's **Tasks** list have compact **Collapse all
 tasks** and **Expand all tasks** buttons in their heading. Use the triangle on
@@ -191,8 +193,10 @@ changes record their actual before/after values in the same transaction as the e
 Milestones also record child assignment/unassignment. Description differences expand
 on demand. Saving unchanged fields does not create an update or reorder the card.
 
-Write in the resizable comment box and click **Comment** beside it (Ctrl/Cmd+Enter
-also submits). Use the paperclip to attach images or files, with optional text.
+Write in the resizable comment box and click **Comment** or press Ctrl/Cmd+Enter.
+As in discussion threads, use the paperclip to attach files or paste a
+screenshot into the box. Pending images show a thumbnail, and you can rename
+or remove each file before sending.
 A comment supports up to 16 files totaling 64 MiB. Click a filename to download
 it or open the inline preview for PNG, JPEG, GIF, and WebP images. A trash icon
 on each entry immediately deletes that comment and its attachments, or the update.

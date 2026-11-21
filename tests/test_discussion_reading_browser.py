@@ -118,6 +118,86 @@ def endpoint(locator,offset):
 
 
 @pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_own_replies_do_not_mark_discussion_unread(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    (root/'note.md').write_text('First passage.\n\nA second passage.')
+    version=ws.read('note.md')['version']
+    first=ws.create_thread('note.md',0,14,'External opening comment','Agent',version)['id']
+    page.goto(url);open_file(page,'note.md')
+    card=page.locator(f'.thread[data-thread="{first}"]')
+    dot=card.locator('.thread-update')
+    unread=page.locator('#thread-unread')
+    expect(dot).to_be_visible()
+    card.locator('.thread-heading .jump').click()
+    expect(unread).to_be_hidden()
+    reply=card.get_by_role('textbox',name=f'Reply to thread {first}')
+    for body in ('My first reply','My second reply'):
+        reply.fill(body)
+        if body=='My second reply':
+            card.locator('.attach-files').set_input_files({
+                'name':'note.txt','mimeType':'text/plain','buffer':b'Local attachment',
+            })
+        reply.press('Control+Enter')
+        expect(card.get_by_text(body,exact=True)).to_be_visible()
+        expect(dot).to_be_hidden()
+        expect(unread).to_be_hidden()
+    # External activity can share the local display name and must remain
+    # unread even if another local reply is sent before it has been opened.
+    ws.reply(first,'External reply with the same name','User')
+    reply.fill('My reply after external activity');reply.press('Control+Enter')
+    expect(card.get_by_text('My reply after external activity',exact=True)).to_be_visible()
+    expect(card.get_by_text('External reply with the same name',exact=True)).to_be_visible()
+    expect(dot).to_be_visible()
+    expect(unread).to_have_text('1 unread')
+    card.locator('.thread-heading .jump').click()
+    expect(unread).to_be_hidden()
+    card.get_by_role('button',name='Edit comment',exact=True).last.click()
+    page.locator('#edit-comment-body').fill('My edited reply')
+    page.locator('#edit-comment-form button[type=submit]').click()
+    expect(card.get_by_text('My edited reply',exact=True)).to_be_visible()
+    expect(dot).to_be_hidden()
+    page.reload();open_file(page,'note.md')
+    expect(card.get_by_text('My edited reply',exact=True)).to_be_visible()
+    expect(unread).to_be_hidden()
+    page.locator('.cm-line',has_text='A second passage.').click()
+    page.keyboard.press('End');page.keyboard.press('Shift+Home')
+    page.locator('#annotate').click()
+    page.locator('#comment-body').fill('My new discussion')
+    page.locator('#comment-submit').click()
+    own=page.locator('.thread').filter(has_text='My new discussion')
+    expect(own).to_be_visible()
+    expect(own.locator('.thread-update')).to_be_hidden()
+    expect(unread).to_be_hidden()
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_markdown_todo_style_survives_passage_highlights(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    text='TODO: finish the first draft. **TODO**? `TODO`! TODO_1 and TODOs.\n\n```python\nTODO = True\n```\n'
+    (root/'note.md').write_text(text)
+    thread=ws.create_thread('note.md',0,2,'**TODO**: discuss the draft','Agent',ws.read('note.md')['version'])
+    ws.reply(thread['id'],'A `TODO` in a reply. See @TODO.md.','Agent')
+    page.goto(url);open_file(page,'note.md')
+    todo=page.locator('#surface .md-todo')
+    for mode in ('live','preview'):
+        page.locator('#mode').select_option(mode)
+        expect(todo.first).to_be_visible()
+        assert ''.join(todo.all_text_contents())=='TODOTODOTODO'
+        colors=todo.first.evaluate('''el=>{
+          const actual=getComputedStyle(el),sample=document.createElement('span');
+          sample.style.cssText='font-family:var(--mono);color:var(--purple)';el.append(sample);
+          const expected=getComputedStyle(sample),result=[actual.fontFamily===expected.fontFamily,actual.color===expected.color];
+          sample.remove();return result;
+        }''')
+        assert all(colors)
+        expect(page.locator('#surface .passage-highlight[data-anchor]').first).to_have_text('TO')
+    expect(page.locator('#threads .comment-markdown .md-todo')).to_have_text(['TODO','TODO','TODO'])
+    expect(page.locator('#threads [data-file-reference="TODO.md"]')).to_have_text('@TODO.md')
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
 @pytest.mark.parametrize('mode',['live','preview'])
 @pytest.mark.parametrize('reverse',[False,True])
 def test_multiline_selection_only_paints_text(workspace_page,mode,reverse):

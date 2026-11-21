@@ -16,6 +16,19 @@ from .instructions import agent_instructions as instructions_text
 from .projects import register_project
 
 
+def thread_activity(thread):
+    activity = [
+        thread['created_at'], thread['resolved'],
+        [(m['id'], m['created_at'], m['author'], m['body']) for m in thread['messages']],
+        thread['attachments'],
+    ]
+    return hashlib.sha256(json.dumps(activity, ensure_ascii=False).encode()).hexdigest()
+
+
+def comment_activity(thread, previous=None):
+    return dict(thread, activity=thread_activity(thread), previous_activity=previous)
+
+
 def create_app(root):
     app = Flask(__name__)
     app.config.update(MAX_CONTENT_LENGTH=10*1024*1024, TRUSTED_HOSTS=['127.0.0.1','localhost','[::1]'])
@@ -84,10 +97,11 @@ def create_app(root):
         for file in files: ws.attachments.name(file.filename)
         return data,files
 
-    def save_review(create, files, new_thread=False):
+    def save_review(create, files, new_thread=False, reply_to=None, review=None):
         # Roll back the new comment and its files on an upload failure. Keep the
         # user's existing discussion untouched; the composer can retry safely.
         with ws.lock:
+            previous = thread_activity(ws.get_thread(reply_to, review=review)) if reply_to is not None else None
             thread=create(bool(files));message_id=thread['messages'][-1]['id']
             try:
                 from .attachments import MAX_ATTACHMENT
@@ -101,7 +115,7 @@ def create_app(root):
                 if new_thread: ws.delete_thread(thread['id'])
                 else: ws.delete_message(thread['id'],message_id)
                 raise
-            return ws.get_thread(thread['id'])
+            return comment_activity(ws.get_thread(thread['id']), previous)
 
     @app.get('/')
     def index():
@@ -205,12 +219,7 @@ def create_app(root):
         if request.if_none_match.contains(tag):
             return Response(status=304,headers={'ETag':'"'+tag+'"'})
         for thread in items:
-            activity = [
-                thread['created_at'], thread['resolved'],
-                [(m['id'], m['created_at'], m['author'], m['body']) for m in thread['messages']],
-                thread['attachments'],
-            ]
-            thread['activity'] = hashlib.sha256(json.dumps(activity, ensure_ascii=False).encode()).hexdigest()
+            thread['activity'] = thread_activity(thread)
         response=jsonify(threads=items,index=index,html=render_template('threads.html',threads=items,all_files=all_files,active=None))
         response.set_etag(tag)
         return response
@@ -501,11 +510,15 @@ def create_app(root):
     @app.post('/api/threads/<int:identifier>/replies')
     def reply(identifier):
         data,files = comment_body()
-        return jsonify(save_review(lambda empty:ws.reply(identifier,data.get('body'),data.get('author'),allow_empty=empty,review=data.get('review_id')),files)),201
+        review = data.get('review_id')
+        return jsonify(save_review(lambda empty:ws.reply(identifier,data.get('body'),data.get('author'),allow_empty=empty,review=review),files,reply_to=identifier,review=review)),201
 
     @app.patch('/api/threads/<int:identifier>/messages/<int:message_id>')
     def edit_message(identifier,message_id):
-        return jsonify(ws.edit_message(identifier,message_id,body().get('body')))
+        text = body().get('body')
+        with ws.lock:
+            previous = thread_activity(ws.get_thread(identifier))
+            return jsonify(comment_activity(ws.edit_message(identifier,message_id,text),previous))
 
     @app.patch('/api/threads/<int:identifier>')
     def update_thread(identifier):
@@ -550,7 +563,8 @@ def create_app(root):
 
     @app.post('/api/images/<identifier>/comments')
     def image_comment(identifier):
-        return jsonify(ws.images.comment(identifier, body())), 201
+        with ws.lock:
+            return jsonify(comment_activity(ws.images.comment(identifier, body()))), 201
 
     @app.patch('/api/images/<identifier>/comments/<int:thread_id>')
     def move_image_comment(identifier, thread_id):

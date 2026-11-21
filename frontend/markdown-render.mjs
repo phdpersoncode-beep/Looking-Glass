@@ -2,6 +2,7 @@ import {label as reviewLabel} from './review-model.mjs';
 import {Renderer} from 'marked';
 import {markdown as marked,isMathFence,mathPlaceholder,hydrateMath} from './markdown-math.mjs';
 import {mappedMarkdownHTML,visibleMap} from './markdown-source.mjs';
+import {styleMarkdownTodos,todoRanges} from './markdown-todo.mjs';
 export {tokenPositions,mappedMarkdownHTML} from './markdown-source.mjs';
 import DOMPurify from 'dompurify';
 
@@ -30,7 +31,7 @@ export function renderMarkdown(host,source,decorate=()=>{}) {
   }
   hydrateMath(host,math);
   for(const link of host.querySelectorAll('a')){link.target='_blank';link.rel='noopener noreferrer';}
-  decorate(host);wrapMarkdownTables(host);
+  decorate(host);styleMarkdownTodos(host);wrapMarkdownTables(host);
 }
 
 export function mountMappedMarkdown(host,source,offset=0,decorate=()=>{},formula=null) {
@@ -40,6 +41,7 @@ export function mountMappedMarkdown(host,source,offset=0,decorate=()=>{},formula
   const html=formula?mathPlaceholder({...formula,raw:source},math,{from:offset,to:offset+source.length}):mappedMarkdownHTML(source,offset,math);
   host.innerHTML=DOMPurify.sanitize(html);
   hydrateMath(host,math);
+  styleMarkdownTodos(host);
   decorate(host);wrapMarkdownTables(host);
   let lastHighlights=null,lastActive=null,reviewChanges=[];
   const leaves=[...host.querySelectorAll('.md-mapped-text,.md-math[data-md-from]')],nodes=new WeakMap();
@@ -48,6 +50,7 @@ export function mountMappedMarkdown(host,source,offset=0,decorate=()=>{},formula
     leaf._atomic=leaf.classList.contains('md-math');
     leaf._mapping=leaf._atomic?[{from,to}]:visibleMap(source.slice(from-offset,to-offset),from,text,!!leaf.querySelector('code'));
     leaf._text=text;
+    leaf._todos=leaf._atomic||leaf.closest('pre')?[]:todoRanges(text);
   }
   function register(leaf) {
     if(!leaf._mapping)return;
@@ -134,12 +137,16 @@ export function mountMappedMarkdown(host,source,offset=0,decorate=()=>{},formula
         }
         const idsAt=at=>spans.filter(s=>s.from<map[at].to&&s.to>map[at].from).map(s=>s.id);
         const changeAt=at=>reviewChanges.find(s=>s.kind==='insert'&&s.from<map[at].to&&s.to>map[at].from);
-        for(let at=0;at<map.length;) {
+        const todos=leaf._todos;
+        for(let at=0,todoIndex=0;at<map.length;) {
           while(ghostAt<ghosts.length&&ghosts[ghostAt].from<=map[at].from)addGhost(ghosts[ghostAt++]);
+          if(todos[todoIndex]?.to<=at)todoIndex++;
+          const todoRange=todos[todoIndex],todo=todoRange&&todoRange.from<=at;
+          const limit=todoRange?(todo?todoRange.to:todoRange.from):map.length;
           const ids=idsAt(at),change=changeAt(at);let end=at+1;
-          while(end<map.length&&idsAt(end).join(',')===ids.join(',')&&changeAt(end)===change&&!(ghostAt<ghosts.length&&ghosts[ghostAt].from<=map[end].from))end++;
+          while(end<limit&&idsAt(end).join(',')===ids.join(',')&&changeAt(end)===change&&!(ghostAt<ghosts.length&&ghosts[ghostAt].from<=map[end].from))end++;
           const text=leaf._text.slice(at,end);
-          if(ids.length||change){const resolved=ids.length&&ids.every(id=>spans.find(s=>s.id===id)?.resolved);const mark=document.createElement('span');mark.className=(ids.length?'passage-highlight'+(resolved?' resolved-passage':ids.includes(active)&&!spans.find(s=>s.id===active)?.resolved?' focused-highlight':''):'')+(change?' '+(change.role==='agent'?'review-agent':'review-human'):'');if(ids.length){mark.dataset.anchor=String(ids.includes(active)?active:ids[0]);mark.dataset.anchors=ids.join(',');}if(change)mark.title=reviewLabel(change);mark.textContent=text;fragment.append(mark);}
+          if(ids.length||change||todo){const resolved=ids.length&&ids.every(id=>spans.find(s=>s.id===id)?.resolved);const mark=document.createElement('span');mark.className=(ids.length?'passage-highlight'+(resolved?' resolved-passage':ids.includes(active)&&!spans.find(s=>s.id===active)?.resolved?' focused-highlight':''):'')+(change?' '+(change.role==='agent'?'review-agent':'review-human'):'');if(todo)mark.classList.add('md-todo');if(ids.length){mark.dataset.anchor=String(ids.includes(active)?active:ids[0]);mark.dataset.anchors=ids.join(',');}if(change)mark.title=reviewLabel(change);mark.textContent=text;fragment.append(mark);}
           else fragment.append(document.createTextNode(text));at=end;
         }
         while(ghostAt<ghosts.length)addGhost(ghosts[ghostAt++]);

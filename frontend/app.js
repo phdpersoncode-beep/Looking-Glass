@@ -30,6 +30,7 @@ import {mountMappedMarkdown,renderMarkdown} from './markdown-render.mjs';
 import {markdownMathRanges} from './markdown-source.mjs';
 import {markdownLinks} from './markdown-links.mjs';
 import {markdownListLines} from './markdown-lists.mjs';
+import {todoRanges} from './markdown-todo.mjs';
 import {linkThreadReferences} from './thread-references.mjs';
 import {textSelection,updateNativeTextSelection} from './text-selection.mjs';
 import {createThreadSpotlight} from './thread-spotlight.mjs';
@@ -342,10 +343,20 @@ class TaskCheckbox extends WidgetType {
   toDOM(v){const checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.className='md-task-checkbox';checkbox.checked=this.checked;checkbox.setAttribute('aria-label',this.checked?'Mark task incomplete':'Mark task complete');checkbox.onmousedown=event=>event.preventDefault();checkbox.onchange=()=>{v.dispatch({changes:{from:this.from+1,to:this.from+2,insert:checkbox.checked?'x':' '}});v.focus();};return checkbox;}
   ignoreEvent(){return true;}
 }
+const todoMark=Decoration.mark({class:'md-todo'});
+const todoSourceNodes=new Set(['FencedCode','CodeBlock','URL','LinkLabel','HTMLTag','HTMLBlock','CommentBlock']);
 function liveDecorations(v, activeRange) {
   const ranges=[], doc=v.state.doc, links=markdownLinks(syntaxTree(v.state),doc);
   const math=markdownMathRanges(doc.toString()),images=imageRanges(doc.toString()),editing=v.state.field(blockEditing);
   const {from:activeFrom,to:activeTo}=activeRange;
+  const tree=syntaxTree(v.state);
+  for(const {from,to} of v.visibleRanges)for(const match of todoRanges(doc.sliceString(from,to))){
+    const start=from+match.from,end=from+match.to;
+    if(math.some(range=>range.from<=start&&end<=range.to)||images.some(range=>range.from<=start&&end<=range.to))continue;
+    let node=tree.resolveInner(start,1);
+    while(node&&!todoSourceNodes.has(node.name))node=node.parent;
+    if(!node)ranges.push(todoMark.range(start,end));
+  }
   for(const line of markdownListLines(syntaxTree(v.state),doc)){
     ranges.push(Decoration.line({class:'md-list-line',attributes:{'data-list-depth':String(line.depth),style:`--md-list-depth:${line.depth};--md-list-marker-width:${line.width}em`}}).range(line.from));
     if(line.indentTo>line.from)ranges.push(Decoration.replace({}).range(line.from,line.indentTo));
@@ -355,7 +366,7 @@ function liveDecorations(v, activeRange) {
       ranges.push((line.bullet&&!active?Decoration.replace({widget:new Bullet(line.depth)}):Decoration.mark({class:'md-list-marker'})).range(line.markerFrom,line.markerTo));
     }
   }
-  syntaxTree(v.state).iterate({
+  tree.iterate({
     enter(node){
       const name=node.name, a=node.from, b=node.to;
       if(images.some(image=>image.from<=a&&image.to>=b))return false;
@@ -549,13 +560,13 @@ const imageTools=createImageTools({token,api,context:()=>({path:entry()?.sourceP
   },
   comment:async(id,point,body,thread)=>{
     const e=entry();if(!e||e.kind)throw new Error('Open the current document to comment.');
-    if(thread){await api(`threads/${thread.id}/replies`,'POST',{body,author:authorName});}
+    if(thread){markLocalComment(await api(`threads/${thread.id}/replies`,'POST',{body,author:authorName}));}
     else{
       await saveActive();if(entry()!==e)throw new Error('Document changed. Reopen the image.');
       const ranges=imageRanges(e.content).filter(r=>imageID(r.href)===id||r.href===imageTools.reference(id));
       if(!ranges.length)throw new Error('The image embed is no longer in this document.');
       const range=ranges[0],review=e.workMode==='review'?e.review:null;
-      await api(`images/${id}/comments`,'POST',{path:e.path,start:Array.from(e.content.slice(0,range.from)).length,end:Array.from(e.content.slice(0,range.to)).length,version:review?.version||e.version,review_id:review?.id,reference:range.href,body,author:authorName,...point});
+      markLocalComment(await api(`images/${id}/comments`,'POST',{path:e.path,start:Array.from(e.content.slice(0,range.from)).length,end:Array.from(e.content.slice(0,range.to)).length,version:review?.version||e.version,review_id:review?.id,reference:range.href,body,author:authorName,...point}));
     }
     await refreshThreads();imageTools.refresh();
   }
@@ -807,7 +818,7 @@ async function loadFile(path,request){
 
 async function mountFileSurface(e){
   if(e.kind==='tasks')cleanup=mountTasks($('#surface'),e.tasks??={},api,{openDocument:(path,position)=>openTaskDocument(e,path,position),
-    downloadAttachment:file=>fetchAttachment(`task-attachments/${file.entry_id}/${file.id}`),author:()=>authorName,sidebar:$('#task-sidebar'),onSidebarMode:active=>{
+    downloadAttachment:file=>fetchAttachment(`task-attachments/${file.entry_id}/${file.id}`),composers,author:()=>authorName,sidebar:$('#task-sidebar'),onSidebarMode:active=>{
     document.body.classList.toggle('tasks-view',active);
     $('#discussion-sidebar').setAttribute('aria-label',active?'Task hierarchy':'Discussions');
     $('#discussion-resize').setAttribute('aria-label',active?'Resize task list':'Resize discussions');
@@ -1052,10 +1063,13 @@ async function showReviewHistory(){
 
 function threadScope(){return appStore.state.scope;}
 const discussionCache=new Map();let lastThreadHTML='',lastThreadKey='',navigationIndex=[],indexTime=0;
-const discussionView=createDiscussionView($('#threads'),{composers,renderBody:(host,source)=>{renderMarkdown(host,source,highlightMarkdown);linkThreadReferences(host);linkFileReferences(host);markdownDiagrams(host);}});
+const discussionView=createDiscussionView($('#threads'),{composers,renderBody:(host,source)=>renderMarkdown(host,source,rendered=>{
+  highlightMarkdown(rendered);linkThreadReferences(rendered);linkFileReferences(rendered);markdownDiagrams(rendered);
+})});
 const discussionRetention=createDiscussionRetention();
 const viewedActivityPrefix='looking-glass-viewed-thread-activity:'+root+':';
 const viewedActivity=new Map();
+const previousViewedActivity=new Map();
 function readViewedActivity(id){
   if(!viewedActivity.has(id)){
     let activity=null;
@@ -1065,16 +1079,32 @@ function readViewedActivity(id){
   return viewedActivity.get(id);
 }
 function markThreadViewed(thread){
-  if(!thread?.activity||readViewedActivity(thread.id)===thread.activity)return;
+  if(!thread?.activity)return;
+  const previous=readViewedActivity(thread.id);
+  if(previous===thread.activity||previousViewedActivity.get(thread.id)===thread.activity)return;
+  retainPreviousView(thread.id,previous);
   viewedActivity.set(thread.id,thread.activity);
   try{localStorage.setItem(viewedActivityPrefix+thread.id,thread.activity);}catch{}
 }
+function retainPreviousView(id,previous){
+  if(previous&&appStore.state.threads.some(t=>t.id===id&&t.activity===previous))previousViewedActivity.set(id,previous);
+}
+function markLocalComment(thread){
+  // A reply advances a read discussion through our own write. An external
+  // change already present before the write still needs to be read.
+  if(thread?.activity&&(thread.previous_activity===null||thread.previous_activity===readViewedActivity(thread.id))){
+    markThreadViewed(thread);
+    filterThreads();
+  }
+}
 window.addEventListener('storage',event=>{
-  if(event.key===null)viewedActivity.clear();
+  if(event.key===null){viewedActivity.clear();previousViewedActivity.clear();}
   else if(event.key.startsWith(viewedActivityPrefix)){
     const id=Number(event.key.slice(viewedActivityPrefix.length));
     if(!Number.isSafeInteger(id)||id<=0)return;
     viewedActivity.delete(id);
+    if(event.newValue)retainPreviousView(id,event.oldValue);
+    else previousViewedActivity.delete(id);
   }else return;
   filterThreads();
 });
@@ -1164,6 +1194,8 @@ function filterThreads(){
   let closed=0;
   for(const thread of threads){
     if(thread.resolved)closed++;
+    if(thread.activity===previousViewedActivity.get(thread.id))continue;
+    previousViewedActivity.delete(thread.id);
     if(thread.activity&&readViewedActivity(thread.id)!==thread.activity)unread.add(thread.id);
   }
   const total=threads.length,openCount=String(total-closed);
@@ -1364,6 +1396,7 @@ async function submitComment(event){
     await saveActive();const e=entry();if(selection!==pending||selection.path!==appStore.state.displayedDocument||selection.content!==selectedContent(selection))throw new Error('The selected passage changed. Select it again.');
     const anchor=selection.git_target?{git_target:selection.git_target}:{path:selection.path,...(selection.pdf_anchor?{pdf_anchor:selection.pdf_anchor}:selection.removed_anchor?{removed_anchor:selection.removed_anchor}:selection.render_anchor?{render_anchor:selection.render_anchor}:{start:selection.start,end:selection.end}),version:e.version,...(e.workMode==='review'?{review_id:e.review.id}: {})};
     const result=await composers.post('threads',{...anchor,body,author},$('#comment-form'));
+    markLocalComment(result);
     composers.clear($('#comment-form'));
     if(appStore.state.displayedDocument===selection.path){closeComment();if(selection.html)previewMessage('clear-selection');appStore.dispatch({type:'THREAD_ACTIVATED',threadId:result.id});await refreshThreads();showThread(result.id);view?.focus();}
     notify('Discussion created');
@@ -1835,7 +1868,7 @@ document.addEventListener('submit',event=>{
     const id=Number(form.closest('.thread').dataset.thread),field=form.querySelector('textarea'),body=field.value;
     composers.setSending(form,true);composers.status(form,'Sending…');
     try{
-      await composers.post('threads/'+id+'/replies',{author:authorName,body,...(discussionReview()?{review_id:discussionReview()}: {})},form);
+      markLocalComment(await composers.post('threads/'+id+'/replies',{author:authorName,body,...(discussionReview()?{review_id:discussionReview()}: {})},form));
       composers.complete(form,body);
       composers.status(form,'');
       await refreshThreads();filterThreads();notify('Reply added');
@@ -1844,7 +1877,7 @@ document.addEventListener('submit',event=>{
 
   })();}
 });
-$('#edit-comment-form').onsubmit=event=>{event.preventDefault();const form=event.currentTarget;guard(async()=>{await api('threads/'+form.dataset.thread+'/messages/'+form.dataset.message,'PATCH',{body:$('#edit-comment-body').value});$('#edit-comment-dialog').close();await refreshThreads();})();};
+$('#edit-comment-form').onsubmit=event=>{event.preventDefault();const form=event.currentTarget;guard(async()=>{markLocalComment(await api('threads/'+form.dataset.thread+'/messages/'+form.dataset.message,'PATCH',{body:$('#edit-comment-body').value}));$('#edit-comment-dialog').close();await refreshThreads();})();};
 $('#comment-form').onsubmit=event=>{submitComment(event).catch(error=>{$('#comment-error').textContent=error.message;notify(error.message,true);});};
 $('#comment-dialog').addEventListener('close',()=>{composers.clear($('#comment-form'));if(!$('#comment-dialog').open&&pending?.path)pending=null;scheduleSelectionTools();});
 $('#comment-cancel').onclick=()=>{closeComment();view?.focus();};

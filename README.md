@@ -152,6 +152,8 @@ collapsed comment icon also navigates to its passage and opens sidebar spotlight
 An amber dot marks a thread with unviewed activity, including new threads, reply
 or attachment changes, and resolve or reopen actions. Opening the thread clears
 the dot for the version you opened. The browser remembers this for each workspace.
+Writing or editing your own comment keeps an already-read thread read. Unviewed
+changes from another writer still show the dot.
 The unread count beside the sidebar totals follows the current file scope and
 disappears when every thread in that scope has been viewed.
 Clicking a thread card's general area opens spotlight too; text selection, links,
@@ -180,6 +182,8 @@ keeps the same numbered gutter. Fenced code uses one background and rounded
 corners in live Markdown and preview; blockquotes use a quiet rule, upright text,
 and a subtle themed background. Bare square brackets such as `[0, 1]` stay literal;
 explicit Markdown links and references with definitions keep their link styling.
+Standalone `TODO` tokens use monospace and a purple highlight in rendered
+Markdown, including discussion replies and card descriptions.
 In the editor, purple scrollbar markers jump to attached discussions and amber
 markers jump to matches for the selected text. A purple marker with several nearby
 discussions opens a list to choose from. Resolved discussions use a fainter marker.

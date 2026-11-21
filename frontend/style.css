@@ -71,6 +71,7 @@ dialog:modal{margin:auto}.directory-list{height:260px;overflow:auto;margin-top:8
 .live-markdown .cm-line.md-code-start{border-top-left-radius:10px;border-top-right-radius:10px}
 .live-markdown .cm-line.md-code-end{border-bottom-left-radius:10px;border-bottom-right-radius:10px}
 .md-code-fence{color:var(--muted)}
+.md-todo{font-family:var(--mono);color:var(--purple);background:var(--highlight);border-radius:2px}
 :is(.markdown-preview,.comment-markdown) .tok-keyword{color:#ad5ded}
 :is(.markdown-preview,.comment-markdown) .tok-string{color:#4a9c80}
 :is(.markdown-preview,.comment-markdown) .tok-number{color:#c68b45}
@@ -478,15 +479,14 @@ body.outline-resizing,body.outline-resizing *{cursor:col-resize!important;user-s
 .task-description-heading{display:flex;justify-content:space-between;align-items:center}
 .task-description-heading .icon-button{width:25px;height:25px;padding:4px;border:0;color:var(--muted)}
 .task-detail .task-description-preview{padding:9px 10px;border:1px solid var(--border);border-radius:5px}
-.task-comment-form{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:8px;margin-top:10px}
+.task-comment-form{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:5px;margin-top:10px}
 .task-detail .task-comment-form textarea{min-height:44px;padding:5px 8px;font-size:12px;line-height:1.4}
-.task-comment-actions{display:flex;align-items:center;gap:4px}
-.task-comment-actions button{font-size:12px}
-.task-comment-actions .icon-button,.task-comment-files .icon-button{width:24px;height:24px;padding:3px;border:0;color:var(--muted)}
+.task-comment-form>button[type=submit]{font-size:12px}
+.task-comment-form>:is(.pending-files,.composer-status){grid-column:1/-1}
+.composer-input .attach-trigger{flex-shrink:0}
 .task-comment-files{grid-column:1/-1;list-style:none;margin:2px 0;padding:0;display:flex;flex-wrap:wrap;gap:4px 8px}
 .task-comment-files:empty{display:none}
 .task-comment-files>li{max-width:100%;font-size:11px;overflow-wrap:anywhere}
-.task-comment-form .task-comment-files>li{display:flex;align-items:center;gap:3px}
 .task-comment-files>li>button:not(.icon-button){padding:2px 5px}
 .task-comment-files summary{cursor:pointer;color:var(--muted);margin-top:3px}
 .task-comment-files img{display:block;max-width:100%;max-height:200px;margin-top:4px;border-radius:3px}

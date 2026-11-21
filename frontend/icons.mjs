@@ -14,7 +14,6 @@ const paths={
   code:'m7 5-5 5 5 5M13 5l5 5-5 5',
   resize:'M17 10v7h-7M17 17l-8-8',
   save:'M4 3h10l3 3v11H3V3h1M6 3v5h8V3M6 17v-6h8v6',
-  paperclip:'m7 11 5-5a2 2 0 0 1 3 3l-7 7a3 3 0 0 1-4-4l8-8',
   clearFilter:'M2 3h16l-6 7v3m-4 4v-7L2 3m10 12 5 4m0-4-5 4',
   order:'M3 4v12m-2-3 2 3 3-3M8 5h9M8 10h7M8 15h5',
   sound:'M3 8h3l4-4v12l-4-4H3zM13 7a5 5 0 0 1 0 6m2-9a9 9 0 0 1 0 12',

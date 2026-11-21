@@ -79,10 +79,10 @@ const element = (tag, text, className) => {
 };
 
 export function mountTaskOutline(host, options) {
-  const {getBoard, state, picked, write, open, contextMenu, changed, create, createMilestone, startDrag, getDrag, rootId = null,
+  const {getBoard, state, picked, write, open, contextMenu, changed, createMilestone, startDrag, getDrag, rootId = null,
     milestoneFilter, milestoneIds, clearFilter, hover} = options;
   const drafts = state.outlineDrafts ??= new Map(), views = state.outlineViews ??= new Map();
-  const creations = rootId !== null ? state.checklistCreations ??= new Map() : null;
+  const creations = state.outlineCreations ??= new Map();
   const key = rootId ?? 'plan', view = views.get(key) ?? {collapsed: false, toggled: new Set()};
   views.set(key, view);
   const isExpanded = id => view.collapsed === view.toggled.has(id);
@@ -122,13 +122,12 @@ export function mountTaskOutline(host, options) {
   let creation = null;
 
   function startCreation(parentId, opener) {
-    if (!creations) { create(parentId); return; }
     if (!creation) mountCreation({parentId, title: ''}, opener);
     creation.title.focus();
   }
 
   function mountCreation(draft, opener = add) {
-    creations.set(rootId, draft);
+    creations.set(key, draft);
     const row = element('div', undefined, 'task-outline-create');
     row.setAttribute('role', 'listitem');
     const form = element('form');
@@ -155,7 +154,7 @@ export function mountTaskOutline(host, options) {
 
     function finish() {
       const restoreFocus = row.contains(document.activeElement) || document.activeElement === document.body;
-      if (creations.get(rootId) === draft) creations.delete(rootId);
+      if (creations.get(key) === draft) creations.delete(key);
       row.remove();
       creation = null;
       if (!disposed && restoreFocus) (opener.isConnected ? opener : add).focus({preventScroll: true});
@@ -637,7 +636,7 @@ export function mountTaskOutline(host, options) {
     preview.settle(dropPositions);
     rendering=false;
   }
-  const creationDraft = creations?.get(rootId);
+  const creationDraft = creations.get(key);
   if (creationDraft) mountCreation(creationDraft);
   else render();
   return {render,dispose(){disposed=true;dragEvents.abort();clearDrop(false);controls.remove();section.remove();},focus:focusRow};

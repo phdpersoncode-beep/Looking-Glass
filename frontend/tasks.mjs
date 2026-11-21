@@ -181,6 +181,9 @@ function mountTasks(host, state, api, options = {}) {
   tools.append(muteLabel);
   const frame = el('div', undefined, 'task-lanes-frame');
   frame.append(lanes);
+  frame.addEventListener('click', event => {
+    if (!event.target.closest('.task-card, button, input, select, a')) clearSelection();
+  });
   const edges = ['top', 'bottom', 'left', 'right'].map((side, index) => {
     const badge = el('span', undefined, 'task-edge task-edge-' + side);
     badge.hidden = true;
@@ -246,7 +249,7 @@ function mountTasks(host, state, api, options = {}) {
   const viewportObserver = new ResizeObserver(updateEdges);
   viewportObserver.observe(lanes);
   function outlineOptions(extra={}){
-    return {getBoard:()=>board,state,picked,write:change,open:card=>{if(card)edit(card);},contextMenu:openContext,changed:refreshSelection,create:parent=>editNew('backlog',parent),error:()=>notice.textContent,startDrag,getDrag:()=>dragSource,...extra};
+    return {getBoard:()=>board,state,picked,write:change,open:card=>{if(card)edit(card);},contextMenu:openContext,changed:refreshSelection,error:()=>notice.textContent,startDrag,getDrag:()=>dragSource,...extra};
   }
   function closeContext(){context?.remove();context=null;}
   function openContext(event,id){
@@ -260,7 +263,7 @@ function mountTasks(host, state, api, options = {}) {
     action('Archive',()=>change({action:'update',ids,changes:{archived:true}}));
     action('Restore',()=>change({action:'update',ids,changes:{archived:false}}));
     action('Delete',()=>confirmDelete(ids));
-    action('Clear selection',()=>{picked.clear();render();});
+    action('Clear selection',clearSelection);
     (document.querySelector('.task-detail[open]')||document.body).append(context);
     const bounds = context.getBoundingClientRect();
     context.style.left=Math.max(4,Math.min(event.clientX,innerWidth-bounds.width-4))+'px';
@@ -352,7 +355,7 @@ function mountTasks(host, state, api, options = {}) {
       if (files.length) {
         body = new FormData();
         body.append('data', JSON.stringify(payload));
-        for (const file of files) body.append('files', file);
+        for (const {file, name} of files) body.append('files', file, name);
       }
       const next = await api('tasks', 'POST', body);
       // The server saved the write even if the Tasks tab was left meanwhile.
@@ -423,6 +426,11 @@ function mountTasks(host, state, api, options = {}) {
     }
     renderBulk();
   }
+  function clearSelection() {
+    if (!picked.size) return;
+    picked.clear();
+    refreshSelection();
+  }
   function renderBulk() {
     const assignment = bulk.querySelector('select')?.value || '';
     bulk.replaceChildren();
@@ -431,10 +439,7 @@ function mountTasks(host, state, api, options = {}) {
       const assign = el("select");
       milestones(assign, assignment);
       assign.setAttribute("aria-label", "Assign selected cards to milestone");
-      bulk.append(assign, button("Assign", () => change({ action: "update", ids: [...picked], changes: { milestone_id: Number(assign.value) || null } })), button("Archive", () => change({ action: "update", ids: [...picked], changes: { archived: true } })), button("Restore", () => change({ action: "update", ids: [...picked], changes: { archived: false } })), button("Delete", () => confirmDelete([...picked])), button("Clear", () => {
-        picked.clear();
-        refreshSelection();
-      }));
+      bulk.append(assign, button("Assign", () => change({ action: "update", ids: [...picked], changes: { milestone_id: Number(assign.value) || null } })), button("Archive", () => change({ action: "update", ids: [...picked], changes: { archived: true } })), button("Restore", () => change({ action: "update", ids: [...picked], changes: { archived: false } })), button("Delete", () => confirmDelete([...picked])), button("Clear", clearSelection));
     }
   }
   function render() {
@@ -446,7 +451,7 @@ function mountTasks(host, state, api, options = {}) {
     for (const id of picked) if (!byId.has(id)) picked.delete(id);
     if (board.revision) {
       for (const id of drafts.keys()) if (!byId.has(id)) drafts.delete(id);
-      for (const id of state.commentDrafts?.keys() ?? []) if (!byId.has(id)) state.commentDrafts.delete(id);
+      options.composers.prune(byId, 'task:');
     }
     renderBulk();
     lanes.replaceChildren();
@@ -855,7 +860,7 @@ function mountTasks(host, state, api, options = {}) {
     d.refreshReference=()=>{refreshReference();checklist.render();};
     d.addEventListener('close',checklist.dispose);
     const activity = mountTaskActivity(content, card.id, {
-      api, download: options.downloadAttachment, state, getRevision:()=>board.revision,
+      api, download: options.downloadAttachment, composers: options.composers, getRevision:()=>board.revision,
       write:async (data, files)=>{
         const before=board.revision, saved=await change(data, before, {files});
         // A comment does not change card fields. Only acknowledge our own
@@ -873,10 +878,10 @@ function mountTasks(host, state, api, options = {}) {
       picked.clear();
       picked.add(card.id);
       refreshSelection();
-      d.addEventListener('close', () => {
-        if (picked.delete(card.id) && !disposed) refreshSelection();
-      });
     }
+    d.addEventListener('close', () => {
+      if (picked.delete(card.id) && !disposed) refreshSelection();
+    });
     d.showModal();
     const titleResize=new ResizeObserver(sizeTitle);titleResize.observe(title);
     d.addEventListener('close',()=>titleResize.disconnect());

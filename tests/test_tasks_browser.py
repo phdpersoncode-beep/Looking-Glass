@@ -717,11 +717,13 @@ def test_sidebar_milestone_filter_and_board_order_and_insertion(workspace_page):
 
 @pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
 def test_task_comment_attaches_previews_and_downloads_files(workspace_page):
+    import base64
     import io
     from PIL import Image
     from playwright.sync_api import expect
     _, page, url, ws = workspace_page
     ws.tasks.mutate(dict(action='create', title='Task', revision=0))
+    ws.tasks.mutate(dict(action='update', ids=[1], changes={'description': '**TODO**: review this card'}, revision=1))
     picture = io.BytesIO()
     Image.new('RGB', (8, 8), 'purple').save(picture, format='PNG')
 
@@ -730,17 +732,41 @@ def test_task_comment_attaches_previews_and_downloads_files(workspace_page):
     card = page.get_by_role('article', name='Task', exact=True)
     card.click()
     detail = page.locator('.task-detail')
-    detail.get_by_label('Task comment files').set_input_files([
-        {'name': 'review.png', 'mimeType': 'image/png', 'buffer': picture.getvalue()},
-        {'name': 'notes.txt', 'mimeType': 'text/plain', 'buffer': b'April notes'},
-    ])
-    expect(detail.get_by_role('button', name='Remove notes.txt')).to_be_visible()
+    expect(detail.locator('.task-description-preview .md-todo')).to_have_text('TODO')
+    attach = detail.get_by_role('button', name='Attach files to card comment')
+    for theme in ('light', 'dark'):
+        page.evaluate('(theme)=>document.documentElement.dataset.theme=theme', theme)
+        page.set_viewport_size({'width': 390, 'height': 700})
+        icon = attach.locator('svg').bounding_box()
+        assert icon['width'] == icon['height'] == 18
+        assert detail.evaluate('el=>el.scrollWidth<=el.clientWidth+1')
+    with page.expect_file_chooser() as chooser:
+        attach.click()
+    chooser.value.set_files({'name': 'notes.txt', 'mimeType': 'text/plain', 'buffer': b'April notes'})
+    expect(detail.get_by_role('button', name='Remove pending notes.txt')).to_be_visible()
+    body = detail.get_by_role('textbox', name='Comment', exact=True)
+    body.fill('TODO: check this screenshot')
+    body.evaluate("""(el, encoded) => {
+      const bytes = Uint8Array.from(atob(encoded), c => c.charCodeAt(0));
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([bytes], 'clipboard.png', {type: 'image/png'}));
+      const event = new ClipboardEvent('paste', {bubbles: true, cancelable: true});
+      Object.defineProperty(event, 'clipboardData', {value: transfer});
+      el.dispatchEvent(event);
+    }""", base64.b64encode(picture.getvalue()).decode())
+    expect(detail.locator('.pending-file img')).to_be_visible()
+    detail.get_by_role('button',name='screenshot-',exact=False).filter(has_not_text='×').click()
+    rename=page.get_by_role('dialog',name='Rename attachment')
+    rename.get_by_role('textbox',name='Name').fill('review.png')
+    rename.get_by_role('button',name='Save name').click()
     detail.get_by_role('button', name='Close card').click()
     card.click()
-    expect(detail.get_by_role('button', name='Remove review.png')).to_be_visible()
+    expect(detail.get_by_role('button', name='Remove pending review.png')).to_be_visible()
+    expect(body).to_have_value('TODO: check this screenshot')
     detail.get_by_role('button', name='Comment', exact=True).click()
     comment = detail.locator('.task-comment')
     expect(comment).to_have_count(1)
+    expect(comment.locator('.md-todo')).to_have_text('TODO')
     comment.get_by_text('Preview review.png').click()
     expect(comment.get_by_role('img', name='review.png')).to_be_visible()
     page.wait_for_function("document.querySelector('.task-comment img').naturalWidth === 8")

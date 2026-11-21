@@ -19,12 +19,10 @@ function value(field, v) {
   if (field === "archived") return v ? "Archived" : "Active";
   return String(v);
 }
-function mountTaskActivity(dialog, id, { api, download, state, write, getRevision, error }) {
-  const drafts = state.commentDrafts ??= /* @__PURE__ */ new Map();
-  const draft = drafts.get(id) ?? {body: '', files: []};
+function mountTaskActivity(dialog, id, { api, download, composers, write, getRevision, error }) {
   const previews = new Map();
   let revision = -1, limit = 100, pending = null, disposed = false, hasOlder = false;
-  const section = node("section", void 0, "task-activity"), heading = node("h3", "Comments & activity"), list = node("div", void 0, "task-activity-list"), status = node("p", void 0, "task-activity-error"), older = node("button", "Load earlier activity"), form = node("form", void 0, "task-comment-form"), label = node("label", "Comment"), input = node("textarea"), send = node("button", "Comment");
+  const section = node("section", void 0, "task-activity"), heading = node("h3", "Comments & activity"), list = node("div", void 0, "task-activity-list"), status = node("p", void 0, "task-activity-error"), older = node("button", "Load earlier activity"), form = node("form", void 0, "task-comment-form"), send = node("button", "Comment");
   section.setAttribute("aria-label", "Comments and activity");
   status.setAttribute("role", "status");
   older.type = "button";
@@ -33,57 +31,14 @@ function mountTaskActivity(dialog, id, { api, download, state, write, getRevisio
     limit = Math.min(1e3, limit + 100);
     refresh(true);
   };
-  input.id = "task-comment-" + id;
-  label.htmlFor = input.id;
-  label.className = 'sr-only';
-  input.placeholder = "Write a comment…";
-  input.rows = 2;
+  form.dataset.taskCard = id;
+  form.append(document.getElementById('task-comment-composer').content.cloneNode(true));
+  const input = form.querySelector('textarea');
   input.dataset.taskFileMentions = '';
   input.maxLength = 1e5;
-  input.value = draft.body;
-  function keepDraft() {
-    if (draft.body || draft.files.length) drafts.set(id, draft);
-    else drafts.delete(id);
-  }
-  input.oninput = () => {
-    draft.body = input.value;
-    keepDraft();
-  };
-  const picker = node('input');
-  picker.type = 'file';
-  picker.multiple = true;
-  picker.hidden = true;
-  picker.setAttribute('aria-label', 'Task comment files');
-  const attach = iconButton('Attach files', 'paperclip', () => picker.click());
-  const actions = node('div', undefined, 'task-comment-actions');
-  const pendingFiles = node('ul', undefined, 'task-comment-files');
-  function renderFiles() {
-    pendingFiles.replaceChildren(...draft.files.map(file => {
-      const item = node('li');
-      item.append(node('span', file.name), iconButton('Remove ' + file.name, 'close', () => {
-        draft.files = draft.files.filter(value => value !== file);
-        keepDraft();
-        renderFiles();
-      }));
-      return item;
-    }));
-  }
-  picker.onchange = () => {
-    const files = [...draft.files, ...picker.files];
-    picker.value = '';
-    if (files.length > 16 || files.reduce((total, file) => total + file.size, 0) > 64 * 1024 * 1024) {
-      status.textContent = 'Attach up to 16 files, totaling at most 64 MiB.';
-      return;
-    }
-    draft.files = files;
-    status.textContent = '';
-    keepDraft();
-    renderFiles();
-  };
-  renderFiles();
-  send.type = "submit";
-  actions.append(attach, send);
-  form.append(label, input, actions, picker, pendingFiles);
+  send.type = 'submit';
+  form.insertBefore(send, form.querySelector('.pending-files'));
+  composers.render(form);
   section.append(heading, older, list, status, form);
   dialog.append(section);
   function removePreviews(item) {
@@ -220,24 +175,19 @@ function mountTaskActivity(dialog, id, { api, download, state, write, getRevisio
   }
   form.onsubmit = async (event) => {
     event.preventDefault();
-    if (send.disabled || (!input.value.trim() && !draft.files.length)) return;
+    const files = composers.files(form);
+    if (composers.isSending(form) || (!input.value.trim() && !files.length)) return;
     const body = input.value;
-    const files = [...draft.files];
-    send.disabled = true;
-    status.textContent = "";
-    if (await write({ action: "comment", id, body }, files)) {
-      if (input.value === body) input.value = draft.body = '';
-      draft.files = draft.files.filter(file => !files.includes(file));
-      keepDraft();
-      renderFiles();
-      await refresh(true);
-    } else status.textContent = error();
-    send.disabled = false;
-  };
-  input.onkeydown = (event) => {
-    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-      event.preventDefault();
-      form.requestSubmit();
+    composers.setSending(form, true);
+    composers.status(form, 'Sending…');
+    try {
+      if (await write({action: 'comment', id, body}, files)) {
+        composers.complete(form, body);
+        composers.status(form, '');
+        await refresh(true);
+      } else composers.status(form, error(), true);
+    } finally {
+      composers.setSending(form, false);
     }
   };
   refresh();
