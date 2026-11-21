@@ -61,9 +61,12 @@ def test_outline_keyboard_edits_hierarchy_details_and_sidebar_restore(workspace_
     checklist=page.locator('.task-checklist')
     expect(checklist.get_by_label('Task name 6',exact=True)).to_have_value('Keyboard flow')
     checklist.get_by_role('button',name='+ Add subitem',exact=True).click()
-    page.locator('.task-dialog:not(.task-detail)').get_by_label('Title',exact=True).fill('Added from card checklist')
-    page.get_by_role('button',name='Create',exact=True).click()
     expect(page.locator('.task-dialog')).to_have_count(1)
+    draft=checklist.get_by_role('textbox',name='New task title')
+    expect(draft).to_be_focused()
+    expect(checklist.get_by_label('Task name 6',exact=True)).to_be_visible()
+    draft.fill('Added from card checklist')
+    draft.press('Enter')
     expect(checklist.get_by_label('Task name 8',exact=True)).to_have_value('Added from card checklist')
     page.evaluate("""() => {
         window.maxTaskDetails = 1;

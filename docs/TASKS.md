@@ -76,6 +76,8 @@ descendants. Every card has a nested **Tasks** list;
 each subitem is itself a full card with a permanent ID, status, and conversation.
 Use the row’s pen, a task’s **#Cxx** reference, or a milestone’s **M-number**
 to open its detail popup.
+Use the copy button below the open card’s title to copy its permanent **#Cxx**
+reference. This also works for milestones, whose displayed **M-number** can change.
 Opening a child card saves the parent’s pending field edits first.
 Checking a task moves its card to **Done**. Unchecking returns it to **Backlog**.
 Completion never automatically changes a parent's status. Milestones cannot be nested; task
@@ -107,6 +109,9 @@ Alt+Up/Down reorders siblings. Shift+Enter creates a sibling and Ctrl/Cmd+Enter
 creates a subitem; **+ Add task/subitem** is the pointer equivalent. Inline drafts
 and caret survive unrelated polling;
 stale names require explicit review before overwriting the latest saved title.
+In card details, these shortcuts and **+ Add subitem** open a new row in the
+checklist. Press Enter or click **Create** to save. Press Escape or click the
+row’s cancel button to discard the new task and stay on the current card.
 
 Both the plan sidebar and each card's **Tasks** list have compact **Collapse all
 tasks** and **Expand all tasks** buttons in their heading. Use the triangle on

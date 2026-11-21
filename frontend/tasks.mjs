@@ -355,7 +355,8 @@ function mountTasks(host, state, api, options = {}) {
         for (const file of files) body.append('files', file);
       }
       const next = await api('tasks', 'POST', body);
-      if (disposed) return false;
+      // The server saved the write even if the Tasks tab was left meanwhile.
+      if (disposed) return true;
       document.querySelectorAll('.task-detail[open]').forEach(d=>d.acknowledge?.(old.revision,next.revision,data));
       if (next.revision > board.revision || !lanes.children.length) {
         board = next;
@@ -730,8 +731,20 @@ function mountTasks(host, state, api, options = {}) {
     milestones(parent, (draft ? draft.milestone_id : card.milestone_id) || "", [card.id]);
     parent.firstChild.textContent='◇ No milestone';
     parent.disabled = !!card.milestone;
-    const permanent=el("p", "Card " + cardReference(card.id), "task-permanent-reference");
-    d.querySelector("h2").after(permanent);
+    const reference = cardReference(card.id);
+    const permanent = el('p', 'Card ' + reference, 'task-permanent-reference');
+    const copyStatus = el('span');
+    copyStatus.setAttribute('role', 'status');
+    const copy = iconButton('Copy card reference ' + reference, 'copy', async () => {
+      try {
+        await navigator.clipboard.writeText(reference);
+        copyStatus.textContent = 'Copied';
+      } catch {
+        copyStatus.textContent = 'Could not copy card reference';
+      }
+    });
+    permanent.append(copy, copyStatus);
+    heading.after(permanent);
     d.refreshReference=()=>{
       const latest=board.cards.find(c=>c.id===card.id);
       if(latest){

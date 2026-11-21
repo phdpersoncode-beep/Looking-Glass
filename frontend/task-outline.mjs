@@ -82,6 +82,7 @@ export function mountTaskOutline(host, options) {
   const {getBoard, state, picked, write, open, contextMenu, changed, create, createMilestone, startDrag, getDrag, rootId = null,
     milestoneFilter, milestoneIds, clearFilter, hover} = options;
   const drafts = state.outlineDrafts ??= new Map(), views = state.outlineViews ??= new Map();
+  const creations = rootId !== null ? state.checklistCreations ??= new Map() : null;
   const key = rootId ?? 'plan', view = views.get(key) ?? {collapsed: false, toggled: new Set()};
   views.set(key, view);
   const isExpanded = id => view.collapsed === view.toggled.has(id);
@@ -92,7 +93,7 @@ export function mountTaskOutline(host, options) {
   list.style.setProperty('--task-indent', taskIndent + 'px');
   status.setAttribute('role','status');
   const add = element('button', '+ Add ' + (rootId ? 'subitem' : 'task'), 'task-outline-add');
-  add.type='button';add.onclick=()=>create(rootId);
+  add.type='button';add.onclick=()=>startCreation(rootId,add);
   const controls=element('div',undefined,'task-outline-controls');
   controls.setAttribute('role','group');controls.setAttribute('aria-label','Task list display');
   function setCollapsed(collapsed) {
@@ -118,6 +119,91 @@ export function mountTaskOutline(host, options) {
   let rows = [], disposed = false, rendering = false, saving = Promise.resolve();
   let drop = null, savingDrop = false, moving = null;
   let controlRow = null;
+  let creation = null;
+
+  function startCreation(parentId, opener) {
+    if (!creations) { create(parentId); return; }
+    if (!creation) mountCreation({parentId, title: ''}, opener);
+    creation.title.focus();
+  }
+
+  function mountCreation(draft, opener = add) {
+    creations.set(rootId, draft);
+    const row = element('div', undefined, 'task-outline-create');
+    row.setAttribute('role', 'listitem');
+    const form = element('form');
+    const title = element('input');
+    title.type = 'text';
+    title.required = true;
+    title.maxLength = 500;
+    title.placeholder = 'New task title';
+    title.setAttribute('aria-label', 'New task title');
+    title.value = draft.title;
+    const submit = element('button', 'Create');
+    submit.type = 'submit';
+    const cancel = iconButton('Cancel new task', 'close', () => finish());
+    const feedback = element('div');
+    feedback.setAttribute('role', 'status');
+    form.append(title, submit, cancel, feedback);
+    row.append(form);
+    creation = {row, title, parentId: draft.parentId};
+    if (draft.parentId !== rootId && !isExpanded(draft.parentId)) {
+      if (view.collapsed) view.toggled.add(draft.parentId);
+      else view.toggled.delete(draft.parentId);
+    }
+    render();
+
+    function finish() {
+      const restoreFocus = row.contains(document.activeElement) || document.activeElement === document.body;
+      if (creations.get(rootId) === draft) creations.delete(rootId);
+      row.remove();
+      creation = null;
+      if (!disposed && restoreFocus) (opener.isConnected ? opener : add).focus({preventScroll: true});
+    }
+    function showSubmission(submission) {
+      title.readOnly = submit.disabled = cancel.disabled = true;
+      submission.then(({saved, error}) => {
+        if (saved) finish();
+        else if (!disposed) {
+          title.readOnly = submit.disabled = cancel.disabled = false;
+          feedback.textContent = error;
+          if (row.contains(document.activeElement) || document.activeElement === document.body)
+            title.focus({preventScroll: true});
+        }
+      });
+    }
+    title.oninput = () => { draft.title = title.value; feedback.textContent = ''; };
+    form.onkeydown = event => {
+      if (event.key !== 'Escape' || event.isComposing) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (!draft.submission) finish();
+    };
+    form.onsubmit = event => {
+      event.preventDefault();
+      if (draft.submission) return;
+      if (!title.value.trim()) { feedback.textContent = 'Enter a task title.'; return; }
+      feedback.textContent = '';
+      draft.submission = saving.then(async () => {
+        if (disposed) return {saved: false, error: ''};
+        const saved = await write({action: 'create', title: draft.title, status: 'backlog',
+          parent_id: draft.parentId}, getBoard().revision);
+        return {saved, error: options.error()};
+      }).finally(() => { delete draft.submission; });
+      showSubmission(draft.submission);
+    };
+    if (draft.submission) showSubmission(draft.submission);
+  }
+
+  function creationPlacement() {
+    if (!creation || creation.parentId === rootId) return {index: rows.length, depth: 0};
+    const parent = rows.findIndex(({card}) => card.id === creation.parentId);
+    if (parent < 0) return {index: rows.length, depth: 0};
+    const depth = rows[parent].depth + 1;
+    let index = parent + 1;
+    while (index < rows.length && rows[index].depth >= depth) index++;
+    return {index, depth};
+  }
 
   function updateDraggable(row) {
     row.draggable = row !== controlRow && row.dataset.archived !== 'true' &&
@@ -382,8 +468,8 @@ export function mountTaskOutline(host, options) {
       if(event.key==='Enter') {
         event.preventDefault();
         if(!await saveName(id))return;
-        if(event.ctrlKey||event.metaKey)create(id);
-        else if(event.shiftKey)create(getBoard().cards.find(c=>c.id===id)?.parent_id??null);
+        if(event.ctrlKey||event.metaKey)startCreation(id,name);
+        else if(event.shiftKey)startCreation(getBoard().cards.find(c=>c.id===id)?.parent_id??null,name);
         else nextFocus(id,1);
       }
       if(['ArrowUp','ArrowDown'].includes(event.key)) {
@@ -487,7 +573,12 @@ export function mountTaskOutline(host, options) {
       row.remove();
       nodes.delete(id);
     }
+    const placement = creationPlacement();
+    const placeRow = (row, index) => {
+      if(list.children[index]!==row)list.insertBefore(row,list.children[index]||null);
+    };
     for(let index=0;index<rows.length;index++) {
+      if (creation && placement.index === index) placeRow(creation.row, index);
       const {card,depth,children,context}=rows[index];
       let row=nodes.get(card.id);if(!row){row=makeRow(card.id);nodes.set(card.id,row);}
       row.style.setProperty('--task-depth',depth);row.dataset.depth=depth;
@@ -535,13 +626,19 @@ export function mountTaskOutline(host, options) {
       const total = totals.get(card.id);
       progress.textContent = card.milestone && total ? `${total.done}/${total.total}` : '';
       progress.title = total ? `${total.done} of ${total.total} tasks done` : '';
-      if(list.children[index]!==row)list.insertBefore(row,list.children[index]||null);
+      placeRow(row, index + Number(!!creation && placement.index <= index));
+    }
+    if (creation) {
+      creation.row.style.setProperty('--task-depth', placement.depth);
+      if (placement.index === rows.length) placeRow(creation.row, rows.length);
     }
     for(const id of drafts.keys())if(!getBoard().cards.some(c=>c.id===id))drafts.delete(id);
     if(focused?.isConnected&&document.activeElement!==focused){focused.focus({preventScroll:true});if(selection)focused.setSelectionRange(...selection);}
     preview.settle(dropPositions);
     rendering=false;
   }
-  render();
+  const creationDraft = creations?.get(rootId);
+  if (creationDraft) mountCreation(creationDraft);
+  else render();
   return {render,dispose(){disposed=true;dragEvents.abort();clearDrop(false);controls.remove();section.remove();},focus:focusRow};
 }

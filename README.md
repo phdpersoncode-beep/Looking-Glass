@@ -180,6 +180,9 @@ keeps the same numbered gutter. Fenced code uses one background and rounded
 corners in live Markdown and preview; blockquotes use a quiet rule, upright text,
 and a subtle themed background. Bare square brackets such as `[0, 1]` stay literal;
 explicit Markdown links and references with definitions keep their link styling.
+In the editor, purple scrollbar markers jump to attached discussions and amber
+markers jump to matches for the selected text. A purple marker with several nearby
+discussions opens a list to choose from. Resolved discussions use a fainter marker.
 
 For `# TODO`, `#TODO`, `# NOTE` and `#NOTE` comments, enable **Track TODO / NOTE**
 using the comment/check icon next to the author pen at the top of the right sidebar
@@ -279,6 +282,9 @@ scope at the cursor. When that definition scrolls above the editor, its
 signature stays pinned in a single row at the top. Click the row to return to
 the definition. The outline follows unsaved edits and the active Edit/Review
 content. Its expanded/collapsed preference is remembered.
+Live Markdown has a matching **Contents** strip. Click a heading to jump to it
+while keeping the list open. Drag the left edge to set the width or focus the
+separator and use the arrow keys. The browser remembers the width and open state.
 
 Use **A− / A+** in the document toolbar to adjust document text size.
 The setting persists. Toolbar, sidebar, and search controls keep their size.

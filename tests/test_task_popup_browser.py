@@ -7,6 +7,77 @@ pytestmark = [pytest.mark.browser, pytest.mark.skipif(not os.environ.get('LOOKIN
 
 
 @pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_copy_permanent_card_reference_and_create_nested_tasks_inline(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    def change(**data):return ws.tasks.mutate(dict(revision=ws.tasks.read()['revision'],**data))
+    change(action='create',title='Plan a release',milestone=True)
+    change(action='create',title='One branch',parent_id=1)
+    change(action='create',title='Existing child',parent_id=2)
+    change(action='create',title='Following task',parent_id=1)
+    change(action='create',title='Another card')
+    chromium=page.context.browser.browser_type.name=='chromium'
+    if chromium:
+        page.context.grant_permissions(['clipboard-read','clipboard-write'])
+    else:
+        page.add_init_script("""() => {
+          const write = navigator.clipboard.writeText.bind(navigator.clipboard);
+          navigator.clipboard.writeText = async text => { await write(text); window.copiedCard = text; };
+        }""")
+    page.goto(url);page.locator('#tasks-open').click()
+    copy=page.get_by_role('button',name='Copy card reference',exact=False)
+    expect(copy).to_have_count(0)
+    page.locator('#task-sidebar').get_by_role('button',name='Open #M1',exact=False).last.click()
+    popup=page.locator('.task-detail')
+    title=popup.get_by_role('textbox',name='Title',exact=True)
+    expect(copy).to_have_count(1)
+    expect(copy).to_have_accessible_name('Copy card reference #C01')
+    assert copy.bounding_box()['y']>=title.bounding_box()['y']+title.bounding_box()['height']
+    copy.click()
+    expect(popup.locator('.task-permanent-reference [role=status]')).to_have_text('Copied')
+    copied=page.evaluate('navigator.clipboard.readText()' if chromium else 'window.copiedCard')
+    assert copied=='#C01'
+    checklist=popup.get_by_role('region',name='Card tasks')
+    branch=checklist.get_by_role('textbox',name='Task name 2',exact=True)
+    branch.press('Control+Enter')
+    draft=checklist.get_by_role('textbox',name='New task title')
+    expect(draft).to_be_focused()
+    expect(page.get_by_role('dialog')).to_have_count(1)
+    existing=checklist.get_by_role('textbox',name='Task name 3',exact=True)
+    following=checklist.get_by_role('textbox',name='Task name 4',exact=True)
+    assert existing.bounding_box()['y']<draft.bounding_box()['y']<following.bounding_box()['y']
+    draft.fill('Cancelled title');draft.press('Escape')
+    expect(draft).to_have_count(0);expect(branch).to_be_focused()
+    expect(popup).to_be_visible()
+    following.press('Shift+Enter')
+    expect(draft).to_be_focused()
+    assert draft.bounding_box()['y']>following.bounding_box()['y']
+    draft.fill('Survives retry')
+    def fail_create(route):
+        if route.request.method=='POST':
+            route.fulfill(status=409,json={'error':'Tasks changed. Try again.'})
+        else:
+            route.continue_()
+    page.route('**/api/tasks',fail_create)
+    draft.press('Enter')
+    expect(checklist.get_by_text('Tasks changed. Try again.',exact=True)).to_be_visible()
+    expect(draft).to_have_value('Survives retry')
+    page.unroute('**/api/tasks',fail_create)
+    popup.get_by_role('button',name='Close card',exact=True).click()
+    expect(popup).to_have_count(0)
+    page.locator('#task-sidebar').get_by_role('button',name='Open #M1',exact=False).last.click()
+    expect(draft).to_have_value('Survives retry')
+    draft.press('Enter')
+    expect(draft).to_have_count(0)
+    expect(checklist.get_by_role('textbox',name='Task name 6')).to_have_value('Survives retry')
+    assert next(card for card in ws.tasks.read()['cards'] if card['id']==6)['parent_id']==1
+    popup.get_by_role('button',name='Close card',exact=True).click()
+    expect(copy).to_have_count(0)
+    page.locator('.task-card[data-id="5"]').click()
+    expect(copy).to_have_accessible_name('Copy card reference #C05')
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
 def test_card_popup_geometry_backdrop_drafts_and_editable_heading(workspace_page):
     from playwright.sync_api import expect
     root,page,url,ws=workspace_page

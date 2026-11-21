@@ -4,6 +4,7 @@ const paths={
   trash:'M3 5h14M7 5V3h6v2M5 5l1 12h8l1-12M8 8v6M12 8v6',
   comment:'M3 3h14v10H8l-5 4z',
   check:'m4 10 4 4 8-8',
+  copy:'M7 9a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2zM13 7V3H3v10h4',
   close:'m5 5 10 10M15 5 5 15',
   undo:'M7 4 3 8l4 4M3 8h8a5 5 0 0 1 0 10',
   redo:'m13 4 4 4-4 4M17 8H9a5 5 0 0 0 0 10',

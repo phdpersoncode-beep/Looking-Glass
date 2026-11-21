@@ -1,6 +1,7 @@
 import {fileHistoryDirection,isZenShortcut} from './keyboard-shortcuts.mjs';
 import {normalizeInputTransaction,normalizeClipboardInput} from './editor-input.mjs';
 import {matchOverview} from './match-overview.mjs';
+import {threadOverview} from './thread-overview.mjs';
 import {mountOutlineResize} from './outline-resize.mjs';
 import {quickFileMatches} from './file-search.mjs';
 import {mountExplorer} from './explorer.mjs';
@@ -201,6 +202,7 @@ const spanField = StateField.define({
   },
   provide: field => EditorView.decorations.from(field, spans => Decoration.set(spans.map(s => Decoration.mark({class:'passage-highlight' + (s.resolved?' resolved-passage':''), attributes:{'data-anchor':String(s.id)}}).range(s.from,s.to)),true))
 });
+const discussionOverview=threadOverview(spanField,guard(id=>jump(id,null,true)));
 // Focus has its own small decoration set; selecting a discussion does not
 // invalidate every passage mark in a heavily annotated document.
 const threadFocusEffect=StateEffect.define();
@@ -616,6 +618,7 @@ function makeState(e){
   const docPath=e.sourcePath||e.path,prose=['md','markdown','txt'].includes(ext(docPath));
   return EditorState.create({doc:e.content,extensions:[EditorState.lineSeparator.of(e.diskContent.includes('\r\n')?'\r\n':'\n'),basicSetup,documentSearch,matchOverview,language(docPath),workLockSlot.of(EditorState.readOnly.of(changingWorkMode)),...(tracked?[e.reviewField]:[]),...(e.kind==='original'?[EditorState.readOnly.of(true),EditorView.editable.of(false)]:[]),syntaxHighlighting(colors),spanField,threadFocusField,gitField,gitSlot.of([]),
     themeSlot.of(theme()),liveSlot.of(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables,textSelection]:[]),
+    ...(!e.kind?[discussionOverview]:[]),
     ...(!e.kind&&['py','pyi'].includes(ext(e.path))?[pythonIndentation(e.diskContent),pythonNavigation(guard(goToPythonDefinition)),pythonScopeView]:[]),
     ...(prose?[EditorView.lineWrapping,EditorView.theme({'.cm-scroller':{fontFamily:'var(--prose)',fontSize:'var(--prose-font-size)'},'.cm-content':{maxWidth:'850px',margin:'0 auto',width:'100%',minWidth:'0'},'.cm-foldGutter':{display:'none'}})]:[]),
     EditorView.domEventHandlers({paste:(event,editor)=>pasteImage(event,editor,e),contextmenu:(event,editor)=>{
@@ -634,7 +637,7 @@ function makeState(e){
     }),
     EditorView.scrollHandler.of(editor=>passagePosition?.editor===editor),
     keymap.of([{key:'Mod-s',run:()=>{guard(saveActive)();return true;}},{key:'Mod-Enter',run:()=>{guard(startComment)();return true;}},indentWithTab]),
-    EditorView.updateListener.of(u=>{if(u.docChanged){for(const pending of pendingImagePastes)if(pending.e===e){pending.from=u.changes.mapPos(pending.from,1);pending.to=u.changes.mapPos(pending.to,1);}if(tracked){if(!u.transactions.some(t=>t.effects.some(effect=>effect.is(remoteReview)))){for(const tr of u.transactions)if(tr.docChanged)queueReviewOperations(e,operationsFor(tr),u.state.field(e.reviewField).segments);scheduleReviewSave(e);}}e.content=u.state.sliceDoc();e.dirty=e.content!==e.diskContent;e.state=u.state;contentsController?.update();updateToolbar();renderTabs();}if(u.selectionSet)updateToolbar();
+    EditorView.updateListener.of(u=>{if(u.docChanged){for(const pending of pendingImagePastes)if(pending.e===e){pending.from=u.changes.mapPos(pending.from,1);pending.to=u.changes.mapPos(pending.to,1);}if(tracked){if(!u.transactions.some(t=>t.effects.some(effect=>effect.is(remoteReview)))){for(const tr of u.transactions)if(tr.docChanged)queueReviewOperations(e,operationsFor(tr),u.state.field(e.reviewField).segments);scheduleReviewSave(e);}}e.content=u.state.sliceDoc();e.dirty=e.content!==e.diskContent;e.state=u.state;updateToolbar();renderTabs();}if(u.selectionSet)updateToolbar();
       else if(!u.docChanged&&u.view===view&&u.view.plugin(pythonScopeView)&&syntaxTree(u.startState)!==syntaxTree(u.state))updatePythonOutline();
       if(u.selectionSet||u.docChanged||u.viewportChanged||u.geometryChanged)scheduleSelectionTools();
     })
@@ -742,7 +745,7 @@ async function loadFile(path,request){
       spotlight: appStore.state.spotlightIds, editorFocus: view?.hasFocus, focusId: document.activeElement.id
     } : null;
     if(!activation)clearSpotlight();
-    closeComment();contentsController?.reset();
+    closeComment();
     syncState();
     let e=tabs.get(path);
     if(e&&ext(path)==='pdf'){const disk=await api('pdf?'+new URLSearchParams({path}));if(!request.current())return;Object.assign(e,disk);}
@@ -850,7 +853,7 @@ function clearSurface(){
 function disposeReport(e){e?.htmlSurface?.dispose();if(e)e.htmlSurface=null;}
 function mountDocument(e){
   if(e.mode!=='rendered')e.ready=Promise.resolve();
-  closeComment();contentsController?.reset();
+  closeComment();
   renderedPreview=null;renderedSelection=null;renderedJump=null;
   clearSurface();
   if(e.mode==='rendered'){
@@ -941,7 +944,8 @@ function updateToolbar(){
   markerButton.title='Create threads from the first 1,000 saved TODO/NOTE comments in this file; keep them in sync after saves and external edits.'+(e?.source_markers_truncated?' The 1,000-marker limit has been reached.':'');
   if(['py','pyi'].includes(type)&&!e?.kind)$('#file-info').title='Go to definition: Ctrl/Cmd+click a name. Tab indents.';else $('#file-info').removeAttribute('title');
   updatePythonOutline();
-  $('#markdown-contents').hidden=!!e?.kind||!['md','markdown'].includes(type)||e?.mode!=='live';
+  const liveMarkdown=!e?.kind&&['md','markdown'].includes(type)&&e?.mode==='live';
+  contentsController?.setDocument(liveMarkdown&&view?e.path:null,liveMarkdown?view?.state.doc:null);
   for(const [id,direction] of [['font-smaller','Decrease'],['font-larger','Increase']]){const control=$('#'+id);control.setAttribute('aria-label',direction+(type==='pdf'?' PDF zoom':' document font size'));control.title=type==='pdf'?direction+' PDF zoom':direction+' document font size';control.textContent=type==='pdf'?(direction==='Increase'?'+':'−'):(direction==='Increase'?'A+':'A−');}
   $('#pdf-contents').hidden=!!e?.kind||type!=='pdf';
   $('.font-controls').hidden=['history','tasks'].includes(e?.kind);$('#annotate').hidden=!!e?.kind;$('#save').hidden=!!e?.kind||type==='pdf';
@@ -1674,7 +1678,7 @@ document.addEventListener('keydown',event=>{
   passagePosition=null;
   if(event.key==='Escape'){passageActivation++;pressedPassage=null;}
   // Let the focused navigation panel consume Escape before context/spotlight.
-  if(event.key==='Escape'&&event.target.closest?.('#file-history[open],#code-outline[open]'))return;
+  if(event.key==='Escape'&&event.target.closest?.('#file-history[open],.reading-outline[open],.cm-thread-choices'))return;
   if(isZenShortcut(event)){event.preventDefault();event.stopPropagation();toggleZen();return;}
   if(view&&event.target.closest?.('.document-panel')&&!document.querySelector('dialog:modal')&&documentSearchShortcut(view,event)){event.preventDefault();event.stopPropagation();return;}
   // Focusable table regions keep native cell selection/copying, while editor
@@ -1965,13 +1969,22 @@ $('#expand-files').onclick=()=>{$$('.file-folder').forEach(folder=>expandedFolde
 $('#collapse-files').title='Collapse all folders (Alt+Q)';$('#collapse-files').setAttribute('aria-keyshortcuts','Alt+Q');
 $('#collapse-files').onclick=()=>{expandedFolders.clear();localStorage.setItem('looking-glass-folders:'+root,'[]');$('#file-filter').value='';filterFiles();};
 
-contentsController=mountMarkdownContents($('#markdown-contents'),()=>view?.state.doc.toString()||'',from=>{
+function navigateOutline(from){
   if(!view)return;view.dispatch({selection:{anchor:from},effects:EditorView.scrollIntoView(from,{y:'start',yMargin:16})});view.focus();
+}
+const contentsOpenKey='looking-glass-markdown-contents:'+root;
+$('#markdown-contents').open=localStorage.getItem(contentsOpenKey)==='true';
+contentsController=mountMarkdownContents($('#markdown-contents'),{
+  navigate:navigateOutline,
+  saveOpen:open=>localStorage.setItem(contentsOpenKey,String(open))
+});
+mountOutlineResize($('#markdown-contents'),{
+  storageKey:'looking-glass-contents-width:'+root,widthProperty:'--contents-width',label:'Resize Markdown contents',changed:()=>view?.requestMeasure()
 });
 $('#code-outline').open=localStorage.getItem('looking-glass-python-outline:'+root)==='true';
 outlineController=mountPythonOutline($('#code-outline'),{
   storageKey:'looking-glass-outline-folds:'+root,
-  navigate:from=>{if(!view)return;view.dispatch({selection:{anchor:from},effects:EditorView.scrollIntoView(from,{y:'start',yMargin:16})});view.focus();},
+  navigate:navigateOutline,
   saveOpen:open=>localStorage.setItem('looking-glass-python-outline:'+root,String(open))
 });
 mountOutlineResize($('#code-outline'),{storageKey:'looking-glass-outline-width:'+root,changed:()=>view?.requestMeasure()});
