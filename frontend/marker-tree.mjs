@@ -53,6 +53,10 @@ function groupMatches(files, byTag, query) {
   return byTag ? TAGS.flatMap(tag => tags.has(tag) ? [tags.get(tag)] : []) : [...root.folders.values(), ...root.files];
 }
 
+function markerLocation(marker) {
+  return marker.cell ? `Cell ${marker.cell}, line ${marker.line}` : `Line ${marker.line}`;
+}
+
 // A changed draft can still reveal an unchanged marker line if it has a
 // unique surviving location. Never select a different occurrence by guess.
 export function markerOffset(doc, marker, saved) {
@@ -134,11 +138,12 @@ export function mountMarkerTree({root, read, open}) {
   function renderHit(file, marker, prefix) {
     const button = make('button', 'marker-hit');
     button.type = 'button';
-    button.dataset.markerKey = prefix + ':' + marker.line + ':' + marker.column;
+    button.dataset.markerKey = prefix + ':' + (marker.cell ?? 0) + ':' + marker.line + ':' + marker.column;
     const tag = make('span', 'marker-tag', marker.kind);
     tag.dataset.kind = marker.kind;
-    button.title = [marker.kind, marker.text].filter(Boolean).join(' ') + '\n' + file.path + ':' + marker.line;
-    button.append(tag, make('span', 'marker-label', marker.text || 'Line ' + marker.line));
+    const location = markerLocation(marker);
+    button.title = [marker.kind, marker.text].filter(Boolean).join(' ') + '\n' + file.path + ' · ' + location;
+    button.append(tag, make('span', 'marker-label', marker.text || location));
     button.onclick = () => open(file.path, file.version, marker);
     return button;
   }
@@ -152,7 +157,16 @@ export function mountMarkerTree({root, read, open}) {
     summary.style.setProperty('--marker-depth', depth);
     const label = make('span', node.kind === 'tag' ? 'marker-tag' : 'marker-label', node.name);
     if (node.kind === 'tag') label.dataset.kind = node.name;
-    else summary.append(make('span', 'marker-node-icon ' + node.kind));
+    else {
+      const extension = node.name.split('.').at(-1).toLowerCase();
+      const type = node.kind === 'folder' ? 'folder' :
+        extension === 'ipynb' ? 'notebookFile' :
+        ['md', 'markdown'].includes(extension) ? 'markdownFile' : 'codeFile';
+      const symbol = icon(type);
+      symbol.classList.add('marker-node-icon');
+      symbol.dataset.icon = type;
+      summary.append(symbol);
+    }
     summary.append(label, make('span', 'explorer-count', node.count));
     const children = make('div', 'marker-children');
     item.append(summary, children);

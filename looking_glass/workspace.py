@@ -125,7 +125,7 @@ class Workspace:
     def files(self):
         return self.file_listing()['files']
 
-    def file_listing(self):
+    def discovery_rules(self):
         # Reload once per scan so the existing refresh action also reloads rules.
         # Keep this separate from path(): ignore rules control discovery, not
         # access to open tabs, explicit paths, or persistent discussions.
@@ -134,10 +134,12 @@ class Workspace:
             raise Problem('.looking.ignore must not be a symlink.', 403)
         content = self.text('.looking.ignore')[0] if ignore_file.exists() else ''
         try:
-            ignored = GitIgnoreSpec.from_lines(content.splitlines())
+            return GitIgnoreSpec.from_lines(content.splitlines())
         except GitIgnorePatternError as error:
             raise Problem(f'Invalid .looking.ignore pattern: {error}') from error
 
+    def file_listing(self):
+        ignored = self.discovery_rules()
         found = []
         def scan_error(error):
             # A failed scan is not an empty workspace. Let the client retain
@@ -165,10 +167,7 @@ class Workspace:
 
     def folders(self):
         # Empty folders are valid explorer drop targets; use discovery's ignore rules.
-        rules=self.root/'.looking.ignore'
-        if rules.is_symlink():raise Problem('.looking.ignore must not be a symlink.',403)
-        try:ignored=GitIgnoreSpec.from_lines(self.text('.looking.ignore')[0].splitlines() if rules.exists() else [])
-        except GitIgnorePatternError as error:raise Problem(f'Invalid .looking.ignore pattern: {error}') from error
+        ignored = self.discovery_rules()
         result=[]
         def fail(error):raise error
         for directory,dirs,_ in os.walk(self.root,onerror=fail):
@@ -177,6 +176,39 @@ class Workspace:
             result.extend((relative/d).as_posix() for d in dirs)
             if len(result)>10000:raise Problem('Too many folders to display.',413)
         return result
+
+    def children(self, directory):
+        """List one visible workspace folder for the document breadcrumb picker."""
+        if '\\' in directory or any(ord(char) < 32 for char in directory):
+            raise Problem('Choose a workspace folder.')
+        relative = Path(directory)
+        if relative.is_absolute() or '..' in relative.parts or any(part in EXCLUDED for part in relative.parts):
+            raise Problem('Choose a folder inside the workspace.', 403)
+        ignored = self.discovery_rules()
+        folder = self.root
+        for part in relative.parts:
+            folder /= part
+            key = folder.relative_to(self.root).as_posix()
+            if folder.is_symlink() or ignored.match_file(key + '/'):
+                raise Problem('That folder is hidden from the workspace explorer.', 404)
+        if not folder.is_dir():
+            raise Problem('That folder is unavailable.', 404)
+        items = []
+        truncated = False
+        with os.scandir(folder) as entries:
+            for entry in entries:
+                is_dir = entry.is_dir(follow_symlinks=False)
+                if entry.name in EXCLUDED or (not is_dir and not entry.is_file(follow_symlinks=False)):
+                    continue
+                path = (relative / entry.name).as_posix()
+                if path != '.looking.ignore' and ignored.match_file(path + ('/' if is_dir else '')):
+                    continue
+                if len(items) == FILE_LIMIT:
+                    truncated = True
+                    break
+                items.append(dict(name=entry.name, path=path, directory=is_dir))
+        items.sort(key=lambda item: (not item['directory'], item['name'].casefold(), item['name']))
+        return dict(entries=items, truncated=truncated)
 
     def bytes(self, path):
         p = self.path(path)

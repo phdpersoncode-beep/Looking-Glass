@@ -1,3 +1,4 @@
+import json
 import os
 
 from looking_glass.app import create_app
@@ -54,6 +55,9 @@ def test_tree_reuses_reads_and_follows_workspace_discovery(tmp_path, monkeypatch
     notes = root/'notes.md'
     notes.write_text('Ordinary text\n', encoding='utf-8')
     (root/'notes.txt').write_text('# TODO: Other extension', encoding='utf-8')
+    (root/'config.yaml').write_text('# P0: Configuration', encoding='utf-8')
+    (root/'data.json').write_text('{"data":"TODO"}', encoding='utf-8')
+    (root/'helper.js').write_text('const literal = "// TODO: Skip"; // P2: Check this\n', encoding='utf-8')
     (root/'excluded').mkdir()
     (root/'excluded'/'hidden.md').write_text('TODO Hidden', encoding='utf-8')
     (root/'.looking.ignore').write_text('excluded/\n', encoding='utf-8')
@@ -75,8 +79,8 @@ def test_tree_reuses_reads_and_follows_workspace_discovery(tmp_path, monkeypatch
     assert client.get(route).status_code == 401
     first = client.get(route, headers=headers)
     assert first.status_code == 200
-    assert [file['path'] for file in first.json['files']] == ['source.PY']
-    assert calls == ['notes.md', 'source.PY']
+    assert [file['path'] for file in first.json['files']] == ['helper.js', 'source.PY']
+    assert calls == ['helper.js', 'notes.md', 'source.PY']
     assert ws.thread_index() == []
 
     conditional = {**headers, 'If-None-Match': first.headers['ETag']}
@@ -89,14 +93,14 @@ def test_tree_reuses_reads_and_follows_workspace_discovery(tmp_path, monkeypatch
     source.write_text('# TODO: Other\n', encoding='utf-8')
     os.utime(source, ns=(before.st_atime_ns, before.st_mtime_ns))
     changed = client.get(route, headers=conditional)
-    assert changed.json['files'][0]['markers'][0]['text'] == 'Other'
+    assert changed.json['files'][1]['markers'][0]['text'] == 'Other'
     assert calls == ['source.PY']
 
     source.rename(root/'renamed.py')
     notes.unlink()
     (root/'.looking.ignore').unlink()
     updated = client.get(route, headers=conditional)
-    assert [file['path'] for file in updated.json['files']] == ['excluded/hidden.md', 'renamed.py']
+    assert [file['path'] for file in updated.json['files']] == ['excluded/hidden.md', 'helper.js', 'renamed.py']
 
 
 def test_marker_caps_and_workspace_switch(tmp_path, monkeypatch):
@@ -120,3 +124,53 @@ def test_marker_caps_and_workspace_switch(tmp_path, monkeypatch):
     updated = client.get('/api/marker-tree', headers=headers)
     assert updated.json['count'] == 1 and updated.json['truncated'] is False
     assert updated.json['files'][0]['path'] == 'fresh.md'
+
+
+def test_notebook_scans_cell_source_and_ignores_outputs():
+    notebook = {
+        'cells': [
+            {
+                'outputs': [{'data': {'text/plain': '# NOTE Output with [braces] and "quotes"'}}],
+                'source': [
+                    'literal = "# P3 Not a Python comment"\n',
+                    'emoji = "🪞"   #P0: Real code comment\r\n',
+                    '# TO', 'DO: Split source fragment\n',
+                ],
+                'cell_type': 'code',
+            },
+            {'cell_type': 'raw', 'source': ['TODO Raw cell']},
+            {'cell_type': 'markdown', 'source': 'Intro\nTODO: Explain setup\n<!-- # NOTE Inline -->\n'},
+        ],
+        'metadata': {'language_info': {'name': 'python'}, 'example': '#P1 Metadata'},
+        'nbformat': 4,
+    }
+    for source in (json.dumps(notebook, indent=1, ensure_ascii=True),
+                   json.dumps(notebook, ensure_ascii=False).replace('TODO: Explain', r'\u0054ODO: Explain')):
+        hits = list(find_markers('.ipynb', source))
+        assert [(h['kind'], h['cell'], h['line'], h['text']) for h in hits] == [
+            ('P0', 1, 2, 'Real code comment'),
+            ('TODO', 1, 3, 'Split source fragment'),
+            ('TODO', 3, 2, 'Explain setup'),
+            ('NOTE', 3, 3, 'Inline'),
+        ]
+
+
+def test_notebook_uses_kernel_language_ignores_unknown_code_and_handles_incomplete_json():
+    notebook = {
+        'metadata': {'kernelspec': {'language': 'javascript'}},
+        'cells': [
+            {'cell_type': 'code', 'source': 'const value = "// P1 literal";\n/* P1: Fix this */'},
+            {'cell_type': 'markdown', 'source': ['TODO Explain value']},
+        ],
+    }
+    assert [hit['text'] for hit in find_markers('.ipynb', json.dumps(notebook))] == ['Fix this', 'Explain value']
+    notebook['metadata']['kernelspec']['language'] = 'unsupported'
+    assert [hit['text'] for hit in find_markers('.ipynb', json.dumps(notebook))] == ['Explain value']
+    assert list(find_markers('.ipynb', '{"cells":[{"source":"TODO Test"')) == []
+
+
+def test_notebook_without_unescaped_candidate():
+    content = r'{"cells":[{"cell_type":"markdown","source":"\u0054ODO: Start here"}]}'
+    hit, = find_markers('.ipynb', content)
+    assert hit['text'] == 'Start here'
+    assert (hit['cell'], hit['line'], hit['column']) == (1, 1, 0)

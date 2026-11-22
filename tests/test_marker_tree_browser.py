@@ -109,3 +109,48 @@ def test_marker_controls_fit_narrow_dark_sidebar_and_no_hidden_refresh(workspace
     expect(page.locator('#marker-section-toggle')).to_have_attribute('aria-expanded', 'false')
     expect(page.locator('#marker-results details')).to_have_count(0)
     assert not requests
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_marker_icons_and_notebook_copy_path(workspace_page):
+    import json
+
+    root, page, url, _ = workspace_page
+    (root/'notes').mkdir()
+    (root/'notes'/'readme.md').write_text('TODO Document setup\n', encoding='utf-8')
+    (root/'tools.py').write_text('# P2: Clean up helpers\n', encoding='utf-8')
+    notebook = {
+        'cells': [
+            {'cell_type': 'markdown', 'source': ['TODO: Explain the setup\n']},
+            {'cell_type': 'code', 'outputs': [{'text': '# P0 output only'}],
+             'source': ['print("🪞")  #P1: Check notebook records\n']},
+        ],
+        'metadata': {'language_info': {'name': 'python'}}, 'nbformat': 4,
+    }
+    (root/'analysis.ipynb').write_text(json.dumps(notebook, indent=1, ensure_ascii=False), encoding='utf-8')
+
+    page.add_init_script('''Object.defineProperty(navigator, 'clipboard', {value: {
+        writeText: async text => { window.copiedNotebookPath = text; }
+    }});''')
+    page.goto(url)
+    open_file(page, 'tools.py')
+    page.get_by_role('button', name='Marker Tree', exact=True).click()
+    expect(page.locator('#marker-count')).to_have_text('4')
+    page.get_by_role('button', name='Expand all marker branches').click()
+    for name in ['folder', 'markdownFile', 'codeFile', 'notebookFile']:
+        expect(page.locator(f'#marker-results svg[data-icon="{name}"]')).to_be_visible()
+    target = page.get_by_role('button', name='P1 Check notebook records')
+    expect(target).to_have_attribute('title', 'P1 Check notebook records\nanalysis.ipynb · Cell 2, line 1')
+    target.click()
+    dialog = page.get_by_role('dialog', name='Notebooks are not supported', exact=True)
+    path = str(root/'analysis.ipynb')
+    expect(dialog.get_by_role('textbox', name='File path')).to_have_value(path)
+    dialog.get_by_role('button', name='Copy file path', exact=True).click()
+    expect(dialog).to_have_count(0)
+    assert page.evaluate('window.copiedNotebookPath') == path
+    expect(page.locator('#document-name')).to_have_text('tools.py')
+    page.locator('.file-entry[data-path="analysis.ipynb"]').click()
+    expect(dialog).to_be_visible()
+    page.keyboard.press('Escape')
+    expect(dialog).to_have_count(0)
+    expect(page.locator('#tabs')).not_to_contain_text('analysis.ipynb')

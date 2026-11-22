@@ -46,8 +46,10 @@ The terminal prints the new root, and the API token changes with it.
 workspace are keyed by their resolved absolute path. Their discussions are stored
 in the current workspace. The file sidebar lists files recursively
 as a collapsible tree and supports filtering. Open **Marker Tree** above it to
-browse saved TODO, NOTE, and P0–P3 comments in Python and Markdown by folder
-or by tag, filter them, and jump to their lines. Use **Collapse all folders** or **Alt+Q** to fold
+browse saved TODO, NOTE, and P0–P3 comments in Markdown, source code, and
+Jupyter notebook cells. Filter by text or path, jump to a source marker, or copy a
+notebook path. Click a file or folder in the breadcrumb path above the reading
+pane to choose its neighbors. Use **Collapse all folders** or **Alt+Q** to fold
 the tree. Right-click files/folders to rename, delete, or copy paths; drag them
 onto another folder to move them. Python outlines support individual and
 collapse/expand-all controls. Type **@** in a discussion to find and reference a

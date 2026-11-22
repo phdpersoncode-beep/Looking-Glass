@@ -13,13 +13,22 @@ control groups results by P0 through P3, TODO, and NOTE, keeping the folder
 hierarchy within each group. The stacked panels expand or collapse all branches.
 The refresh icon rescans saved files. Hover each control for its name.
 
-The tree reads Python comments in `.py` and `.pyi`, and Markdown in `.md` and
-`.markdown`. It accepts hashes with or without spaces, optional colons, and
-Markdown list markers, bare TODO at the start of a line, and HTML comments.
-Python strings and Markdown fenced examples are skipped. This view reads saved
-files, including untracked files and projects without Git. To turn saved TODO
-and NOTE comments into persistent discussions, use **Track TODO / NOTE** in the
-discussion sidebar.
+The tree reads saved Markdown, supported source code, and Jupyter notebooks
+(`.ipynb`). It accepts hashes with or without spaces, optional colons, Markdown
+list markers, bare TODO at the start of a Markdown line, and HTML comments.
+Source comments use the delimiters for their language. Supported source extensions
+include Python, shell, JavaScript and TypeScript, C and C++, Java, Kotlin, Go, Rust,
+HTML and CSS, SQL, Ruby, R, Perl, Lua, Swift, C#, and PHP. Plain text and data or
+configuration formats such as JSON and YAML are skipped.
+
+Notebook results come from Markdown cells and supported code cells. Tooltips show
+the cell and source line. Selecting a notebook result or opening a notebook from
+the File Tree offers **Copy file path** for use in a notebook editor. Outputs,
+metadata, and raw cells are skipped.
+
+The Marker Tree includes untracked files and projects without Git. To turn saved
+TODO and NOTE comments into persistent discussions, use **Track TODO / NOTE**
+in the discussion sidebar.
 
 The first scan starts on expansion. While visible, the tree refreshes after
 file operations and on the explorer's 12-second interval. It reuses workspace
@@ -30,6 +39,22 @@ files, 8 MiB per text file, 1,000 matches per file, and 5,000 displayed matches
 per workspace. The section reports when discovery or results hit a count limit.
 Git's staging index describes staged paths and contents. Scanning the working
 tree keeps unstaged and untracked markers visible.
+
+## Breadcrumb picker
+
+For an open workspace file, click its name above the reading pane to see files
+and folders in the same directory. Click a folder segment to see its siblings.
+Choose a folder in the picker to browse inside it, or use the up arrow to return
+to its parent. Type to filter the current folder. Use ↑/↓ to move through results,
+Enter to choose, or Escape to close and return to the breadcrumb.
+
+Opening a neighbor uses ordinary tabs and file history, so returning to an
+edited file restores its unsaved work. The picker follows `.looking.ignore` and
+the File Tree's hidden metadata and symlink rules. It reads only the selected
+directory when opened. Files explicitly opened outside the workspace retain an
+absolute path and the path-copy control.
+
+## File Tree
 
 The left explorer supports files and empty folders, with the same workspace-root
 `.looking.ignore` rules as Quick Open. Folder expansion is remembered per

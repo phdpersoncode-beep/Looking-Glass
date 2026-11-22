@@ -172,6 +172,10 @@ def create_app(root):
         response.set_etag(tag)
         return response
 
+    @app.get('/api/workspace/children')
+    def workspace_children():
+        return jsonify(ws.children(request.args.get('directory', '')))
+
     @app.get('/api/agent-instructions')
     def agent_instructions():
         return jsonify(instructions=instructions_text(ws.root, request.host_url.rstrip('/')))

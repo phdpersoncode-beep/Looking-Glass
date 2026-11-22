@@ -23,6 +23,20 @@ def python_comments(content):
         pass
 
 
+def source_comment_lines(suffix, content):
+    """Yield the offsets and text of comments in other supported source files."""
+    comment = r'\#[^\r\n]*' if suffix in HASH else r'//[^\r\n]*|/\*[\s\S]*?\*/' if suffix in SLASH else r'<!--[\s\S]*?-->' if suffix in {'.html', '.htm'} else r'--[^\r\n]*|/\*[\s\S]*?\*/'
+    # Skip quoted strings before recognizing comment delimiters. Template
+    # literals stay literal, including their embedded expressions.
+    tokens = re.compile(r'''"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|`(?:\\[\s\S]|[^`\\])*`|(?P<comment>''' + comment + ')')
+    for token in tokens.finditer(content):
+        if token.group('comment'):
+            offset = token.start()
+            for line in token.group().splitlines(keepends=True):
+                yield offset, line.rstrip('\r\n')
+                offset += len(line)
+
+
 def markers(path, content):
     """Yield exact Unicode ranges. Python strings/docstrings are never comments."""
     suffix = Path(path).suffix.lower()
@@ -35,16 +49,7 @@ def markers(path, content):
     elif suffix in {'.md', '.markdown'}:
         comments = [(m.start(), m.group()) for m in re.finditer(r'(?m)^[ \t]*(?:#+|<!--|//|/\*|\*)[^\r\n]*', content)]
     elif suffix in SUPPORTED:
-        comment = r'\#[^\r\n]*' if suffix in HASH else r'//[^\r\n]*|/\*[\s\S]*?\*/' if suffix in SLASH else r'<!--[\s\S]*?-->' if suffix in {'.html', '.htm'} else r'--[^\r\n]*|/\*[\s\S]*?\*/'
-        # Skip quoted strings before recognizing comment delimiters. Template
-        # literals stay literal, including their embedded expressions.
-        tokens = re.compile(r'''"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|`(?:\\[\s\S]|[^`\\])*`|(?P<comment>''' + comment + ')')
-        for token in tokens.finditer(content):
-            if token.group('comment'):
-                offset = token.start()
-                for line in token.group().splitlines(keepends=True):
-                    comments.append((offset, line.rstrip('\r\n')))
-                    offset += len(line)
+        comments = source_comment_lines(suffix, content)
     result = []
     for start, text in comments:
         match = MARKER.match(text)

@@ -4,6 +4,7 @@ import {matchOverview} from './match-overview.mjs';
 import {threadOverview} from './thread-overview.mjs';
 import {mountOutlineResize} from './outline-resize.mjs';
 import {quickFileMatches} from './file-search.mjs';
+import {mountBreadcrumbs} from './breadcrumbs.mjs';
 import {mountExplorer} from './explorer.mjs';
 import {markerOffset,mountMarkerTree} from './marker-tree.mjs';
 import {linkFileReferences,mountFileMentions} from './file-references.mjs';
@@ -436,6 +437,7 @@ async function binary(path){const r=await fetch('/api/binary?'+new URLSearchPara
 function guard(fn){return (...args)=>Promise.resolve().then(()=>fn(...args)).catch(e=>notify(e.message,true));}
 const selectionPoints=(state,units)=>rawUnitsToCodePoints(state.sliceDoc(0,units));
 const ext=path=>path.split('.').pop().toLowerCase();
+const absoluteFilePath=/^(?:[A-Za-z]:[\\/]|\/)/;
 const isImage=path=>['png','jpg','jpeg','svg'].includes(ext(path));
 function entry(){return appStore.state.displayedDocument?tabs.get(appStore.state.displayedDocument):null;}
 function remember(){localStorage.setItem('looking-glass-tabs:'+root,JSON.stringify({active:entry()?.kind==='original'?contextVisit?.path:appStore.state.displayedDocument,tabs:[...tabs.values()].filter(e=>e.kind!=='original').map(e=>({path:e.path,pinned:e.pinned,mode:e.mode,kind:e.kind,...(e.kind==='history'?{history:{target:e.history?.target,selection:e.history?.selection}}:{})}))}));}
@@ -665,7 +667,7 @@ function rememberFileVisit(e,at){
   else cancelFileVisit();
 }
 historyControls=mountFileHistory($('#file-navigation'),fileHistory,{
-  navigate:guard(target=>{cancelSidebarNavigation();return navigation.open(target.path,{fileHistoryIndex:target.index});}),
+  navigate:guard(target=>{cancelSidebarNavigation();return requestFile(target.path,{fileHistoryIndex:target.index});}),
   save:snapshot=>localStorage.setItem('looking-glass-file-history:'+root,JSON.stringify(snapshot))
 });
 const discussionRequests=createRequestGate(),indexRequests=createRequestGate(),referenceRequests=createRequestGate();
@@ -674,7 +676,23 @@ function cancelSidebarNavigation(){
   if(appStore.state.requestedThread!==null)navigation.invalidate();
   appStore.dispatch({type:'THREAD_NAVIGATION_CANCELLED'});
 }
-function openFile(path){cancelSidebarNavigation();return navigation.open(path);}
+async function requestFile(path,context=null){
+  if(ext(path)!=='ipynb')return navigation.open(path,context);
+  navigation.invalidate();
+  if(context?.threadNavigation)appStore.dispatch({type:'THREAD_NAVIGATION_CANCELLED'});
+  const separator=/^[A-Za-z]:/.test(root)?'\\':'/';
+  const absolute=absoluteFilePath.test(path)?path:
+    root.replace(/[\\/]$/,'')+separator+path.replaceAll('/',separator);
+  const copied=await confirmAction({
+    title:'Notebooks are not supported',
+    message:'Copy the file path to open this notebook in another app.',
+    value:absolute,label:'File path',readOnly:true,confirmLabel:'Copy file path',symbol:'copy',
+    onSubmit:()=>navigator.clipboard.writeText(absolute)
+  });
+  if(copied)notify('File path copied');
+  return {status:'unsupported',path};
+}
+function openFile(path){cancelSidebarNavigation();return requestFile(path);}
 async function openTaskDocument(session,path,position){
   if(path.includes('//'))throw new Error('Choose a workspace file.');
   const previous=session.tasks.documentReturn, jump={...position,path};
@@ -946,6 +964,10 @@ function updatePythonOutline(){
   outlineController?.setDocument(scopes?entry()?.path:null,scopes?view.state.doc:null,scopes||noPythonScopes);
 }
 
+const breadcrumbs=mountBreadcrumbs($('#document-name'),$('#breadcrumb-picker'),{
+  read:directory=>api('workspace/children?'+new URLSearchParams({directory})),
+  open:guard(async path=>{if((await openFile(path)).status==='ready')view?.focus();})
+});
 function updateToolbar(){
   const locked=!!changingWorkMode||!!fileMutation||entry()?.reviewSync?.status==='approving'||entry()?.kind==='original';
   if(view&&view.state.readOnly!==locked)view.dispatch({effects:workLockSlot.reconfigure(EditorState.readOnly.of(locked))});
@@ -968,7 +990,10 @@ function updateToolbar(){
   taskReturn.hidden=!jump||e?.path!==jump.path;
   if(!taskReturn.hidden)taskReturn.textContent='↩ '+cardReference(jump.id);
   $('#go-to-top').hidden=!e||['history','tasks','oversized'].includes(e.kind)||type==='stl'||isImage(e.path);
-  $('#document-name').textContent=e?.kind==='tasks'?'Tasks':e?.kind==='history'?'Commit history':e?.kind==='original'?'Original · '+e.sourcePath:e?.path||'Open a file';$('#dirty').textContent=e?.dirty&&e.workMode!=='review'?' · Unsaved':'';
+  const label=e?.kind==='tasks'?'Tasks':e?.kind==='history'?'Commit history':e?.kind==='original'?'Original · '+e.sourcePath:e?.path||'Open a file';
+  const workspacePath=e&&(!e.kind||e.kind==='oversized')&&!absoluteFilePath.test(e.path)?e.path:null;
+  breadcrumbs.update(workspacePath,label);
+  $('#dirty').textContent=e?.dirty&&e.workMode!=='review'?' · Unsaved':'';
   $('#save').disabled=!e||viewer||!e.dirty||saving;$('#annotate').disabled=!e||(viewer&&type!=='pdf')||!(type==='pdf'?cleanup.selection?.():renderedPreview?renderedSelection:removedSelection()||markdownSelection()||view&&!view.state.selection.main.empty);
   const mode=$('#mode');const modes=type==='md'||type==='markdown'?[['live','Live Markdown'],['source','Raw source'],['preview','Reading preview']]:type==='html'||type==='htm'?[['rendered','Rendered HTML'],['source','HTML source']]:[['source',viewer?'Viewer':'Source']];
   if(mode.dataset.path!==appStore.state.displayedDocument){mode.replaceChildren(...modes.map(([value,label])=>{const opt=document.createElement('option');opt.value=value;opt.textContent=label;return opt;}));mode.dataset.path=appStore.state.displayedDocument||'';}
@@ -1291,7 +1316,7 @@ function spotlightSidebarThread(id,thread){
 const threadNavigator=createThreadNavigator({
   paths:{historyPath:HISTORY},
   find:id=>appStore.state.threads.find(t=>t.id===id),session:path=>tabs.get(path),displayed:()=>appStore.state.displayedDocument,
-  read:id=>api('threads/'+id),open:(path,activation)=>navigation.open(path,{threadNavigation:activation}),
+  read:id=>api('threads/'+id),open:(path,activation)=>requestFile(path,{threadNavigation:activation}),
   focus:(id,spotlight,thread,reveal)=>showThread(id,spotlight,spotlight&&threadSpotlight.includes(id)?threadSpotlight.ids:[id],true,reveal?'sidebar-navigation':'sidebar-focus'),
   selectGit:async target=>{cleanup.selectTarget?.(target);await refreshThreads();},
   revealRemoved:thread=>{if(entry()?.workMode!=='review'||entry()?.path!==thread.path)return false;const ghost=$$('.review-deletion').find(el=>Number(el.dataset.reviewDeletion)===thread.render_anchor?.edit_id&&el.textContent===thread.render_anchor?.text);if(!ghost)return false;ghost.scrollIntoView({block:'center'});return true;},
@@ -2152,7 +2177,7 @@ document.documentElement.dataset.theme=localStorage.getItem('looking-glass-theme
 // Restore tab metadata only; unsaved text is never silently persisted over disk.
 let restored={tabs:[]};try{restored=JSON.parse(localStorage.getItem('looking-glass-tabs:'+root)||'{"tabs":[]}');if(Array.isArray(restored))restored={tabs:restored};}catch{}
 restoreReady=(async()=>{
-  const results=await Promise.allSettled((restored.tabs||[]).filter(item=>!item.path.startsWith(ORIGINAL)).map(async item=>{
+  const results=await Promise.allSettled((restored.tabs||[]).filter(item=>!item.path.startsWith(ORIGINAL)&&ext(item.path)!=='ipynb').map(async item=>{
     const file=await readTab(item.path),session=createDocumentSession(item.path,file,item.mode||'source');
     session.pinned=!!item.pinned;session.history=item.history;return session;
   }));

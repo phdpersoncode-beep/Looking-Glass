@@ -7,12 +7,21 @@ from itertools import islice
 from pathlib import Path
 from threading import Lock
 
-from .source_markers import python_comments
+from .notebook_source import notebook_sources
+from .source_markers import HASH, SUPPORTED as COMMENT_FILES, python_comments, source_comment_lines
 from .workspace import MAX_TEXT, Problem
 
 PYTHON = {'.py', '.pyi'}
 MARKDOWN = {'.md', '.markdown'}
-SUPPORTED = PYTHON | MARKDOWN
+OTHER_SOURCE = COMMENT_FILES - PYTHON - MARKDOWN - {'.yaml', '.yml', '.toml'}
+CODE = PYTHON | OTHER_SOURCE
+PLAIN_SOURCES = CODE | MARKDOWN
+SUPPORTED = PLAIN_SOURCES | {'.ipynb'}
+NOTEBOOK_LANGUAGES = {
+    'python': '.py', 'python2': '.py', 'python3': '.py', 'ipython': '.py',
+    'javascript': '.js', 'typescript': '.ts', 'shell': '.sh', 'ruby': '.rb',
+    'perl': '.pl', 'rust': '.rs', 'c++': '.cpp', 'c#': '.cs',
+}
 MAX_MARKERS = 5000
 MAX_FILE_MARKERS = 1000
 MAX_LABEL = 160
@@ -20,6 +29,7 @@ MAX_LABEL = 160
 TAGS = r'(?:TODO|NOTE|P[0-3])'
 PYTHON_CANDIDATE = re.compile(r'#[ \t]*' + TAGS + r'\b')
 HASH_MARKER = re.compile(r'#[ \t#]*(' + TAGS + r')\b')
+SOURCE_MARKER = re.compile(r'[ \t#/*<!-]*(' + TAGS + r')\b')
 MARKDOWN_MARKER = re.compile(
     r'^[ \t]*(?:(?:[-+*]|\d{1,9}[.)])[ \t]+(?:\[[ xX]\][ \t]+)?)?'
     r'((?:#+[ \t]*' + TAGS + r')|TODO)\b'
@@ -28,16 +38,40 @@ COMMENT_MARKER = re.compile(r'[ \t#]*(' + TAGS + r')\b')
 FENCE = re.compile(r'^[ ]{0,3}(`{3,}|~{3,})(.*)')
 # Backtick spans on the same line take precedence over comment openers.
 MARKDOWN_INLINE = re.compile(r'(?<!`)(`+)(?!`).*?(?<!`)\1(?!`)|<!--')
+NEWLINE = re.compile(r'\r\n?|\n')
 CANDIDATE = re.compile(TAGS + r'\b')
 
 
-def marker(number, prefix, kind, tail):
+def utf16_length(text):
+    return len(text.encode('utf-16-le', errors='surrogatepass')) // 2
+
+
+def marker(number, column, kind, tail):
     label = tail.lstrip(' \t:').rstrip()
     if len(label) > MAX_LABEL:
         label = label[:MAX_LABEL - 1] + '…'
-    # CodeMirror positions count UTF-16 units, while tokenize uses code points.
-    column = len(prefix.encode('utf-16-le')) // 2
     return dict(kind=kind, line=number, column=column, text=label)
+
+
+class SourceCoordinates:
+    """Translate increasing raw offsets into CodeMirror lines and UTF-16 columns."""
+
+    def __init__(self, content):
+        self.content = content
+        self.breaks = NEWLINE.finditer(content)
+        self.newline = next(self.breaks, None)
+        self.line = 1
+        self.column = self.previous = 0
+
+    def locate(self, offset):
+        while self.newline is not None and self.newline.end() <= offset:
+            self.previous = self.newline.end()
+            self.line += 1
+            self.column = 0
+            self.newline = next(self.breaks, None)
+        self.column += utf16_length(self.content[self.previous:offset])
+        self.previous = offset
+        return self.line, self.column
 
 
 def markdown_markers(content):
@@ -58,7 +92,8 @@ def markdown_markers(content):
             match = MARKDOWN_MARKER.match(line)
             if match:
                 kind = match[1].lstrip('# \t')
-                yield marker(number, line[:match.end() - len(kind)], kind, line[match.end():])
+                yield marker(number, utf16_length(line[:match.end() - len(kind)]),
+                             kind, line[match.end():])
 
         # An HTML comment can follow prose or span lines, with one marker per
         # line. Fences and inline code are never scanned as HTML comments.
@@ -76,12 +111,42 @@ def markdown_markers(content):
             end = line.find('-->', start)
             match = COMMENT_MARKER.match(line, start, len(line) if end == -1 else end)
             if match:
-                yield marker(number, line[:match.start(1)], match[1],
+                yield marker(number, utf16_length(line[:match.start(1)]), match[1],
                              line[match.end():] if end == -1 else line[match.end():end])
             in_comment = end == -1
             if in_comment:
                 break
             start = end + 3
+
+
+def other_source_markers(suffix, content):
+    coordinates = SourceCoordinates(content)
+    for start, line in source_comment_lines(suffix, content):
+        match = SOURCE_MARKER.match(line)
+        if match:
+            number, column = coordinates.locate(start + match.start(1))
+            tail = line[match.end():]
+            if suffix in {'.html', '.htm'}:
+                tail = tail.removesuffix('-->')
+            elif suffix not in HASH:
+                tail = tail.removesuffix('*/')
+            yield marker(number, column, match[1], tail)
+
+
+def notebook_markers(content):
+    try:
+        for number, kind, language, extension, source in notebook_sources(content):
+            if kind == 'markdown':
+                suffix = '.md'
+            else:
+                suffix = extension if extension in CODE else NOTEBOOK_LANGUAGES.get(
+                    language, '.' + language if language else '.py')
+                if suffix not in CODE:
+                    continue
+            for hit in find_markers(suffix, source):
+                yield {**hit, 'cell': number}
+    except (ValueError, IndexError):
+        pass  # A notebook may be incomplete while another editor is saving it.
 
 
 def find_markers(suffix, content):
@@ -101,10 +166,15 @@ def find_markers(suffix, content):
         for token in python_comments(content):
             match = HASH_MARKER.match(token.string)
             if match:
-                yield marker(token.start[0], token.line[:token.start[1] + match.start(1)],
+                yield marker(token.start[0], utf16_length(token.line[:token.start[1] + match.start(1)]),
                              match[1], token.string[match.end():])
-    elif suffix in MARKDOWN and CANDIDATE.search(content):
-        yield from markdown_markers(content)
+    elif suffix == '.ipynb' and (CANDIDATE.search(content) or r'\u' in content):
+        yield from notebook_markers(content)
+    elif CANDIDATE.search(content):
+        if suffix in MARKDOWN:
+            yield from markdown_markers(content)
+        elif suffix in OTHER_SOURCE:
+            yield from other_source_markers(suffix, content)
 
 
 class MarkerTree:
