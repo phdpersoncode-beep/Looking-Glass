@@ -1,5 +1,36 @@
 # Files, outline, and discussion references
 
+## Marker Tree
+
+Open **Marker Tree** above **File Tree** in the left sidebar. Marker Tree starts
+collapsed, and File Tree starts expanded. Expand a folder or file to see its
+marker count and matching comments. Select a marker to open its file at the tag.
+Markdown reading preview switches to source for the jump. A saved marker can
+still be located in an open draft if its line survives exactly once.
+
+Use the filter icon to match tag, text, or relative path. The tag
+control groups results by P0 through P3, TODO, and NOTE, keeping the folder
+hierarchy within each group. The stacked panels expand or collapse all branches.
+The refresh icon rescans saved files. Hover each control for its name.
+
+The tree reads Python comments in `.py` and `.pyi`, and Markdown in `.md` and
+`.markdown`. It accepts hashes with or without spaces, optional colons, and
+Markdown list markers, bare TODO at the start of a line, and HTML comments.
+Python strings and Markdown fenced examples are skipped. This view reads saved
+files, including untracked files and projects without Git. To turn saved TODO
+and NOTE comments into persistent discussions, use **Track TODO / NOTE** in the
+discussion sidebar.
+
+The first scan starts on expansion. While visible, the tree refreshes after
+file operations and on the explorer's 12-second interval. It reuses workspace
+discovery, including `.looking.ignore` and built-in exclusions. An in-memory
+cache uses filesystem metadata to skip reading or parsing unchanged files.
+Only marker excerpts and locations are retained. Limits are 10,000 discovered
+files, 8 MiB per text file, 1,000 matches per file, and 5,000 displayed matches
+per workspace. The section reports when discovery or results hit a count limit.
+Git's staging index describes staged paths and contents. Scanning the working
+tree keeps unstaged and untracked markers visible.
+
 The left explorer supports files and empty folders, with the same workspace-root
 `.looking.ignore` rules as Quick Open. Folder expansion is remembered per
 workspace. **Alt+Q** collapses every folder and clears an active explorer filter,

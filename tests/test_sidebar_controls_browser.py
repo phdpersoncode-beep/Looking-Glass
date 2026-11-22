@@ -111,10 +111,11 @@ def test_sidebar_controls_and_author_popover_fit_both_themes_and_narrow_panes(wo
                 page.locator(separator).focus(); page.keyboard.press('Home')
         for theme in ['light', 'dark']:
             if page.locator('html').get_attribute('data-theme') != theme: page.locator('#theme').click()
-            for sidebar in ['#file-sidebar', '#discussion-sidebar']:
+            for sidebar, section in [('#file-sidebar', '.file-section .explorer-heading'), ('#discussion-sidebar', '.panel-heading')]:
                 bounds = page.locator(sidebar).bounding_box()
-                heading = page.locator(sidebar+' .panel-heading').bounding_box()
-                boxes = page.locator(sidebar+' .panel-heading button').evaluate_all('els=>els.map(el=>{const r=el.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom}})')
+                panel = page.locator(f'{sidebar} {section}')
+                heading = panel.bounding_box()
+                boxes = panel.locator('button').evaluate_all('els=>els.map(el=>{const r=el.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom}})')
                 assert all(box['left'] >= bounds['x'] and box['right'] <= bounds['x']+bounds['width'] for box in boxes)
                 assert all(box['top'] >= heading['y'] and box['bottom'] <= heading['y']+heading['height'] for box in boxes)
                 # Controls may wrap onto another row at the minimum pane width.
@@ -174,7 +175,7 @@ def test_toolbar_icons_share_a_horizontal_centerline(workspace_page):
                 page.locator(separator).press('Home')
 
         left = centerline('.file-sidebar-tools svg', 3)
-        centerline('#file-sidebar .panel-heading button svg', 5)
+        centerline('#file-actions button svg', 5)
         centerline('#file-navigation button svg, #file-history > summary svg', 3)
         right = centerline('#discussions-toggle svg, #discussion-sidebar > .panel-heading button svg', 7)
         assert abs(left - right) <= 1

@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 from flask import Flask, Response, jsonify, render_template, request, send_file
 from werkzeug.exceptions import HTTPException
 
+from .marker_tree import MarkerTree
 from .revisions import Revisions
 from .workspace import Problem, Workspace, directories, MAX_TEXT, MAX_BINARY
 from .instructions import agent_instructions as instructions_text
@@ -34,6 +35,7 @@ def create_app(root):
     app.config.update(MAX_CONTENT_LENGTH=10*1024*1024, TRUSTED_HOSTS=['127.0.0.1','localhost','[::1]'])
     ws = Workspace(root)
     git = Revisions(ws)
+    marker_tree = MarkerTree(ws)
     previews = {}
     downloads = {}
     app.extensions['workspace'] = ws
@@ -160,6 +162,16 @@ def create_app(root):
         response.set_etag(tag)
         return response
 
+    @app.get('/api/marker-tree')
+    def workspace_markers():
+        result, tag = marker_tree.snapshot()
+        if request.if_none_match.contains(tag):
+            response = Response(status=304)
+        else:
+            response = jsonify(result)
+        response.set_etag(tag)
+        return response
+
     @app.get('/api/agent-instructions')
     def agent_instructions():
         return jsonify(instructions=instructions_text(ws.root, request.host_url.rstrip('/')))
@@ -241,7 +253,7 @@ def create_app(root):
 
     @app.post('/api/workspace')
     def switch_workspace():
-        nonlocal ws, git
+        nonlocal ws, git, marker_tree
         # Every route reads ws and git at call time, so this swap acts like a
         # restart in the new directory. The client reloads to get the new token.
         path = body().get('path')
@@ -259,6 +271,7 @@ def create_app(root):
             app.extensions['database_locked_roots'].add(new_root)
         ws = Workspace(new_root)
         git = Revisions(ws)
+        marker_tree = MarkerTree(ws)
         previews.clear()
         downloads.clear()
         app.extensions['workspace'] = ws

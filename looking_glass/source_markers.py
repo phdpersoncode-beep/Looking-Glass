@@ -13,6 +13,16 @@ SUPPORTED = HASH | SLASH | {'.py', '.pyi', '.md', '.markdown', '.html', '.htm', 
 MARKER = re.compile(r'^(?:\s|[#/*<!-])*(TODO|NOTE)\b[^\r\n]*')
 
 
+def python_comments(content):
+    """Tokenize without executing code and retain comments preceding syntax errors."""
+    try:
+        for token in tokenize.generate_tokens(io.StringIO(content).readline):
+            if token.type == tokenize.COMMENT:
+                yield token
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        pass
+
+
 def markers(path, content):
     """Yield exact Unicode ranges. Python strings/docstrings are never comments."""
     suffix = Path(path).suffix.lower()
@@ -20,12 +30,8 @@ def markers(path, content):
     if suffix in {'.py', '.pyi'}:
         lines = [0]
         lines.extend(m.end() for m in re.finditer('\n', content))
-        try:
-            for token in tokenize.generate_tokens(io.StringIO(content).readline):
-                if token.type == tokenize.COMMENT:
-                    comments.append((lines[token.start[0]-1]+token.start[1], token.string))
-        except (tokenize.TokenError, IndentationError, SyntaxError):
-            pass  # Keep comments already parsed in an incomplete source buffer.
+        comments = [(lines[token.start[0]-1]+token.start[1], token.string)
+                    for token in python_comments(content)]
     elif suffix in {'.md', '.markdown'}:
         comments = [(m.start(), m.group()) for m in re.finditer(r'(?m)^[ \t]*(?:#+|<!--|//|/\*|\*)[^\r\n]*', content)]
     elif suffix in SUPPORTED:

@@ -5,6 +5,7 @@ import {threadOverview} from './thread-overview.mjs';
 import {mountOutlineResize} from './outline-resize.mjs';
 import {quickFileMatches} from './file-search.mjs';
 import {mountExplorer} from './explorer.mjs';
+import {markerOffset,mountMarkerTree} from './marker-tree.mjs';
 import {linkFileReferences,mountFileMentions} from './file-references.mjs';
 import {resizedImageSource,imageCaption} from './image-size.mjs';
 import {confirmAction,requestText} from './dialogs.mjs';
@@ -48,7 +49,7 @@ import {markdown} from '@codemirror/lang-markdown';
 import {python} from '@codemirror/lang-python';
 import {html} from '@codemirror/lang-html';
 import {json} from '@codemirror/lang-json';
-import {syntaxTree, syntaxHighlighting, HighlightStyle, ensureSyntaxTree, foldable, foldEffect, unfoldAll} from '@codemirror/language';
+import {syntaxTree, syntaxHighlighting, HighlightStyle, ensureSyntaxTree, foldable, foldEffect, foldedRanges, unfoldEffect, unfoldAll} from '@codemirror/language';
 import {codeLanguage,shellLanguage} from './code-languages.mjs';
 import {mountPythonOutline} from './python-outline.mjs';
 import {pythonIndentation} from './python-indentation.mjs';
@@ -993,7 +994,7 @@ async function saveActive(){
   const content=e.content;
   try{
     const saved=await api('file','PUT',{path:e.path,content,version:e.version});e.diskContent=content;e.version=saved.version;e.dirty=e.content!==content;e.source_markers_truncated=saved.source_markers_truncated;
-    if(e.path===appStore.state.displayedDocument)await refreshThreads();notify('Saved to disk');renderTabs();return e;
+    markerTree.refresh(true);if(e.path===appStore.state.displayedDocument)await refreshThreads();notify('Saved to disk');renderTabs();return e;
   }catch(error){if(error.status===409){const disk=await api('file?'+new URLSearchParams({path:e.path}));e.conflict=disk;}throw error;}
   finally{saving=false;updateToolbar();}
 }
@@ -1049,6 +1050,7 @@ async function approveReview(event){
   saving=true;updateToolbar();
   try{
     await reviewSync(e).approve(target);
+    markerTree.refresh(true);
     // Approval concludes the active file; other drafts stay stored for resuming.
     await setWorkMode('edit');notify('Reviewed version approved and saved');
   }catch(error){notify(error.message,true);throw error;}
@@ -1945,7 +1947,38 @@ $('#font-smaller').onclick=()=>{if(ext(entry()?.path||'')==='pdf'){cleanup.zoom?
 $('#font-larger').onclick=()=>{if(ext(entry()?.path||'')==='pdf'){cleanup.zoom?.(1);return;}fontStep=Math.min(12,fontStep+1);localStorage.setItem('looking-glass-font-step',fontStep);applyFontSize();};
 applyFontSize();
 function filterFiles(){const query=$('#file-filter').value.toLowerCase();$$('.file-entry').forEach(b=>b.hidden=!b.dataset.path.toLowerCase().includes(query));$$('.file-folder').reverse().forEach(folder=>{folder.hidden=!!query&&![...folder.querySelectorAll('.file-entry')].some(b=>!b.hidden);folder.open=query?!folder.hidden:expandedFolders.has(folder.dataset.directory);});}
-$('#file-filter').oninput=filterFiles;$('#refresh-files').onclick=()=>window.htmx.trigger('#file-tree','refresh');
+const markerTree=mountMarkerTree({
+  root,
+  async read(etag){
+    const headers={'X-Looking-Glass-Token':token};
+    if(etag)headers['If-None-Match']=etag;
+    const response=await fetch('/api/marker-tree',{headers});
+    if(!response.ok&&response.status!==304)throw new Error('Could not refresh markers.');
+    return {data:response.status===304?null:await response.json(),etag:response.headers.get('ETag')};
+  },
+  open:guard(async(path,version,marker)=>{
+    const opening=openFile(path),request=navigation.requestId;
+    if((await opening).status!=='ready'||navigation.requestId!==request||entry()?.path!==path)return;
+    const e=entry(),review=e.workMode==='review';
+    if((review?e.review.base_version:e.version)!==version||e.conflict){
+      markerTree.refresh(true);
+      throw new Error('This marker and the open file are from different disk versions. Reload the file or refresh markers.');
+    }
+    if(!view)await setMode('source');
+    if(navigation.requestId!==request||entry()!==e||!view)return;
+    const disk=review?e.review.base:e.diskContent;
+    const saved=(review?e.content!==disk:e.dirty)?Text.of(disk.split(/\r\n?|\n/)):null;
+    const from=markerOffset(view.state.doc,marker,saved);
+    if(from===null)throw new Error('This marker’s line changed in the current draft.');
+    const effects=[EditorView.scrollIntoView(from,{y:'center'})];
+    foldedRanges(view.state).between(from,from,(start,end)=>effects.push(unfoldEffect.of({from:start,to:end})));
+    view.dispatch({selection:{anchor:from},effects});
+    view.focus();
+    notify(path+':'+marker.line);
+  })
+});
+$('#file-filter').oninput=filterFiles;
+$('#refresh-files').onclick=()=>{window.htmx.trigger('#file-tree','refresh');markerTree.refresh(true);};
 const fileResize=$('#file-resize');
 let sidebarWidth=Number(localStorage.getItem('looking-glass-sidebar-width'))||$('.file-sidebar').getBoundingClientRect().width;
 function sidebarLimits(){return {min:120,max:Math.max(120,Math.min(600,innerWidth-$('.discussion-sidebar').getBoundingClientRect().width-(innerWidth<=800?260:innerWidth<=1100?300:350)))};}
@@ -1978,6 +2011,7 @@ function setExplorerHidden(hidden,focus=false){
     else child.hidden=hidden;
   }
   localStorage.setItem('looking-glass-explorer-hidden',String(hidden));
+  if(!hidden&&focus)markerTree.refresh();
   sizeSidebar();sizeDiscussions();view?.requestMeasure();
   if(focus)$('#explorer-toggle').focus({preventScroll:true});
 }
@@ -2029,7 +2063,7 @@ mountExplorer($('#file-tree'),{root,api,error:message=>notify(message,true),crea
   const parts=result.path.split('/');if(!result.directory)parts.pop();
   parts.forEach((_,i)=>expandedFolders.add(parts.slice(0,i+1).join('/')));
   localStorage.setItem('looking-glass-folders:'+root,JSON.stringify([...expandedFolders]));
-  $('#file-filter').value='';window.htmx.trigger('#file-tree','refresh');
+  $('#file-filter').value='';window.htmx.trigger('#file-tree','refresh');markerTree.refresh(true);
   if(!result.directory)await openFile(result.path);
   notify(result.directory?'Folder created':'File created');
 },change:async(info,options)=>{
@@ -2056,7 +2090,7 @@ mountExplorer($('#file-tree'),{root,api,error:message=>notify(message,true),crea
     const folders=[...expandedFolders].map(map).filter(Boolean);expandedFolders.clear();folders.forEach(f=>expandedFolders.add(f));
     if(result.destination){const parts=result.destination.split('/').slice(0,-1);parts.forEach((_,i)=>expandedFolders.add(parts.slice(0,i+1).join('/')));}localStorage.setItem('looking-glass-folders:'+root,JSON.stringify([...expandedFolders]));
     if(changedActive){appStore.dispatch({type:'DOCUMENT_DISPLAYED',path:next});if(next){clearSurface();const session=tabs.get(next);await mountFileSurface(session);await session.ready;await refreshThreads();}else if(tabs.size){release();await openFile([...tabs.keys()].at(-1));}else{clearSurface();appStore.dispatch({type:'THREADS_RECEIVED',threads:[]});$('#threads').replaceChildren();lastThreadHTML='';lastThreadKey='';discussionView.reset();}}
-    remember();renderTabs();updateToolbar();window.htmx.trigger('#file-tree','refresh');if(changedActive&&next)view?.focus();notify(result.deleted?'Moved to workspace trash':'File location updated');
+    remember();renderTabs();updateToolbar();window.htmx.trigger('#file-tree','refresh');markerTree.refresh(true);if(changedActive&&next)view?.focus();notify(result.deleted?'Moved to workspace trash':'File location updated');
   }finally{release();}
 }});
 function renderQuickResults(keepPath=null){const query=$('#quick-query').value;quickMatches=quickFileMatches(quickPaths,query,[...fileHistory.snapshot.entries].reverse());quickIndex=keepPath&&quickMatches.some(item=>item.path===keepPath)?quickMatches.findIndex(item=>item.path===keepPath):Math.min(quickIndex,Math.max(0,quickMatches.length-1));$('#quick-results').replaceChildren(...quickMatches.map((item,index)=>{const button=document.createElement('button');button.textContent=item.path;button.id='quick-option-'+index;button.setAttribute('role','option');button.setAttribute('aria-selected',String(index===quickIndex));button.classList.toggle('selected',index===quickIndex);button.onclick=guard(async()=>{$('#quick-dialog').close();await openFile(item.path);if(!document.querySelector('dialog:modal'))view?.focus();});return button;}));if(!quickMatches.length)$('#quick-results').textContent='No matching files.';$('#quick-query').setAttribute('aria-activedescendant',quickMatches.length?'quick-option-'+quickIndex:'');$('#quick-results .selected')?.scrollIntoView({block:'nearest'});}
@@ -2129,11 +2163,12 @@ guard(async()=>{
   if(!navigation.requestId&&tabs.size)await openFile(tabs.has(restored.active)?restored.active:[...tabs.keys()].at(-1));
   renderTabs();if(!appStore.state.displayedDocument&&!navigation.busy)await refreshThreads();
 })();
-setInterval(poll,2200);setInterval(()=>{if(!document.hidden)window.htmx.trigger('#file-tree','refresh');},12000);
+setInterval(poll,2200);setInterval(()=>{if(!document.hidden)window.htmx.trigger('#file-tree','refresh');markerTree.refresh();},12000);
 
 
 function applyZen(){
   document.documentElement.classList.toggle('zen-mode',appStore.state.zen);
+  if(!appStore.state.zen)markerTree.refresh();
   $('#zen-toggle').setAttribute('aria-pressed',String(appStore.state.zen));
   $('#expand-threads').disabled=appStore.state.zen;
   filterThreads();sizeSidebar();sizeDiscussions();view?.requestMeasure();
