@@ -6,6 +6,7 @@ import {mountOutlineResize} from './outline-resize.mjs';
 import {quickFileMatches} from './file-search.mjs';
 import {mountBreadcrumbs} from './breadcrumbs.mjs';
 import {mountExplorer} from './explorer.mjs';
+import {mountExplorerSplit} from './explorer-split.mjs';
 import {markerOffset,mountMarkerTree} from './marker-tree.mjs';
 import {linkFileReferences,mountFileMentions} from './file-references.mjs';
 import {resizedImageSource,imageCaption} from './image-size.mjs';
@@ -2002,6 +2003,7 @@ const markerTree=mountMarkerTree({
     notify(path+':'+marker.line);
   })
 });
+mountExplorerSplit($('#file-explorers'),'looking-glass-explorer-split:'+root);
 $('#file-filter').oninput=filterFiles;
 $('#refresh-files').onclick=()=>{window.htmx.trigger('#file-tree','refresh');markerTree.refresh(true);};
 const fileResize=$('#file-resize');

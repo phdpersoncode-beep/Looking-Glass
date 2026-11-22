@@ -48,7 +48,8 @@ in the current workspace. The file sidebar lists files recursively
 as a collapsible tree and supports filtering. Open **Marker Tree** above it to
 browse saved TODO, NOTE, and P0–P3 comments in Markdown, source code, and
 Jupyter notebook cells. Filter by text or path, jump to a source marker, or copy a
-notebook path. Click a file or folder in the breadcrumb path above the reading
+notebook path. Drag the divider between the expanded trees to resize them.
+Click a file or folder in the breadcrumb path above the reading
 pane to choose its neighbors. Use **Collapse all folders** or **Alt+Q** to fold
 the tree. Right-click files/folders to rename, delete, or copy paths; drag them
 onto another folder to move them. Python outlines support individual and
