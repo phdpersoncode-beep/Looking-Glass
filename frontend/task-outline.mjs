@@ -4,6 +4,7 @@ import {setTaskRowDragImage, taskDragType, taskDropItem, taskDropPreview} from '
 export const taskColumns = [['backlog', '◌', 'Backlog'], ['in_progress', '◐', 'In progress'],
   ['to_review', '◎', 'To review'], ['done', '✓', 'Done']];
 const taskIndent = 16;
+const doubleClickDelay = 500;
 const taskStatus = new Map(taskColumns.map(([key, symbol, label], index) => {
   const [next, , nextLabel] = taskColumns[(index + 1) % taskColumns.length];
   return [key, {symbol, label, next, nextLabel}];
@@ -120,6 +121,7 @@ export function mountTaskOutline(host, options) {
   let drop = null, savingDrop = false, moving = null;
   let controlRow = null;
   let creation = null;
+  let openTimer;
 
   function startCreation(parentId, opener) {
     if (!creation) mountCreation({parentId, title: ''}, opener);
@@ -214,6 +216,8 @@ export function mountTaskOutline(host, options) {
     if (row) updateDraggable(row);
   }
   const pointerEvents = {capture: true, signal: dragEvents.signal};
+  const cancelOpen = () => clearTimeout(openTimer);
+  document.addEventListener('pointerdown', cancelOpen, pointerEvents);
   document.addEventListener('pointerup', releaseControl, pointerEvents);
   document.addEventListener('pointercancel', releaseControl, pointerEvents);
   window.addEventListener('blur', releaseControl, {signal: dragEvents.signal});
@@ -353,6 +357,7 @@ export function mountTaskOutline(host, options) {
   }
   function focusRow(id) { nodes.get(id)?.querySelector('.task-outline-name')?.focus({preventScroll:true}); }
   async function openCard(id) {
+    cancelOpen();
     await saving;
     const card=getBoard().cards.find(c=>c.id===id);
     if(!disposed && card)open(card);
@@ -504,10 +509,19 @@ export function mountTaskOutline(host, options) {
     },true);
     row.onclick = event => {
       if (event.target.closest('button,input')) return;
-      selectRow(id);
+      row.focus({preventScroll: true});
+      if (event.detail === 0) openCard(id);
+      if (event.detail === 1) {
+        // The first click also fires during a double-click to rename.
+        cancelOpen();
+        openTimer = setTimeout(() => {
+          if (row.isConnected) openCard(id);
+        }, doubleClickDelay);
+      }
     };
     row.onkeydown = event => {
       if (event.target !== row || event.ctrlKey || event.metaKey || event.altKey) return;
+      cancelOpen();
       if (event.key === 'Escape' && picked.has(id)) {
         picked.clear();
         changed();
@@ -523,7 +537,9 @@ export function mountTaskOutline(host, options) {
       event.stopPropagation();
     };
     row.ondblclick = event => {
-      if (event.target.closest('button,input') || name.readOnly) return;
+      cancelOpen();
+      if (event.ctrlKey || event.metaKey || event.target.closest('button,input') || name.readOnly) return;
+      event.preventDefault();
       name.focus({preventScroll: true});
     };
     row.oncontextmenu=event=>contextMenu(event,id);
@@ -536,6 +552,7 @@ export function mountTaskOutline(host, options) {
     };
     row.ondragstart=event=>{
       if (event.target !== row || !row.draggable) { event.preventDefault(); return; }
+      cancelOpen();
       setTaskRowDragImage(event);
       startDrag(event,id,row.classList.contains('task-outline-milestone') ? [id] : undefined);
     };
@@ -639,5 +656,5 @@ export function mountTaskOutline(host, options) {
   const creationDraft = creations.get(key);
   if (creationDraft) mountCreation(creationDraft);
   else render();
-  return {render,dispose(){disposed=true;dragEvents.abort();clearDrop(false);controls.remove();section.remove();},focus:focusRow};
+  return {render,dispose(){disposed=true;cancelOpen();dragEvents.abort();clearDrop(false);controls.remove();section.remove();},focus:focusRow};
 }

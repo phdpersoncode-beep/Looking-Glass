@@ -202,7 +202,7 @@ function mountTasks(host, state, api, options = {}) {
       hint.append(el('kbd', keys), ' ' + action);
       help.append(hint);
     }
-    help.title='Enter saves; Shift+Enter adds a sibling; Ctrl/Cmd+Enter adds a subitem. Tab / Shift+Tab nest; Alt+Up/Down reorders. Double-click a name to rename. Drag vertically to reorder siblings. Ctrl/Cmd+click selects; right-click opens actions.';
+    help.title='Click to open a card. Ctrl/Cmd+click selects. Double-click to rename. Drag vertically to reorder siblings. Right-click opens actions. While renaming, Enter saves, Shift+Enter adds a sibling, and Ctrl/Cmd+Enter adds a subitem. Tab and Shift+Tab change nesting. Alt+Up/Down reorders.';
     options.sidebar.append(heading,help);
     outline=mountTaskOutline(options.sidebar,outlineOptions({controlsHost:heading,
       createMilestone: before => editNew('backlog', null, {milestone: true, before}),

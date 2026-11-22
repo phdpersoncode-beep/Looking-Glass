@@ -119,7 +119,7 @@ def test_board_background_and_closing_sidebar_card_clear_selection(workspace_pag
     row=sidebar.locator('.task-outline-row[data-id="3"]')
     card=page.locator('.task-card[data-id="3"]')
     bulk=page.locator('.task-bulk')
-    row.click(position={'x':5,'y':17})
+    row.click(modifiers=['Control'], position={'x':5,'y':17})
     expect(row).to_have_attribute('aria-selected','true')
     expect(card).to_have_attribute('aria-selected','true')
     expect(bulk).to_contain_text('1 selected')
@@ -128,8 +128,8 @@ def test_board_background_and_closing_sidebar_card_clear_selection(workspace_pag
     expect(row).to_have_attribute('aria-selected','false')
     expect(card).to_have_attribute('aria-selected','false')
     expect(bulk).to_be_hidden()
+    row.click(modifiers=['Control'], position={'x':5,'y':17})
     row.click(position={'x':5,'y':17})
-    row.get_by_role('button',name='Open card details').click()
     details=page.locator('.task-detail')
     expect(details).to_be_visible()
     expect(row).to_have_attribute('aria-selected','true')
@@ -189,7 +189,7 @@ def test_outline_sibling_drag_keyboard_nesting_and_shared_selection(workspace_pa
     row(5).locator('.task-outline-title').drag_to(row(3),target_position={'x':30,'y':4})
     expect(sidebar.locator('.task-outline-row').nth(3)).to_have_attribute('data-id','5')
     assert sidebar.locator('.task-outline-row').evaluate_all('(rows)=>rows.map(r=>+r.dataset.id)')==[2,4,1,5,3,6]
-    row(3).click(position={'x':8,'y':16})
+    row(3).click(modifiers=['Control'], position={'x':8,'y':16})
     row(3).press('Tab')
     expect(row(3)).to_have_attribute('data-depth','2')
     row(3).press('Shift+Tab')
@@ -359,12 +359,13 @@ def test_drag_preview_slides_neighbors_and_saves_only_on_drop(workspace_page, su
 
 @pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
 @pytest.mark.parametrize('surface', ['sidebar', 'checklist'])
-def test_task_list_click_rename_caret_and_branch_toggle(workspace_page, surface):
+def test_task_list_click_open_select_rename_and_branch_toggle(workspace_page, surface):
     from playwright.sync_api import expect
     _, page, url, ws = workspace_page
     for title, parent_id in (('Plan', None), ('Editable name', 1), ('Nested work', 2)):
         ws.tasks.mutate(dict(action='create', title=title, parent_id=parent_id,
                              revision=ws.tasks.read()['revision']))
+    page.clock.install()
     page.goto(url)
     page.locator('#tasks-open').click()
     parent = page.get_by_role('article', name='Plan', exact=True)
@@ -375,13 +376,17 @@ def test_task_list_click_rename_caret_and_branch_toggle(workspace_page, surface)
         group = page.locator('#task-sidebar')
     row = group.locator('.task-outline-row[data-id="2"]')
     descendant = group.locator('.task-outline-row[data-id="3"]')
-    title_position = {'x': 135, 'y': 17}
-    row.click(position=title_position)
-    expect(row).to_be_focused()
-    expect(row).to_have_attribute('aria-selected', 'true')
-    row.press('Enter')
+    title = row.locator('.task-outline-title')
     detail = page.get_by_role('dialog', name='Editable name', exact=True)
+    title.click(modifiers=['Control'])
+    expect(row).to_have_attribute('aria-selected', 'true')
+    page.clock.fast_forward(600)
+    expect(detail).to_have_count(0)
+    title.click(modifiers=['Meta'])
+    expect(row).to_have_attribute('aria-selected', 'false')
+    title.click()
     expect(detail).to_be_visible()
+    expect(page.locator('#task-sidebar .task-outline-row[data-id="2"]')).to_have_attribute('aria-selected', 'false')
     detail.get_by_role('button', name='Close card').click()
     if surface == 'checklist':
         parent.click()
@@ -396,8 +401,12 @@ def test_task_list_click_rename_caret_and_branch_toggle(workspace_page, surface)
     expect(detail).to_have_count(0)
     assert ws.tasks.read()['revision'] == 3
 
-    row.dblclick(position=title_position)
+    title.dblclick()
     name = row.get_by_label('Task name 2', exact=True)
+    expect(name).to_be_focused()
+    # Advance past the single-click window while keeping focus in the editor.
+    page.clock.fast_forward(600)
+    expect(detail).to_have_count(0)
     expect(name).to_be_focused()
     assert row.get_attribute('draggable') == 'false'
     name.evaluate('input => input.setSelectionRange(input.value.length, input.value.length)')
@@ -532,7 +541,7 @@ def test_selected_row_navigation_and_keyboard_nesting(workspace_page, surface):
     expect(neighbor).to_have_attribute('data-depth', str(original_depth))
     source.drag_to(neighbor, source_position={'x':120, 'y':15}, target_position={'x':65, 'y':5})
     expect(source).to_have_attribute('data-depth', str(original_depth))
-    source.click(position={'x':8,'y':16})
+    source.click(modifiers=['Control'], position={'x':8,'y':16})
     source.press('ArrowDown')
     expect(neighbor).to_be_focused()
     neighbor.press('Tab')
@@ -546,7 +555,7 @@ def test_selected_row_navigation_and_keyboard_nesting(workspace_page, surface):
     if surface == 'checklist':
         expect(page.get_by_role('dialog', name='Plan')).to_be_visible()
         branch = group.locator('.task-outline-row[data-id="2"]')
-        branch.locator('.task-outline-title').click()
+        branch.locator('.task-outline-title').click(modifiers=['Control'])
         branch.press('Shift+Tab')
         expect(group.locator('.task-outline-row')).to_have_count(0)
         expect(page.get_by_role('button', name='+ Add subitem')).to_be_focused()

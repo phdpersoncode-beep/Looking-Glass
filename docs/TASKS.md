@@ -94,9 +94,10 @@ shows active and archived tasks regardless of the board filters. In the sidebar
 and each card's **Tasks** list, click the symbol after a task name or focus it
 and press Enter or Space to cycle through **Backlog → In progress → To review →
 Done → Backlog**. The checkbox on the left still completes or reopens the task.
-Click a row to select it. Up and Down select adjacent visible rows. Enter opens
-the selected card, and Escape clears selection. The pen at the right opens
-details on click and appears on hover or keyboard focus.
+Click a row to open its card. Ctrl/Cmd+click toggles the row's selection.
+Up and Down select adjacent visible rows, Enter opens the focused card, and
+Escape clears selection. The pen at the right also opens the card and appears
+on hover or keyboard focus.
 Selected cards have the same soft tint on the board, in the sidebar, and in
 card checklists. A thin inset outline marks keyboard focus.
 Click an empty area of the board to clear the selection. Closing a card's
@@ -157,9 +158,9 @@ Drag vertically to reorder siblings. A dashed outline marks the drop position.
 Use Tab and Shift+Tab on a selected row to change its nesting. The sidebar
 heading lists the selection shortcuts.
 All card checklists use the same editable, draggable rows and saved hierarchy.
-Hover over a sidebar milestone or task to highlight its visible branch on the board. Edge arrows count matching board cards beyond the scroll area. Ctrl/Cmd+click
-selects multiple rows and shares selection with their board cards. Right-click
-opens task actions in either view.
+Hover over a sidebar milestone or task to highlight its visible branch on the
+board. Edge arrows count matching board cards beyond the scroll area.
+Right-click opens task actions in either view.
 Selected descendants travel once with a selected ancestor. Archived cards must be
 restored before dragging.
 
