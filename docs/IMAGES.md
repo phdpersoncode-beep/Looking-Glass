@@ -14,6 +14,9 @@ registered when first rendered; annotations update that disk file as well as
 the managed copy. An external disk change rejects an open annotation editor's stale save.
 On reopening, the replacement gets a new identity and old disk-image comments
 require reattachment; the old original remains stored. SVG supports display resizing; pixel annotation remains limited to PNG/JPEG.
+Workspace images in Markdown and discussion previews wait for the authenticated
+image request. The displayed image loads those bytes independently of any
+request the browser started while parsing the Markdown.
 
 The pencil above the image opens a roomy, centered annotation editor (up to
 1280 × 840 pixels, with margins around the window). Its symbol

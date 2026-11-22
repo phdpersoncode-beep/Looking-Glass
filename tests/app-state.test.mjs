@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {initialAppState, transition, selectVisibleThreads, selectThreadSequence, nextOpenThread, createAppStore} from '../frontend/app-state.mjs';
+import {initialAppState, transition, selectVisibleThreads, selectThreadSequence, nextOpenThread, stepThread, createAppStore} from '../frontend/app-state.mjs';
 const thread = (id, start = 0, end = 12, more = {}) => ({id, start, end, path: 'note.txt', quote: 'passage', anchor_kind: 'source', anchor_status: 'attached', messages: [], resolved: false, ...more});
 
 test('only unattached defaults off and composes with resolved, search, navigation, and spotlight', () => {
@@ -103,15 +103,15 @@ test('spotlight navigation uses the scoped full list and preserves search orderi
   assert.equal(nextOpenThread(state, 3), null);
 });
 
-test('zen completion advances the full queue in spotlight and wraps past resolved threads', () => {
+test('zen deletion advances the full queue in spotlight and wraps past resolved threads', () => {
   const threads = [thread(1), thread(2, 20, 25, {resolved: true}), thread(3, 30, 40)];
   let state = {...initialAppState({zen: true, showResolved: true}), threads};
   state = transition(state, {type: 'THREAD_ACTIVATED', threadId: 3, spotlight: true}).state;
-  const result = transition(state, {type: 'THREAD_COMPLETED', threadId: 3});
+  const result = transition(state, {type: 'DISCUSSION_DELETED', threadId: 3});
   assert.equal(result.state.focusedThread, 1);
   assert.deepEqual(result.state.spotlightIds, [1]);
-  assert.deepEqual(result.effects, [{type: 'REVEAL_THREAD', threadId: 1, origin: 'zen-completion'}]);
-  const last = transition({...result.state, threads: [thread(1), thread(2, 20, 25, {resolved: true})]}, {type: 'THREAD_COMPLETED', threadId: 1});
+  assert.deepEqual(result.effects, [{type: 'REVEAL_THREAD', threadId: 1, origin: 'zen-deletion'}]);
+  const last = transition({...result.state, threads: [thread(1), thread(2, 20, 25, {resolved: true})]}, {type: 'DISCUSSION_DELETED', threadId: 1});
   assert.equal(last.state.focusedThread, null);
   assert.equal(last.state.spotlight, null);
   assert.deepEqual(last.effects, []);
@@ -119,18 +119,34 @@ test('zen completion advances the full queue in spotlight and wraps past resolve
   assert.equal(refreshed.state.focusedThread, null);
 });
 
-test('completion cannot steal focus outside zen or after the user chooses another thread', () => {
+test('deletion cannot steal focus outside zen or after the user chooses another thread', () => {
   const state = {...initialAppState(), threads: [thread(1), thread(2, 20, 30)], focusedThread: 1};
-  assert.equal(transition(state, {type: 'THREAD_COMPLETED', threadId: 1}).state, state);
+  assert.equal(transition(state, {type: 'DISCUSSION_DELETED', threadId: 1}).state, state);
   const zen = {...state, zen: true, focusedThread: 2};
-  assert.equal(transition(zen, {type: 'THREAD_COMPLETED', threadId: 1}).state, zen);
+  assert.equal(transition(zen, {type: 'DISCUSSION_DELETED', threadId: 1}).state, zen);
 });
 
-test('a poll completing the mutation first does not change the queued successor', () => {
+test('deletion uses the captured order when the deleted thread is absent', () => {
   const state = {...initialAppState({zen: true}), focusedThread: 2,
-    threads: [thread(1), thread(2, 20, 25, {resolved: true}), thread(3, 30, 40)]};
-  const result = transition(state, {type: 'THREAD_COMPLETED', threadId: 2, order: [1, 2, 3]});
+    threads: [thread(1), thread(3, 30, 40)]};
+  const result = transition(state, {type: 'DISCUSSION_DELETED', threadId: 2, order: [1, 2, 3]});
   assert.equal(result.state.focusedThread, 3);
+});
+
+test('a resolved passage keeps the zen cursor and arrows skip it when filtered', () => {
+  const threads = [thread(1), thread(2, 20, 25), thread(3, 30, 40)];
+  let state = {...initialAppState({zen: true}), threads, focusedThread: 2};
+  const resolved = {...threads[1], resolved: true};
+  const result = transition(state, {type: 'THREADS_RECEIVED', threads: [threads[0], resolved, threads[2]]});
+  state = result.state;
+  assert.equal(state.focusedThread, 2);
+  assert.deepEqual(result.effects, []);
+  assert.deepEqual(selectVisibleThreads(state).map(t => t.id), [1, 3]);
+  const sequence = selectThreadSequence({...state, showResolved: true});
+  assert.equal(stepThread(sequence, 2, 1, state).id, 3);
+  assert.equal(stepThread(sequence, 2, -1, state).id, 1);
+  assert.equal(stepThread(sequence, 3, 1, state).id, 1);
+  assert.equal(stepThread(sequence, 1, 1, {...state, showResolved: true}).id, 2);
 });
 
 test('pending thread navigation keeps displayed spotlight until the destination snapshot is ready',()=>{

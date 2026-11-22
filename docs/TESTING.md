@@ -5,7 +5,7 @@ existing ones; browser sharding changes where tests run, never which cases run.
 
 | Behavior | Main coverage |
 | --- | --- |
-| Opt-in TODO/NOTE comment threads, literal-string exclusion, persistence/replies/origins, conservative anchors, auto-resolution, Review approval, import bounds, marker search/navigation filters, Python Ctrl/Cmd+click/F12, imports/scopes/Unicode/CRLF, draft/history/undo preservation, stale-result rejection, ambiguity picker, worker deadlines/busy handling and static-only inference | `test_source_markers.py`, `test_python_navigation.py`, `python-navigation.test.mjs`, `test_coding_support_browser.py` |
+| Opt-in TODO/NOTE comment threads, literal-string exclusion, persistence/replies/origins, conservative anchors, auto-resolution, Review approval, import bounds, marker search/navigation filters, Python Ctrl/Cmd+click, imports/scopes/Unicode/CRLF, draft/history/undo preservation, stale-result rejection, ambiguity picker, worker deadlines/busy handling and static-only inference | `test_source_markers.py`, `test_python_navigation.py`, `python-navigation.test.mjs`, `test_coding_support_browser.py` |
 | Image paste, PNG/JPEG validation, disk updates, rename aliases/escaped filenames, original recovery, drawing/eraser, persistent image threads, large/narrow themed layouts and edge markers, symbol controls, keyboard comment/reply submission, duplicate-send/error handling, exact-embed deletion/cancel/undo in Edit/Review, stale saves, stable arrow navigation, centered per-embed resize/undo/Review/table/CRLF persistence, draggable markers with cancellation/conflicts and automatic drop exit, per-comment/whole-thread deletion with cancel/retry/draft retention/last-marker cleanup, portable synthetic Firefox paste, and themed application dialogs | `test_images.py`, `markdown-images.test.mjs`, `test_images_browser.py`, `test_dialogs_browser.py` |
 | Edit/save, undo/redo, find/replace, tabs, external changes and conflict recovery | `test_browser.py`, `test_workspace.py`, `test_app_integration_browser.py` |
 | Non-destructive review, human/agent provenance, removed text, autosave, approval and concurrent edits | `test_reviews.py`, `review-model.test.mjs`, `test_review_mode_browser.py` |
@@ -20,10 +20,12 @@ existing ones; browser sharding changes where tests run, never which cases run.
 | Spotlight, unchanged reading positions, sidebar geometry, zen mode and navigation | `test_discussion_reading_browser.py`, `test_spotlight_navigation_browser.py`, `test_navigation_browser.py` |
 | Escape from spotlight reply/search returns to the current card and all arrow shortcuts; a second Escape returns to the list | `test_spotlight_controls_browser.py`, `test_spotlight_navigation_browser.py` |
 | Repeated spotlight arrows, unavailable anchors, explicit original context, stable reading surfaces, thin themed reading scrollbars and native scrolling | `test_spotlight_regressions_browser.py` |
-| Native oversized downloads without browser buffering, expiring file-scoped download URLs, document top/copy controls, stable spotlight search, sidebar arrow focus, scoped queues and zen resolve/delete advancement | `test_file_downloads.py`, `test_reading_controls_browser.py`, `test_spotlight_controls_browser.py`, `app-state.test.mjs` |
+| Native oversized downloads without browser buffering, expiring file-scoped download URLs, document top/copy controls, stable spotlight search, scoped keyboard navigation, contextual Ctrl/Cmd+Enter, and resolution that preserves reading position in Markdown and HTML | `test_file_downloads.py`, `test_reading_controls_browser.py`, `test_spotlight_controls_browser.py`, `test_navigation_browser.py`, `app-state.test.mjs` |
 | Monospace line numbers through editing and narrow layouts, uniform rounded fenced code, quiet multiline blockquotes in both themes | `test_reading_pane_polish_browser.py` |
-| Recent-file Back/Forward, history dropdown/clear, rapid and failed navigation, saved visits, preserved drafts/scroll, Python outline parsing/jumps/live edits/review and layouts | `file-history.test.mjs`, `python-outline.test.mjs`, `test_file_navigation_outline_browser.py` |
+| Recent-file Back/Forward shortcuts from editor and rendered HTML, history dropdown/clear, rapid and failed navigation, saved visits, preserved drafts/scroll, Python outline parsing/jumps/live edits/review, wheel scrolling, and layouts | `file-history.test.mjs`, `python-outline.test.mjs`, `test_file_navigation_outline_browser.py` |
 | Git explorer colors/ignore rules/status-only refresh, recent-first fuzzy picker, resizable outline persistence/keyboard limits, whole-document occurrence markers/jumps/clearing and bounded dense matches | `test_explorer_status.py`, `test_navigation_additions_browser.py`, `match-overview.test.mjs` |
+| Discussion scrollbar markers alongside search matches, grouped thread navigation, resolved and deleted threads, live Markdown contents jumps and persisted resizing, card reference copying, and inline subtask creation with cancellation and retry | `test_navigation_additions_browser.py`, `test_navigation_browser.py`, `test_task_popup_browser.py`, `test_task_hierarchy_browser.py` |
+| Board background and detail-close deselection, inline sidebar creation through polling, card comment screenshot paste and pending attachments, TODO rendering with passage anchors, and unread tracking across local and external replies | `test_task_hierarchy_browser.py`, `test_tasks_browser.py`, `test_discussion_reading_browser.py` |
 | Explorer new-file/new-folder creation at root or in selected folders, collision/cancel/dirty-tab preservation, visible file-cap warnings and ignore refresh, Alt+Z from editor/HTML with preserved undo, immediate movable image draft pins with failed-send retry, and explorer rename/delete/copy, recoverable trash, stale/collision/protected-path rejection, preserved review/discussion/image/PDF metadata, empty-folder drag/drop, Alt+Q, Python outline folding, file-mention fuzzy completion/ignore rules, agent references and navigation | `test_file_operations.py`, `test_explorer_creation_browser.py`, `test_workspace_ignore.py`, `test_workspace_ignore_browser.py`, `test_explorer_browser.py`, `file-references.test.mjs`, `file-history.test.mjs` |
 | Thread references across files/resolved/HTML/unattached targets, preserved replies, literal interval brackets, horizontal filters, unattached-only lists/search/navigation and status counts | `markdown-links.test.mjs`, `app-state.test.mjs`, `test_thread_reference_polish_browser.py` |
 | Per-project author popover, default identity, cancel/dismiss, comment/reply/review attribution, sidebar controls and layouts, immediate popover placement when reopened after resizing | `test_sidebar_controls_browser.py`, `test_navigation_browser.py` |
@@ -101,8 +103,10 @@ unchanged. Test servers use a shorter idle polling interval so shutdown doesn't
 wait up to half a second per case; application polling is unchanged.
 
 Reading-position checks finish preceding navigation and wait for stable editor
-geometry/fonts before recording their baseline. HTML alignment uses instant
-scrolling to stop an earlier sidebar animation. The preservation assertions and
+geometry/fonts before recording their baseline. Low-passage checks confirm that
+the target text is reachable at the bottom edge after virtual lines settle.
+HTML alignment uses instant scrolling to stop an earlier sidebar animation.
+The preservation assertions and
 deadlines remain unchanged; separate cases also exercise reports that request
 smooth scrolling during a highlight click and verify normal wheel navigation.
 JSONL comparison checks sample frames starting at the row click and again after
@@ -124,4 +128,57 @@ CRLF Edit/Review files, definition navigation, saved bytes, and single-step undo
 input while retaining Alt+Z aliases. Image draft-pin cancellation uses global
 Escape during a direct Ctrl-drag, without a locator setting focus on its behalf.
 Sidebar geometry checks test every button pair and both axes of the heading
-bounds, including wrapped rows at the minimum pane width.
+bounds, including wrapped rows at the minimum pane width. The spotlight controls
+journey forces the discussion heading across its wrap threshold, then checks that
+search keeps the same vertical position during keyboard resizing in both engines;
+this covers platform font differences without relaxing the geometry assertion.
+
+Task board checks cover saved `#M` numbers separately from permanent `#C` identity.
+Fast Python/JavaScript checks exercise sidebar ordering, reserved archived numbers,
+migration preserving old labels, archive/restart/snapshot persistence, exact
+reference search, stale edits, and stable assignment/history targets.
+Chromium/Firefox journeys cover milestone drag and keyboard ordering, number
+changes in open editors with drafts, restoring card IDs after demotion, the
+larger Tasks SVG, and compact update rows in light/dark themes and a narrow window.
+
+Hierarchy checks (`test_task_hierarchy.py`, `task-outline.test.mjs`, and
+`test_task_hierarchy_browser.py`) cover old-board migration, subtree assignment,
+cycle/depth/stale-move rejection with rollback, independent sibling/column order,
+parent deletion/demotion, CLI subtree reads/moves, and database snapshot round trips.
+Both browser engines exercise inline names, preserved draft/caret during agent
+polls, explicit conflict review, Tab/Shift+Tab indentation, Alt+arrow ordering,
+keyboard/checklist creation, sibling ordering by dragging titles, drag exclusion
+for row controls, text-free drop previews, cross-parent drag rejection,
+shared Ctrl+click/context actions, clickable references/card popups, and
+discussion/task sidebar resize/collapse/restoration in both themes and narrow panes.
+Task list journeys also exercise click to select, Enter or pen to open, double-click to rename, mouse
+caret placement, and folding an individual branch in both lists. Board-to-detail
+checks cover selection transfer and clearing, Markdown source editing, sanitized
+descriptions and comments, and document references. The board
+journey verifies insertion at the sidebar cursor, sidebar-only milestones,
+truncated filter labels with full hover text, status symbols, and filtered Done
+archiving with archived rows still visible and restorable in the plan.
+Drag previews are checked in Kanban, the sidebar, and card checklists. Browser
+checks sample moving neighbors and verify cancellation, reduced motion, and
+saved placement.
+
+`task-dialog.test.mjs` protects complete backdrop-click gestures, all four edges,
+text-selection gestures, pointer cancellation, and Escape dismissal. The
+Chromium/Firefox `test_task_popup_browser.py` journeys exercise measured popup
+geometry in light/dark themes from 390px to 1600px wide, editable headings without
+duplicate title fields, draft-preserving dismissal/reopening, Cancel/Save behavior,
+reference navigation, native modal focus boundaries and restoration after polls,
+multiline Unicode headings, required-name validation, checklist context menus and
+completion feedback in the modal layer, and internal scrolling above a stable
+visible board. Hierarchy creation waits for
+the previous detail to close and scopes its Title locator to the create dialog.
+`test_tasks_browser.py` checks animated completion with reduced motion and
+sound muted, plus compact columns with zero, one, or several cards.
+
+`test_task_controls_browser.py` exercises compact symbol-bearing metadata below
+the editable heading and above Description, header icon Save/archive/restore/delete
+behavior, confirmation and surviving-child handling, independent per-card/plan
+collapse state, branch controls, preserved drafts and collapse through
+agent polling and tab switches, and toolbar/control geometry in both themes down
+to 390px. Fast outline tests cover local top-level collapse without mutating data
+or order, newly added descendants, and archived ancestor context.

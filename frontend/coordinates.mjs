@@ -12,7 +12,13 @@ export function editorUnitsToRawUnits(text, units) {
   }
   return text.length;
 }
-export function rawUnitsToCodePoints(text, units) {return Array.from(text.slice(0, units)).length;}
+export function rawUnitsToCodePoints(text, units = text.length) {
+  const prefix = units === text.length ? text : text.slice(0, units);
+  const pairs = /[\uD800-\uDBFF][\uDC00-\uDFFF]/g;
+  let count = prefix.length;
+  while (pairs.test(prefix)) count--;
+  return count;
+}
 export function editorUnitsToCodePoints(text, units) {
   return rawUnitsToCodePoints(text, editorUnitsToRawUnits(text, units));
 }

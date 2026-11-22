@@ -1,4 +1,4 @@
-import {isZenShortcut} from './keyboard-shortcuts.mjs';
+import {fileHistoryDirection,isZenShortcut} from './keyboard-shortcuts.mjs';
 import {resolveRenderedPassage} from './passages.mjs';
 import {htmlTextMap} from './html-text-map.mjs';
 // Runs inside the opaque-origin report. Never receives application credentials.
@@ -207,6 +207,8 @@ document.addEventListener('selectionchange',()=>capture());
 document.addEventListener('pointerup',()=>setTimeout(capture,0));
 document.addEventListener('keydown',event=>{
   readingPosition=null;readingGesture=null;
+  const direction = fileHistoryDirection(event);
+  if (direction) {event.preventDefault();event.stopPropagation();send('file-history',{direction});return;}
   if(event.key==='Escape')send('exit-spotlight');
   if(isZenShortcut(event)){event.preventDefault();event.stopPropagation();send('zen');return;}
   if(event.altKey&&!event.ctrlKey&&!event.metaKey&&event.key.toLowerCase()==='q'){event.preventDefault();event.stopPropagation();send('collapse-files');return;}

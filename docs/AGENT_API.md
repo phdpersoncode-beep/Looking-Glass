@@ -368,3 +368,32 @@ quote, rectangles, and version. `PATCH /api/threads/<id>` with `pdf_anchor` and
 current `version` explicitly reattaches a PDF passage while retaining its
 immutable original quote. PDF CLI creation/reattachment currently requires
 these API calls; the source-offset CLI commands apply to text files.
+
+## Shared planning
+
+Use `looking-glass tasks` or the token-protected `/api/tasks` endpoints to plan alongside people. Read the board revision before changing cards; stale writes return 409. See [Tasks](TASKS.md) for the full CLI and API contract.
+
+Card references such as `C01` are accepted by `tasks` commands (quote `'#C01'` in a shell). Use `tasks activity C01`, `tasks comment C01 --author Agent --body-file reply.md`, and `tasks delete-activity C01 ENTRY_ID` for the card conversation. Activity is read separately from board snapshots; field changes generate updates automatically. See [Tasks](TASKS.md#comments-and-activity).
+
+Milestones use saved #M numbers. Use `tasks list --query M12` to resolve #M12, then
+use the permanent `card_reference` for read/write commands. The sidebar reorders
+milestones through the `milestone_move` action with `id` and `before` (an active
+milestone ID or null to append). The action reassigns existing active numbers in
+order and logs the changes. Archived numbers stay reserved.
+The sidebar can insert a milestone with `create`, `milestone: true`, and
+`before` using the same placement rules. The board sends `archive_done` with
+the Done column's visible task IDs. Only active, completed tasks can be archived
+by this action.
+
+Each card also has `parent_id` and `outline_position` for the editable task sidebar
+and checklists. Subitems are full cards; descendants inherit `milestone_id` from
+their root milestone. Use `tasks create 'Subitem' --parent-id C02`,
+`tasks update C03 --revision N --parent-id C02`, or
+`tasks outline-move C03 --revision N --parent-id C02 --before C04`.
+Use parent 0 for the root; omit `--before` to append. The API action is
+`outline_move` with `ids`, `parent_id` (integer/null), and `before` (integer/null).
+Task outline order is separate from column order; milestones stay at the root and
+sort by number. `tasks read` includes the card's complete subtree. Cycles, nesting
+milestones, and stale moves are rejected atomically. See [Task outline](TASKS.md#task-outline-and-keyboard-editing).
+Snapshot `reference` is the display label; `card_reference` always retains the #C
+identity. Existing displayed numbers are preserved on upgrade.

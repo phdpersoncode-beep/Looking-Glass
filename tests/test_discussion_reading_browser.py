@@ -6,12 +6,195 @@ from test_requested_features import workspace_page,open_file
 pytestmark=[pytest.mark.browser,pytest.mark.skipif(not os.environ.get('LOOKING_GLASS_BROWSER'),reason='Set LOOKING_GLASS_BROWSER')]
 
 
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_amber_dot_tracks_unviewed_discussion_activity(workspace_page):
+    from playwright.sync_api import expect
+    root, page, url, ws = workspace_page
+    text = 'First passage.\n\nSecond passage.\n'
+    (root / 'note.md').write_text(text)
+    version = ws.read('note.md')['version']
+    first = ws.create_thread('note.md', 0, 14, 'First comment', 'Agent', version)['id']
+    second = ws.create_thread('note.md', 16, 31, 'Second comment', 'Agent', version)['id']
+    (root / 'other.md').write_text('Another file.\n')
+    other = ws.create_thread('other.md', 0, 7, 'Closed comment', 'Agent', ws.read('other.md')['version'])
+    ws.update_thread(other['id'], resolved=True)
+    page.goto(url)
+    open_file(page, 'note.md')
+    page.set_viewport_size({'width': 1050, 'height': 760})
+    first_card = page.locator(f'.thread[data-thread="{first}"]')
+    second_card = page.locator(f'.thread[data-thread="{second}"]')
+    first_dot = first_card.get_by_role('img', name='Unviewed update')
+    second_dot = second_card.get_by_role('img', name='Unviewed update')
+    unread = page.locator('#thread-unread')
+    summary_dot = unread.locator('.thread-update-dot')
+    expect(first_dot).to_be_visible()
+    expect(second_dot).to_be_visible()
+    expect(unread).to_have_text('2 unread')
+    expect(summary_dot).to_be_visible()
+    assert unread.evaluate('''el => {
+        const badge = el.getBoundingClientRect();
+        const totals = document.querySelector('#thread-total').getBoundingClientRect();
+        return badge.left > totals.right && Math.abs(badge.top - totals.top) <= 1;
+    }''')
+    light = first_dot.evaluate('el => getComputedStyle(el).backgroundColor')
+    assert summary_dot.evaluate('el => getComputedStyle(el).backgroundColor') == light
+    page.locator('#theme').click()
+    dark = first_dot.evaluate('el => getComputedStyle(el).backgroundColor')
+    assert dark != light and summary_dot.evaluate('el => getComputedStyle(el).backgroundColor') == dark
+    page.locator('#discussion-resize').press('Home')
+    assert unread.evaluate('''el =>
+        el.getBoundingClientRect().right <= el.closest('.thread-totals').getBoundingClientRect().right
+    ''')
+
+    scope = page.locator('#thread-scope')
+    scope.check()
+    expect(unread).to_have_text('3 unread')
+    page.locator('#thread-search').fill('First comment')
+    expect(page.locator('#thread-search-status')).to_contain_text('1 match')
+    expect(unread).to_have_text('3 unread')
+    page.locator('#thread-search-clear').click()
+    scope.uncheck()
+    expect(unread).to_have_text('2 unread')
+    first_card.locator('.thread-heading .jump').click()
+    expect(first_dot).to_have_count(0)
+    expect(unread).to_have_text('1 unread')
+    page.locator('#all-discussions').click()
+    expect(second_dot).to_be_visible()
+    first_card.get_by_role('button', name=f'Collapse thread {first}').click()
+    page.reload()
+    expect(first_card.get_by_role('button', name=f'Expand thread {first}')).to_be_visible()
+    expect(first_dot).to_have_count(0)
+    expect(second_dot).to_be_visible()
+    expect(unread).to_have_text('1 unread')
+
+    # Anchor movement alone leaves the viewed revision intact.
+    ws.save('note.md', 'Intro.\n\n' + text, version)
+    expect(page.locator('.cm-content')).to_contain_text('Intro.')
+    expect(first_dot).to_have_count(0)
+
+    ws.reply(first, 'External reply', 'Agent')
+    expect(first_dot).to_be_visible(timeout=8000)
+    expect(unread).to_have_text('2 unread')
+    first_card.get_by_role('button', name=f'Expand thread {first}').click()
+    expect(first_card.get_by_text('External reply')).to_be_visible()
+    expect(first_dot).to_have_count(0)
+    expect(unread).to_have_text('1 unread')
+    reply = first_card.locator('textarea')
+    reply.fill('Unsent draft')
+    reply.evaluate('el => el.setSelectionRange(1, 5)')
+    message = ws.get_thread(first)['messages'][-1]['id']
+    ws.edit_message(first, message, 'Edited external reply')
+    expect(first_card.get_by_text('Edited external reply')).to_be_visible(timeout=8000)
+    expect(first_dot).to_be_visible()
+    expect(unread).to_have_text('2 unread')
+    expect(reply).to_be_focused()
+    expect(reply).to_have_value('Unsent draft')
+    assert reply.evaluate('el => [el.selectionStart, el.selectionEnd]') == [1, 5]
+    first_card.locator('.thread-heading .jump').click()
+    expect(first_dot).to_have_count(0)
+    page.reload()
+    expect(first_card.get_by_text('Edited external reply')).to_be_visible()
+    expect(first_dot).to_have_count(0)
+    expect(second_dot).to_be_visible()
+    expect(unread).to_have_text('1 unread')
+    other_tab = page.context.new_page()
+    try:
+        other_tab.goto(url)
+        other_card = other_tab.locator(f'.thread[data-thread="{second}"]')
+        expect(other_card.get_by_role('img', name='Unviewed update')).to_be_visible()
+        other_card.locator('.thread-heading .jump').click()
+        expect(second_dot).to_have_count(0)
+        expect(unread).to_be_hidden()
+    finally:
+        other_tab.close()
+
+
 def endpoint(locator,offset):
     return locator.evaluate('''(host,offset)=>{
       const walker=document.createTreeWalker(host,NodeFilter.SHOW_TEXT);let node;
       while((node=walker.nextNode())){if(offset<node.length){const range=document.createRange();range.setStart(node,offset);range.setEnd(node,offset+1);const r=range.getClientRects()[0];return {x:r.left+.5,y:(r.top+r.bottom)/2}}offset-=node.length}
       throw new Error('Text endpoint missing');
     }''',offset)
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_own_replies_do_not_mark_discussion_unread(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    (root/'note.md').write_text('First passage.\n\nA second passage.')
+    version=ws.read('note.md')['version']
+    first=ws.create_thread('note.md',0,14,'External opening comment','Agent',version)['id']
+    page.goto(url);open_file(page,'note.md')
+    card=page.locator(f'.thread[data-thread="{first}"]')
+    dot=card.locator('.thread-update')
+    unread=page.locator('#thread-unread')
+    expect(dot).to_be_visible()
+    card.locator('.thread-heading .jump').click()
+    expect(unread).to_be_hidden()
+    reply=card.get_by_role('textbox',name=f'Reply to thread {first}')
+    for body in ('My first reply','My second reply'):
+        reply.fill(body)
+        if body=='My second reply':
+            card.locator('.attach-files').set_input_files({
+                'name':'note.txt','mimeType':'text/plain','buffer':b'Local attachment',
+            })
+        reply.press('Control+Enter')
+        expect(card.get_by_text(body,exact=True)).to_be_visible()
+        expect(dot).to_be_hidden()
+        expect(unread).to_be_hidden()
+    # External activity can share the local display name and must remain
+    # unread even if another local reply is sent before it has been opened.
+    ws.reply(first,'External reply with the same name','User')
+    reply.fill('My reply after external activity');reply.press('Control+Enter')
+    expect(card.get_by_text('My reply after external activity',exact=True)).to_be_visible()
+    expect(card.get_by_text('External reply with the same name',exact=True)).to_be_visible()
+    expect(dot).to_be_visible()
+    expect(unread).to_have_text('1 unread')
+    card.locator('.thread-heading .jump').click()
+    expect(unread).to_be_hidden()
+    card.get_by_role('button',name='Edit comment',exact=True).last.click()
+    page.locator('#edit-comment-body').fill('My edited reply')
+    page.locator('#edit-comment-form button[type=submit]').click()
+    expect(card.get_by_text('My edited reply',exact=True)).to_be_visible()
+    expect(dot).to_be_hidden()
+    page.reload();open_file(page,'note.md')
+    expect(card.get_by_text('My edited reply',exact=True)).to_be_visible()
+    expect(unread).to_be_hidden()
+    page.locator('.cm-line',has_text='A second passage.').click()
+    page.keyboard.press('End');page.keyboard.press('Shift+Home')
+    page.locator('#annotate').click()
+    page.locator('#comment-body').fill('My new discussion')
+    page.locator('#comment-submit').click()
+    own=page.locator('.thread').filter(has_text='My new discussion')
+    expect(own).to_be_visible()
+    expect(own.locator('.thread-update')).to_be_hidden()
+    expect(unread).to_be_hidden()
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_markdown_todo_style_survives_passage_highlights(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    text='TODO: finish the first draft. **TODO**? `TODO`! TODO_1 and TODOs.\n\n```python\nTODO = True\n```\n'
+    (root/'note.md').write_text(text)
+    thread=ws.create_thread('note.md',0,2,'**TODO**: discuss the draft','Agent',ws.read('note.md')['version'])
+    ws.reply(thread['id'],'A `TODO` in a reply. See @TODO.md.','Agent')
+    page.goto(url);open_file(page,'note.md')
+    todo=page.locator('#surface .md-todo')
+    for mode in ('live','preview'):
+        page.locator('#mode').select_option(mode)
+        expect(todo.first).to_be_visible()
+        assert ''.join(todo.all_text_contents())=='TODOTODOTODO'
+        colors=todo.first.evaluate('''el=>{
+          const actual=getComputedStyle(el),sample=document.createElement('span');
+          sample.style.cssText='font-family:var(--mono);color:var(--purple)';el.append(sample);
+          const expected=getComputedStyle(sample),result=[actual.fontFamily===expected.fontFamily,actual.color===expected.color];
+          sample.remove();return result;
+        }''')
+        assert all(colors)
+        expect(page.locator('#surface .passage-highlight[data-anchor]').first).to_have_text('TO')
+    expect(page.locator('#threads .comment-markdown .md-todo')).to_have_text(['TODO','TODO','TODO'])
+    expect(page.locator('#threads [data-file-reference="TODO.md"]')).to_have_text('@TODO.md')
 
 
 @pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
@@ -323,7 +506,7 @@ def test_spotlight_removal_and_tab_change_restore_list(workspace_page):
 
 
 @pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
-def test_resolving_spotlight_in_zen_navigates_to_next_open_thread(workspace_page):
+def test_resolving_spotlight_in_zen_preserves_passage_and_arrow_focus(workspace_page):
     from playwright.sync_api import expect
     root,page,url,ws=workspace_page
     text='First passage.\n\n'+'Filler text.\n\n'*80+'Final passage.\n'
@@ -334,8 +517,10 @@ def test_resolving_spotlight_in_zen_navigates_to_next_open_thread(workspace_page
     pane=page.locator('.cm-scroller');before=pane.evaluate('el=>el.scrollTop')
     page.locator('#surface .passage-highlight').filter(has_text='First').first.click()
     page.locator('.thread.active [data-action=resolve]').click()
-    expect(page.locator('.thread.active')).to_have_attribute('data-resolved','false')
+    expect(page.locator('.thread.active')).to_have_attribute('data-resolved','true')
     expect(page.locator('#passage-spotlight')).to_be_visible()
+    assert abs(pane.evaluate('el=>el.scrollTop')-before)<2
+    page.keyboard.press('ArrowRight')
     expect(page.locator('.thread.active')).to_have_attribute('data-thread',str(last['id']))
     expect(page.locator('.focused-highlight')).to_have_text('Final')
     expect(page.locator('.focused-highlight')).to_be_in_viewport()

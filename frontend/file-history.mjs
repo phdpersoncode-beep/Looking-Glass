@@ -36,10 +36,11 @@ export function mountFileHistory(host,history,{navigate,save}){
     if(!entries.length){const empty=document.createElement('p');empty.textContent='No recent files';fragment.append(empty);}
     list.replaceChildren(fragment);
   }
-  back.onclick=()=>open(history.target(-1));forward.onclick=()=>open(history.target(1));
+  const step = delta => open(history.target(delta));
+  back.onclick=()=>step(-1);forward.onclick=()=>step(1);
   clear.onclick=()=>{history.clear();save(history.snapshot);render();};
   menu.addEventListener('toggle',render);
   menu.addEventListener('keydown',event=>{if(event.key==='Escape'&&menu.open){event.preventDefault();event.stopPropagation();menu.open=false;menu.querySelector('summary').focus();}});
   document.addEventListener('pointerdown',event=>{if(menu.open&&!host.contains(event.target))menu.open=false;});
-  render();return {render,remember(){save(history.snapshot);render();}};
+  render();return {step,render,remember(){save(history.snapshot);render();}};
 }

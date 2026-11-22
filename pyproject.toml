@@ -12,7 +12,8 @@ dependencies = [
     "Flask>=3.1,<4",
     "pypdf>=6,<7",
     "pathspec>=1.1,<2",
-    "pillow>=11,<13",
+    "pillow>=11,<13; python_version < '3.11'",
+    "pillow>=13,<14; python_version >= '3.11'",
 ]
 
 [dependency-groups]
@@ -25,7 +26,16 @@ looking-glass = "looking_glass.cli:main"
 include = ["looking_glass*"]
 
 [tool.setuptools.package-data]
-looking_glass = ["templates/*.html", "static/*", "static/pdf-cmaps/*", "static/pdf-fonts/*", "static/pdf-wasm/*"]
+looking_glass = [
+    "templates/*.html",
+    "static/*",
+    "static/pdf-cmaps/*",
+    "static/pdf-fonts/*",
+    "static/pdf-wasm/*",
+    "skills/*/SKILL.md",
+    "skills/*/references/*.md",
+    "skills/*/scripts/*.py",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

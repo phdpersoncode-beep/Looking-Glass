@@ -2,6 +2,7 @@
 import argparse
 from contextlib import ExitStack
 import json
+import re
 import sqlite3
 import sys
 from pathlib import Path
@@ -52,6 +53,13 @@ def source_selection(parser, file, quote, occurrence):
     return dict(start=start, end=start+len(quote), version=file['version'])
 
 
+def card_id(value):
+    match = re.fullmatch(r'(?:#?[Cc])?(\d+)', value)
+    if not match:
+        raise argparse.ArgumentTypeError('Use a card number or a reference such as #C12.')
+    return int(match[1])
+
+
 def build_parser():
     parser = argparse.ArgumentParser(
         prog='looking-glass', description='Open local projects and review anchored discussions with coding agents.',
@@ -95,6 +103,59 @@ def build_parser():
                    'Inspect a running project. Omit the directory to infer the nearest project from the current directory.')
     show.add_argument('directory', nargs='?', type=Path, help='Project directory; defaults to the nearest project ancestor.')
     show.add_argument('--url', help='Override the registered HTTP loopback server address.')
+
+    tasks = command(sub, 'tasks', 'Read and change the shared task board.',
+                    'looking-glass tasks --root ~/project list')
+    tasks.add_argument('--root', type=Path)
+    tasks.add_argument('--url')
+    task_ops = tasks.add_subparsers(dest='operation', required=True)
+    task_list = task_ops.add_parser('list', help='Return board revision and cards as JSON.')
+    task_list.add_argument('--status', choices=('backlog','in_progress','to_review','done'))
+    task_list.add_argument('--milestone-id', type=card_id, help='Include this milestone and its tasks.')
+    task_list.add_argument('--query', help='Fuzzy subsequence search across title and description.')
+    task_list.add_argument('--archived', action='store_true', help='Include archived cards.')
+    task_read = task_ops.add_parser('read', help='Read one card and its child tasks.')
+    task_read.add_argument('id', type=card_id)
+    task_create = task_ops.add_parser('create', help='Create a task in backlog or a chosen column.')
+    task_create.add_argument('title')
+    task_create.add_argument('--author', default='Agent')
+    task_create.add_argument('--status', choices=('backlog','in_progress','to_review','done'), default='backlog')
+    task_create.add_argument('--parent-id', type=card_id, help='Create a checklist subitem under this card.')
+    for operation in ('update', 'delete', 'move', 'outline-move'):
+        task_op = task_ops.add_parser(operation, help='Change cards with a required board revision from list/read.')
+        task_op.add_argument('ids', nargs='+', type=card_id)
+        task_op.add_argument('--author', default='Agent')
+        task_op.add_argument('--revision', required=True, type=int)
+        if operation == 'update':
+            task_op.add_argument('--title')
+            task_op.add_argument('--description-file', type=Path, help='UTF-8 description; - reads stdin.')
+            task_op.add_argument('--status', choices=('backlog','in_progress','to_review','done'))
+            task_op.add_argument('--milestone', action=argparse.BooleanOptionalAction, default=None)
+            task_op.add_argument('--milestone-id', type=card_id, help='Use 0 to unassign.')
+            task_op.add_argument('--parent-id', type=card_id, help='Nest under a card; use 0 for the top level.')
+            task_op.add_argument('--archived', action=argparse.BooleanOptionalAction, default=None)
+        elif operation == 'move':
+            task_op.add_argument('--status', required=True, choices=('backlog','in_progress','to_review','done'))
+            task_op.add_argument('--before', type=card_id)
+        elif operation == 'outline-move':
+            task_op.add_argument('--parent-id', type=card_id, default=0)
+            task_op.add_argument('--before', type=card_id)
+
+    activity = task_ops.add_parser('activity', help='Read a card conversation and automatic updates.')
+    activity.add_argument('id', type=card_id)
+    activity.add_argument('--limit', type=int, default=100)
+    activity.add_argument('--before', type=int, help='Read entries older than this activity entry ID.')
+    comment = task_ops.add_parser('comment', help='Append a card comment without overwriting concurrent edits.')
+    comment.add_argument('id', type=card_id)
+    comment.add_argument('--author', default='Agent')
+    comment_body = comment.add_mutually_exclusive_group(required=True)
+    comment_body.add_argument('--body')
+    comment_body.add_argument('--body-file', type=Path)
+    comment_body.add_argument('--body-stdin', action='store_true')
+    delete_activity = task_ops.add_parser('delete-activity', help='Delete one comment or update belonging to a card.')
+    delete_activity.add_argument('id', type=card_id)
+    delete_activity.add_argument('entry_id', type=int)
+    delete_activity.add_argument('--author', default='Agent')
 
     agent = command(sub, 'agent', 'Read, search, and update discussions through the local HTTP API.',
                     'looking-glass agent --root ~/project list --status open',
@@ -213,6 +274,10 @@ def main(argv=None):
             return
         if args.command == 'database':
             from . import database
+            # SQL and JSON are portable UTF-8 payloads even when redirected
+            # standard streams default to a legacy locale encoding.
+            if hasattr(sys.stdout, 'reconfigure'):
+                sys.stdout.reconfigure(encoding='utf-8', errors='strict', newline='\n')
             root = project_root(args.root)
             if args.operation == 'dump':
                 if str(args.output) == '-':
@@ -221,6 +286,8 @@ def main(argv=None):
                     database.dump_file(root, args.output)
                 return
             if args.operation == 'restore':
+                if str(args.input) == '-' and hasattr(sys.stdin, 'reconfigure'):
+                    sys.stdin.reconfigure(encoding='utf-8', errors='strict')
                 sql = sys.stdin.read() if str(args.input) == '-' else args.input.expanduser().read_text(encoding='utf-8')
                 result = database.restore(root, sql, force=args.force)
             else:
@@ -234,7 +301,67 @@ def main(argv=None):
         def call(route, method='GET', data=None):
             return api(root, url, route, method, data)
 
-        if args.command == 'projects':
+        if args.command == 'tasks':
+            if args.operation in ('list', 'read', 'create'):
+                result = call('tasks')
+                if args.operation == 'list':
+                    def matches(card):
+                        text = iter((card['title'] + ' ' + card['description']).lower())
+                        query = (args.query or '').strip()
+                        if re.fullmatch(r'#?[Mm]\d+', query):
+                            return card.get('milestone_reference') == '#M' + str(int(re.sub(r'^#?[Mm]', '', query)))
+                        if re.fullmatch(r'#?[Cc]\d+', query):
+                            return card['id'] == card_id(query)
+                        return all(char in text for char in query.lower())
+                    result['cards'] = [card for card in result['cards']
+                                       if (args.archived or not card['archived'])
+                                       and (not args.status or card['status'] == args.status)
+                                       and (args.milestone_id is None or card['id'] == args.milestone_id or card['milestone_id'] == args.milestone_id)
+                                       and matches(card)]
+                elif args.operation == 'read':
+                    descendants = {args.id}
+                    for _ in range(32):
+                        descendants.update(card['id'] for card in result['cards'] if card['parent_id'] in descendants)
+                    result['cards'] = [card for card in result['cards'] if card['id'] in descendants]
+                    if not any(card['id'] == args.id for card in result['cards']):
+                        raise ValueError('Card does not exist.')
+                elif args.operation == 'create':
+                    result = call('tasks', 'POST', dict(action='create', revision=result['revision'], title=args.title, status=args.status, parent_id=args.parent_id or None, author=args.author))
+            elif args.operation == 'activity':
+                query = {'limit':args.limit}
+                if args.before is not None:
+                    query['before'] = args.before
+                result = call(f'tasks/{args.id}/activity?' + urlencode(query))
+            elif args.operation in ('comment', 'delete-activity'):
+                data = dict(action=args.operation.replace('-', '_'), id=args.id, author=args.author)
+                if args.operation == 'comment':
+                    if args.body_file and str(args.body_file) != '-':
+                        data['body'] = args.body_file.expanduser().read_text(encoding='utf-8')
+                    elif args.body_stdin or args.body_file:
+                        data['body'] = sys.stdin.read()
+                    else:
+                        data['body'] = args.body
+                else:
+                    data['entry_id'] = args.entry_id
+                result = call('tasks', 'POST', data)
+            else:
+                data = dict(action=args.operation, ids=args.ids, revision=args.revision, author=args.author)
+                if args.operation == 'update':
+                    changes = {key:getattr(args,key) for key in ('title','status','milestone','milestone_id','archived','parent_id') if getattr(args,key) is not None}
+                    for key in ('milestone_id','parent_id'):
+                        if key in changes:
+                            changes[key] = changes[key] or None
+                    if args.description_file:
+                        changes['description'] = sys.stdin.read() if str(args.description_file) == '-' else args.description_file.read_text(encoding='utf-8')
+                    data['changes'] = changes
+                elif args.operation == 'move':
+                    if len(args.ids) != 1:
+                        raise ValueError('Move takes exactly one card ID; use update --status for bulk moves.')
+                    data.update(id=args.ids[0], status=args.status, before=args.before)
+                elif args.operation == 'outline-move':
+                    data.update(action='outline_move',parent_id=args.parent_id or None,before=args.before)
+                result = call('tasks', 'POST', data)
+        elif args.command == 'projects':
             result = call('workspace')
             result.update(url=url, reachable=True, thread_counts={
                 status:call('threads?' + urlencode({'status':status, 'limit':1}))['total']

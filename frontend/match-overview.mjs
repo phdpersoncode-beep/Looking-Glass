@@ -31,6 +31,11 @@ export async function collectOccurrenceBands(state,{current=()=>true,pause=()=>n
   }
   return current()?positions:null;
 }
+export function overviewLayout(view,positions){
+  const scroll=view.scrollDOM.getBoundingClientRect(),editor=view.dom.getBoundingClientRect();
+  const height=scroll.height,extent=Math.max(1,view.contentHeight,height),travel=Math.max(0,height-6);
+  return {top:scroll.top-editor.top,height,points:positions.map(p=>Math.max(0,Math.min(travel,view.lineBlockAt(p.from).top/extent*travel)))};
+}
 export const matchOverview=ViewPlugin.fromClass(class{
   constructor(view){
     this.view=view;this.positions=[];this.serial=0;
@@ -45,7 +50,7 @@ export const matchOverview=ViewPlugin.fromClass(class{
     for(const match of this.positions){const b=document.createElement('button');b.type='button';b.className='cm-match-marker';b.title='Match at line '+match.line;b.setAttribute('aria-label','Matching text, line '+match.line);b.onpointerdown=e=>e.preventDefault();b.onclick=()=>{if(serial!==this.serial)return;this.view.dispatch({selection:{anchor:match.from,head:match.to},effects:EditorView.scrollIntoView(match.from,{y:'center'})});this.view.focus();};this.dom.append(b);}this.measure();
   }
   measure(){const positions=this.positions,serial=this.serial;if(!positions.length)return;
-    this.view.requestMeasure({key:this,read:view=>{if(serial!==this.serial||positions!==this.positions)return null;const scroll=view.scrollDOM.getBoundingClientRect(),editor=view.dom.getBoundingClientRect();return {top:scroll.top-editor.top,height:scroll.height,points:positions.map(p=>view.lineBlockAt(p.from).top/Math.max(1,view.contentHeight,scroll.height))};},write:layout=>{if(!layout||serial!==this.serial||positions!==this.positions)return;this.dom.style.top=layout.top+'px';this.dom.style.height=layout.height+'px';[...this.dom.children].forEach((el,i)=>el.style.top=Math.max(0,Math.min(layout.height-6,layout.points[i]*(layout.height-6)))+'px');}});
+    this.view.requestMeasure({key:this,read:view=>serial===this.serial&&positions===this.positions?overviewLayout(view,positions):null,write:layout=>{if(!layout||serial!==this.serial||positions!==this.positions)return;this.dom.style.top=layout.top+'px';this.dom.style.height=layout.height+'px';[...this.dom.children].forEach((el,i)=>el.style.top=layout.points[i]+'px');}});
   }
   destroy(){clearTimeout(this.timer);this.serial++;this.dom.remove();}
 });

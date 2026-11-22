@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {codePointsToEditorUnits,editorUnitsToRawUnits,rawUnitsToCodePoints,editorUnitsToCodePoints} from '../frontend/coordinates.mjs';
+
+test('counts Unicode code points at every UTF-16 boundary',()=>{
+ const text='A🪞\r\n\uD800B\uDC00é';
+ for(let at=0;at<=text.length;at++)assert.equal(rawUnitsToCodePoints(text,at),Array.from(text.slice(0,at)).length);
+ assert.equal(rawUnitsToCodePoints(text),Array.from(text).length);
+});
 import {resolveSourcePassage,resolveRenderedPassage,passageGroup} from '../frontend/passages.mjs';
 import {visibleMap,mappedMarkdownHTML} from '../frontend/markdown-source.mjs';
 

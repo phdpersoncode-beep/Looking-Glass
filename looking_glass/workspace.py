@@ -78,6 +78,8 @@ class Workspace:
         self.pdfs = PDFs(self)
         from .source_markers import SourceMarkers
         self.source_markers = SourceMarkers(self)
+        from .tasks import Tasks
+        self.tasks = Tasks(self)
 
     def connection(self):
         return self.store.connection()

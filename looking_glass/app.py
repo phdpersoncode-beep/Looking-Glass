@@ -16,6 +16,19 @@ from .instructions import agent_instructions as instructions_text
 from .projects import register_project
 
 
+def thread_activity(thread):
+    activity = [
+        thread['created_at'], thread['resolved'],
+        [(m['id'], m['created_at'], m['author'], m['body']) for m in thread['messages']],
+        thread['attachments'],
+    ]
+    return hashlib.sha256(json.dumps(activity, ensure_ascii=False).encode()).hexdigest()
+
+
+def comment_activity(thread, previous=None):
+    return dict(thread, activity=thread_activity(thread), previous_activity=previous)
+
+
 def create_app(root):
     app = Flask(__name__)
     app.config.update(MAX_CONTENT_LENGTH=10*1024*1024, TRUSTED_HOSTS=['127.0.0.1','localhost','[::1]'])
@@ -29,7 +42,9 @@ def create_app(root):
     def protect():
         if request.path.startswith('/api/images'):
             request.max_content_length=33*1024*1024
-        if request.method=='POST' and (request.path.endswith(('/attachments','/replies')) or request.path=='/api/threads'):
+        if request.method == 'POST' and (request.path.endswith(('/attachments', '/replies'))
+                or request.path == '/api/threads'
+                or (request.path == '/api/tasks' and request.mimetype == 'multipart/form-data')):
             request.max_content_length=65*1024*1024
         if request.path.startswith(('/api/', '/fragments/')):
             if not secrets.compare_digest(request.headers.get('X-Looking-Glass-Token',''), ws.token):
@@ -69,23 +84,24 @@ def create_app(root):
             raise Problem('Send a JSON object.')
         return data
 
-    def review_body():
+    def comment_body():
         if request.mimetype != 'multipart/form-data':
             return body(), []
         try:
             data = json.loads(request.form.get('data',''))
         except (TypeError,ValueError):
-            raise Problem('Send review data with the attachment files.')
+            raise Problem('Send comment data with the attachment files.')
         if not isinstance(data,dict): raise Problem('Send a JSON object.')
         files=request.files.getlist('files')
         if len(files)>16: raise Problem('Attach at most 16 files per comment.')
         for file in files: ws.attachments.name(file.filename)
         return data,files
 
-    def save_review(create, files, new_thread=False):
+    def save_review(create, files, new_thread=False, reply_to=None, review=None):
         # Roll back the new comment and its files on an upload failure. Keep the
         # user's existing discussion untouched; the composer can retry safely.
         with ws.lock:
+            previous = thread_activity(ws.get_thread(reply_to, review=review)) if reply_to is not None else None
             thread=create(bool(files));message_id=thread['messages'][-1]['id']
             try:
                 from .attachments import MAX_ATTACHMENT
@@ -99,7 +115,7 @@ def create_app(root):
                 if new_thread: ws.delete_thread(thread['id'])
                 else: ws.delete_message(thread['id'],message_id)
                 raise
-            return ws.get_thread(thread['id'])
+            return comment_activity(ws.get_thread(thread['id']), previous)
 
     @app.get('/')
     def index():
@@ -148,6 +164,31 @@ def create_app(root):
     def agent_instructions():
         return jsonify(instructions=instructions_text(ws.root, request.host_url.rstrip('/')))
 
+    @app.get('/api/tasks')
+    def task_board():
+        board = ws.tasks.read(request.args.get('revision', type=int))
+        return ('', 304) if board is None else jsonify(board)
+
+    @app.get('/api/tasks/<int:identifier>/activity')
+    def task_activity(identifier):
+        activity = ws.tasks.activity(identifier, limit=request.args.get('limit', 100, type=int),
+                                     before=request.args.get('before', type=int), known_revision=request.args.get('revision', type=int))
+        return ('', 304) if activity is None else jsonify(activity)
+
+    @app.post('/api/tasks')
+    def change_task_board():
+        data, files = comment_body()
+        board = ws.tasks.comment_with_attachments(data, files) if files else ws.tasks.mutate(data)
+        return jsonify(board)
+
+    @app.get('/api/task-attachments/<int:entry_id>/<int:identifier>')
+    def download_task_attachment(entry_id, identifier):
+        item = ws.tasks.attachment(entry_id, identifier)
+        path = ws.attachments.directory / item['storage_key']
+        if not path.is_file():
+            raise Problem('Attachment file not found.', 404)
+        return send_file(path, mimetype=item['media_type'], as_attachment=True, download_name=item['name'])
+
     @app.get('/api/project')
     def project():
         return jsonify(root=str(ws.root))
@@ -177,6 +218,8 @@ def create_app(root):
         tag=hashlib.sha256(json.dumps([items,index],ensure_ascii=False).encode()).hexdigest()
         if request.if_none_match.contains(tag):
             return Response(status=304,headers={'ETag':'"'+tag+'"'})
+        for thread in items:
+            thread['activity'] = thread_activity(thread)
         response=jsonify(threads=items,index=index,html=render_template('threads.html',threads=items,all_files=all_files,active=None))
         response.set_etag(tag)
         return response
@@ -426,7 +469,7 @@ def create_app(root):
 
     @app.post('/api/threads')
     def new_thread():
-        data,files = review_body()
+        data,files = comment_body()
         if 'git_target' in data:
             if any(key in data for key in ('path','start','end','render_anchor','pdf_anchor')):
                 raise Problem('Choose either a Git target or a file passage.')
@@ -466,12 +509,16 @@ def create_app(root):
 
     @app.post('/api/threads/<int:identifier>/replies')
     def reply(identifier):
-        data,files = review_body()
-        return jsonify(save_review(lambda empty:ws.reply(identifier,data.get('body'),data.get('author'),allow_empty=empty,review=data.get('review_id')),files)),201
+        data,files = comment_body()
+        review = data.get('review_id')
+        return jsonify(save_review(lambda empty:ws.reply(identifier,data.get('body'),data.get('author'),allow_empty=empty,review=review),files,reply_to=identifier,review=review)),201
 
     @app.patch('/api/threads/<int:identifier>/messages/<int:message_id>')
     def edit_message(identifier,message_id):
-        return jsonify(ws.edit_message(identifier,message_id,body().get('body')))
+        text = body().get('body')
+        with ws.lock:
+            previous = thread_activity(ws.get_thread(identifier))
+            return jsonify(comment_activity(ws.edit_message(identifier,message_id,text),previous))
 
     @app.patch('/api/threads/<int:identifier>')
     def update_thread(identifier):
@@ -516,7 +563,8 @@ def create_app(root):
 
     @app.post('/api/images/<identifier>/comments')
     def image_comment(identifier):
-        return jsonify(ws.images.comment(identifier, body())), 201
+        with ws.lock:
+            return jsonify(comment_activity(ws.images.comment(identifier, body()))), 201
 
     @app.patch('/api/images/<identifier>/comments/<int:thread_id>')
     def move_image_comment(identifier, thread_id):

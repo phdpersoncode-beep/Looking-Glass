@@ -43,7 +43,7 @@ def test_keyboard_hints_are_visible_without_hovering(workspace_page):
     page.locator('.thread .thread-heading [data-action=jump]').first.click()
     hints = page.locator('#spotlight-shortcuts')
     expect(hints).to_be_visible()
-    for text in ['←', '→', '↑', '↓', 'Threads', 'Search', 'Reply']:
+    for text in ['←', '→', '↑', '↓', 'Threads', 'Search', 'Reply', 'Ctrl+Enter', 'Resolve']:
         expect(hints).to_contain_text(text)
     assert page.locator('#thread-search').bounding_box()['y'] == search_y
 

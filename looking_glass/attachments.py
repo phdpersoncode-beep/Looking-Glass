@@ -1,4 +1,4 @@
-"""Thread-owned files: opaque storage keys, user-editable display names."""
+"""Comment attachments with opaque storage keys and user-facing filenames."""
 import secrets
 from pathlib import Path
 from .workspace import Problem
@@ -39,28 +39,41 @@ class Attachments:
         if not row: raise Problem('Attachment not found.',404)
         return dict(row)
 
+    def store(self, stream, name):
+        name = self.name(name)
+        key = secrets.token_hex(24)
+        path = self.directory / key
+        size = 0
+        output = path.open('xb')
+        try:
+            with output:
+                while chunk := stream.read(1024*1024):
+                    size += len(chunk)
+                    if size > MAX_ATTACHMENT:
+                        raise Problem('Attachments are limited to 64 MiB.', 413)
+                    output.write(chunk)
+        except BaseException:
+            path.unlink(missing_ok=True)
+            raise
+        media_type = IMAGE_TYPES.get(Path(name).suffix.lower(), 'application/octet-stream')
+        return key, name, size, media_type
+
     def add(self, thread_id, stream, name, message_id=None):
-        name=self.name(name)
         with self.ws.connection() as db:
             if not db.execute('SELECT id FROM threads WHERE id=?',(thread_id,)).fetchone():
                 raise Problem('Thread not found.',404)
-        key=secrets.token_hex(24);path=self.directory/key;size=0
+        key, name, size, media_type = self.store(stream, name)
         try:
-            with path.open('xb') as output:
-                while chunk := stream.read(1024*1024):
-                    size+=len(chunk)
-                    if size>MAX_ATTACHMENT: raise Problem('Attachments are limited to 64 MiB.',413)
-                    output.write(chunk)
             with self.ws.lock, self.ws.connection() as db:
                 if not db.execute('SELECT id FROM threads WHERE id=?',(thread_id,)).fetchone():
                     raise Problem('Thread not found.',404)
                 if message_id is not None and not db.execute('SELECT id FROM messages WHERE id=? AND thread_id=?',(message_id,thread_id)).fetchone():
                     raise Problem('Comment not found in this thread.',404)
                 cursor=db.execute('INSERT INTO attachments(thread_id,storage_key,name,size,media_type,message_id) VALUES(?,?,?,?,?,?)',
-                                  (thread_id,key,name,size,IMAGE_TYPES.get(Path(name).suffix.lower(),'application/octet-stream'),message_id))
+                                  (thread_id,key,name,size,media_type,message_id))
                 identifier=cursor.lastrowid
         except BaseException:
-            path.unlink(missing_ok=True)
+            (self.directory / key).unlink(missing_ok=True)
             raise
         return self.public(self.get(identifier))
 
