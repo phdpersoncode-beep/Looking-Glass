@@ -638,7 +638,9 @@ body.tasks-view .task-sidebar:not([hidden]){display:flex}
 #marker-section-content>:not(#marker-results),.file-section-content>:not(#file-tree){flex:none}
 #marker-section-content{display:flex;flex-direction:column;min-height:0;overflow:hidden}
 #marker-results{min-height:0;overflow:auto;scrollbar-width:thin}
-#marker-actions{padding:0 9px 4px}
+#marker-actions{flex-wrap:wrap;column-gap:1px;padding:0 7px 4px}
+#marker-actions button{width:20px}
+.marker-tag-filter{height:25px;padding:0 4px;font-size:11px}
 #marker-filter{width:calc(100% - 24px);margin-bottom:6px}
 .marker-status{margin:0;padding:3px 12px 8px;font-size:11px;color:var(--muted)}
 #marker-results:not(:empty){padding-bottom:7px}

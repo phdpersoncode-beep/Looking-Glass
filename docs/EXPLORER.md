@@ -8,10 +8,11 @@ marker count and matching comments. Select a marker to open its file at the tag.
 Markdown reading preview switches to source for the jump. A saved marker can
 still be located in an open draft if its line survives exactly once.
 
-Use the filter icon to match tag, text, or relative path. The tag
-control groups results by P0 through P3, TODO, and NOTE, keeping the folder
-hierarchy within each group. The stacked panels expand or collapse all branches.
-The refresh icon rescans saved files. Hover each control for its name.
+Choose **All tags** or a specific tag (P0 through P3, TODO, or NOTE) in the
+dropdown. Use the filter icon to search text, tags, or relative paths within
+that selection. The tag icon groups matches by tag and keeps the folder
+hierarchy within each group. Use the stacked minus and plus buttons to
+collapse or expand all branches. The refresh icon rescans saved files.
 
 When both trees are expanded, drag the divider between them to change their
 heights. The split is remembered per workspace. Focus the divider and use

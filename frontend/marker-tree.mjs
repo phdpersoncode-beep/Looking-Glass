@@ -27,13 +27,14 @@ function branch(name, kind, parent) {
   return {name, kind, key: (parent?.key ?? '') + '/' + name, folders: new Map(), files: [], count: 0};
 }
 
-function groupMatches(files, byTag, query) {
+function groupMatches(files, byTag, query, tag) {
   const root = branch('', 'root');
   const tags = new Map();
   for (const file of files) {
     const pathMatch = file.path.toLowerCase().includes(query);
-    const matches = pathMatch ? file.markers : file.markers.filter(
-      marker => (marker.kind + ' ' + marker.text).toLowerCase().includes(query)
+    const matches = !tag && pathMatch ? file.markers : file.markers.filter(
+      marker => (!tag || marker.kind === tag) &&
+        (pathMatch || (marker.kind + ' ' + marker.text).toLowerCase().includes(query))
     );
     if (!matches.length) continue;
     if (!byTag) {
@@ -82,10 +83,11 @@ export function mountMarkerTree({root, read, open}) {
   const panels = $('file-explorers');
   const storageKey = 'looking-glass-marker-tree:' + root;
   let snapshot, etag, loading = false, pending = false, error = '';
-  let byTag = false, filterTimer, query = '';
+  let byTag = false, filterTimer, query = '', tag = '';
   const browse = {expanded: false, overrides: new Map()};
   const filtered = {expanded: true, overrides: new Map()};
-  const expansion = () => query ? filtered : browse;
+  const isFiltered = () => Boolean(query || tag);
+  const expansion = () => isFiltered() ? filtered : browse;
 
   const actions = $('marker-actions');
   const search = iconButton('Filter markers', 'filter', () => {
@@ -104,20 +106,31 @@ export function mountMarkerTree({root, read, open}) {
     render();
   });
   group.setAttribute('aria-pressed', 'false');
-  const fold = iconButton('Expand all marker branches', 'expand', () => {
+  function setExpanded(expanded) {
     const state = expansion();
-    state.expanded = !state.expanded;
+    state.expanded = expanded;
     state.overrides.clear();
     render();
-  });
+  }
+  const collapse = iconButton('Collapse all marker branches', 'collapse', () => setExpanded(false));
+  const expand = iconButton('Expand all marker branches', 'expand', () => setExpanded(true));
   const reload = iconButton('Refresh markers', 'refresh', () => refresh(true));
-  actions.append(search, group, fold, reload);
+  const tagFilter = make('select', 'marker-tag-filter');
+  tagFilter.setAttribute('aria-label', 'Filter markers by tag');
+  for (const kind of ['', ...TAGS]) {
+    const option = make('option', '', kind || 'All tags');
+    option.value = kind;
+    tagFilter.append(option);
+  }
+  tagFilter.onchange = applyFilter;
+  actions.append(search, group, collapse, expand, reload, tagFilter);
 
   function applyFilter() {
     clearTimeout(filterTimer);
     const next = filter.value.trim().toLowerCase();
-    if (next === query) return;
+    if (next === query && tagFilter.value === tag) return;
     query = next;
+    tag = tagFilter.value;
     filtered.expanded = true;
     filtered.overrides.clear();
     render();
@@ -195,7 +208,7 @@ export function mountMarkerTree({root, read, open}) {
 
   function render() {
     if (panel.hidden) return;
-    const nodes = snapshot ? groupMatches(snapshot.files, byTag, query) : [];
+    const nodes = snapshot ? groupMatches(snapshot.files, byTag, query, tag) : [];
     const focusKey = document.activeElement?.dataset.markerKey;
     const top = results.scrollTop;
     results.replaceChildren(...nodes.map(node => renderBranch(node, 0)));
@@ -204,11 +217,6 @@ export function mountMarkerTree({root, read, open}) {
       const focused = results.querySelector('[data-marker-key="' + CSS.escape(focusKey) + '"]');
       (focused ?? toggle).focus({preventScroll: true});
     }
-    const expanded = expansion().expanded;
-    const label = expanded ? 'Collapse all marker branches' : 'Expand all marker branches';
-    fold.title = label;
-    fold.setAttribute('aria-label', label);
-    fold.replaceChildren(icon(expanded ? 'collapse' : 'expand'));
     renderStatus(nodes.length);
   }
 
@@ -216,13 +224,13 @@ export function mountMarkerTree({root, read, open}) {
     const messages = [];
     if (error) messages.push(error);
     else if (!snapshot) messages.push('Scanning workspace…');
-    else if (!nodes) messages.push(query ? 'No matching markers.' : 'No markers found.');
+    else if (!nodes) messages.push(isFiltered() ? 'No matching markers.' : 'No markers found.');
     if (snapshot?.truncated) messages.push('Marker results are limited.');
     status.textContent = messages.join(' ');
     status.hidden = !messages.length;
     count.textContent = snapshot ? String(snapshot.count) : '';
     count.hidden = !snapshot?.count;
-    fold.disabled = !nodes;
+    collapse.disabled = expand.disabled = !nodes;
   }
 
   function visible() {

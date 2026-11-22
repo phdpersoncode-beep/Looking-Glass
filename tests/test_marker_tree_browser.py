@@ -37,7 +37,14 @@ def test_marker_tree_sections_grouping_filter_and_saved_line_navigation(workspac
     expect(folder).to_be_visible()
     expect(page.locator('.marker-hit')).to_have_count(0)
     folder.click()
-    page.locator('#marker-results summary', has_text='app.py').click()
+    source = page.locator('#marker-results summary', has_text='app.py')
+    source.click()
+    expect(page.locator('.marker-hit')).to_have_count(1)
+    page.get_by_role('button', name='Collapse all marker branches').click()
+    expect(page.locator('#marker-results details[open]')).to_have_count(0)
+    expect(page.locator('.marker-hit')).to_have_count(0)
+    folder.click()
+    source.click()
     page.get_by_role('button', name='P0 Validate paths').click()
     expect(page.locator('#document-name')).to_have_text('src/app.py')
     expect(page.locator('.cm-activeLine')).to_contain_text('# P0: Validate paths')
@@ -87,6 +94,37 @@ def test_marker_tree_sections_grouping_filter_and_saved_line_navigation(workspac
 
 
 @pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_marker_tag_filter_combines_with_search_and_grouping(workspace_page):
+    root, page, url, _ = workspace_page
+    (root/'P1-notes.md').write_text(
+        'TODO: Check the P1 setup\n# P1: Update the setup\n# P1: Review tests\n# P2: Update the tests\n',
+        encoding='utf-8',
+    )
+    page.goto(url)
+    page.get_by_role('button', name='Marker Tree', exact=True).click()
+    expect(page.locator('#marker-count')).to_have_text('4')
+    tags = page.get_by_role('combobox', name='Filter markers by tag')
+    expect(tags.locator('option')).to_have_text(['All tags', 'P0', 'P1', 'P2', 'P3', 'TODO', 'NOTE'])
+    hits = page.locator('.marker-hit')
+    tags.select_option('P1')
+    expect(hits.locator('.marker-tag')).to_have_text(['P1', 'P1'])
+    page.get_by_role('button', name='Filter markers', exact=True).click()
+    query = page.get_by_role('searchbox', name='Filter markers')
+    query.fill('setup')
+    expect(hits.locator('.marker-label')).to_have_text(['Update the setup'])
+    page.get_by_role('button', name='Group markers by tag').click()
+    expect(page.locator('#marker-results > details > summary .marker-tag')).to_have_text(['P1'])
+    expect(hits).to_have_count(1)
+    tags.select_option('P2')
+    expect(page.get_by_role('status').filter(has_text='No matching markers.')).to_be_visible()
+    query.press('Escape')
+    expect(hits.locator('.marker-tag')).to_have_text(['P2'])
+    tags.select_option(label='All tags')
+    expect(page.locator('#marker-results > details > summary .marker-tag')).to_have_text(['P1', 'P2', 'TODO'])
+    expect(page.locator('#marker-results details[open]')).to_have_count(0)
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
 def test_marker_controls_fit_narrow_dark_sidebar_and_no_hidden_refresh(workspace_page):
     root, page, url, _ = workspace_page
     (root/'file.md').write_text('#P3 A follow-up\n', encoding='utf-8')
@@ -98,7 +136,7 @@ def test_marker_controls_fit_narrow_dark_sidebar_and_no_hidden_refresh(workspace
     page.locator('#marker-section-toggle').click()
     expect(page.locator('#marker-count')).to_have_text('1')
     sidebar = page.locator('#file-sidebar').bounding_box()
-    for action in page.locator('#marker-actions button, #file-actions button').all():
+    for action in page.locator('#marker-actions button, #marker-actions select, #file-actions button').all():
         rect = action.bounding_box()
         assert sidebar['x'] <= rect['x'] and rect['x'] + rect['width'] <= sidebar['x'] + sidebar['width']
     page.locator('#marker-section-toggle').click()
