@@ -154,3 +154,103 @@ def test_marker_icons_and_notebook_copy_path(workspace_page):
     page.keyboard.press('Escape')
     expect(dialog).to_have_count(0)
     expect(page.locator('#tabs')).not_to_contain_text('analysis.ipynb')
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_drag_between_trees_and_restore_workspace_split(workspace_page):
+    root, page, url, _ = workspace_page
+    for index in range(40):
+        (root/f'note-{index:02}.md').write_text(f'TODO Review item {index}\n', encoding='utf-8')
+    page.goto(url)
+    marker = page.get_by_role('button', name='Marker Tree', exact=True)
+    files = page.get_by_role('button', name='File Tree', exact=True)
+    handle = page.get_by_role('separator', name='Resize Marker Tree and File Tree')
+    expect(handle).not_to_be_visible()
+    marker.click()
+    expect(page.locator('#marker-count')).to_have_text('40')
+    expect(handle).to_be_visible()
+    expect(handle).to_have_attribute('aria-orientation', 'horizontal')
+
+    top = page.locator('.marker-section')
+    bottom = page.locator('.file-section')
+    marker_list = page.locator('#marker-results')
+    file_list = page.locator('#file-tree')
+    expect(file_list.locator('.file-entry')).to_have_count(40)
+    before = [top.bounding_box()['height'], bottom.bounding_box()['height']]
+    marker_list.evaluate('list => { list.scrollTop = 65; }')
+    file_list.evaluate('list => { list.scrollTop = 65; }')
+    box = handle.bounding_box()
+    x, y = box['x'] + box['width'] / 2, box['y'] + box['height'] / 2
+    page.mouse.move(x, y)
+    page.mouse.down()
+    page.mouse.move(box['x'] + box['width'] + 12, y + 95, steps=5)
+    page.mouse.up()
+
+    after = [top.bounding_box()['height'], bottom.bounding_box()['height']]
+    assert abs(after[0] - before[0] - 95) <= 2
+    assert abs(before[1] - after[1] - 95) <= 2
+    assert marker_list.evaluate('list => list.scrollTop') == 65
+    assert file_list.evaluate('list => list.scrollTop') == 65
+
+    files.click()
+    expect(handle).not_to_be_visible()
+    files.click()
+    expect(handle).to_have_attribute('aria-valuenow', str(round(after[0])))
+    marker.click()
+    expect(handle).not_to_be_visible()
+    assert bottom.bounding_box()['height'] > after[1]
+    marker.click()
+    expect(handle).to_have_attribute('aria-valuenow', str(round(after[0])))
+    page.reload()
+    expect(page.locator('#marker-count')).to_have_text('40')
+    expect(handle).to_have_attribute('aria-valuenow', str(round(after[0])))
+    assert abs(top.bounding_box()['height'] - after[0]) <= 1
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_tree_split_keyboard_bounds_cancel_and_reset_in_a_narrow_pane(workspace_page):
+    root, page, url, _ = workspace_page
+    (root/'notes.md').write_text('TODO Review the notes\n' * 25, encoding='utf-8')
+    page.set_viewport_size({'width': 780, 'height': 465})
+    page.goto(url)
+    page.locator('#theme').click()
+    page.locator('#file-resize').press('Home')
+    page.locator('#marker-section-toggle').click()
+    expect(page.locator('#marker-count')).to_have_text('25')
+    page.get_by_role('button', name='Expand all marker branches').click()
+    handle = page.get_by_role('separator', name='Resize Marker Tree and File Tree')
+    expect(handle).to_be_visible()
+    automatic = page.locator('.marker-section').bounding_box()['height']
+
+    handle.press('End')
+    maximum = int(handle.get_attribute('aria-valuemax'))
+    expect(handle).to_have_attribute('aria-valuenow', str(maximum))
+    handle.press('Home')
+    minimum = int(handle.get_attribute('aria-valuemin'))
+    expect(handle).to_have_attribute('aria-valuenow', str(minimum))
+    assert minimum < maximum
+    handle.press('ArrowDown')
+    moved = min(minimum + 10, maximum)
+    expect(handle).to_have_attribute('aria-valuenow', str(moved))
+    expect(handle).to_be_focused()
+    assert page.locator('#file-tree').bounding_box()['height'] >= 32
+    assert page.locator('#marker-results').bounding_box()['height'] >= 22
+
+    box = handle.bounding_box()
+    x, y = box['x'] + box['width'] / 2, box['y'] + box['height'] / 2
+    page.mouse.move(x, y)
+    page.mouse.down()
+    page.mouse.move(x, y + 30, steps=3)
+    expect(handle).not_to_have_attribute('aria-valuenow', str(moved))
+    page.keyboard.press('Escape')
+    page.mouse.up()
+    expect(handle).to_have_attribute('aria-valuenow', str(moved))
+    assert page.locator('body').evaluate('el => !el.classList.contains("explorer-splitting")')
+
+    handle.dblclick()
+    assert abs(page.locator('.marker-section').bounding_box()['height'] - automatic) <= 1
+    page.locator('#explorer-toggle').click()
+    expect(handle).not_to_be_visible()
+    page.locator('#explorer-toggle').click()
+    expect(handle).to_be_visible()
+    assert abs(page.locator('.marker-section').bounding_box()['height'] - automatic) <= 1

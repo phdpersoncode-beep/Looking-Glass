@@ -13,6 +13,11 @@ control groups results by P0 through P3, TODO, and NOTE, keeping the folder
 hierarchy within each group. The stacked panels expand or collapse all branches.
 The refresh icon rescans saved files. Hover each control for its name.
 
+When both trees are expanded, drag the divider between them to change their
+heights. The split is remembered per workspace. Focus the divider and use
+↑/↓ to resize, Shift for larger steps, or Home/End to move to either limit.
+Double-click to restore automatic sizing. Escape cancels an active drag.
+
 The tree reads saved Markdown, supported source code, and Jupyter notebooks
 (`.ipynb`). It accepts hashes with or without spaces, optional colons, Markdown
 list markers, bare TODO at the start of a Markdown line, and HTML comments.
