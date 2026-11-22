@@ -156,12 +156,29 @@ def test_python_cursor_highlights_outline_and_pins_scrolled_definition(workspace
     assert row_color != 'rgba(0, 0, 0, 0)'
 
     scroller = page.locator('.cm-scroller')
+    module = page.locator('.cm-line', has_text='MODULE = 1')
+    signature_end = page.locator('.cm-line', has_text=') -> None:')
+    body = page.locator('.cm-line', has_text='volume_12')
+
+    def scroll_to_method_body():
+        # Put a rendered body line inside the viewport using the editor's
+        # current geometry. The full multiline signature must be above it.
+        body.evaluate('''line => {
+            const scroller = line.closest('.cm-scroller');
+            scroller.scrollTop += line.getBoundingClientRect().top
+                - scroller.getBoundingClientRect().top - scroller.clientHeight / 4;
+        }''')
+        expect(body).to_be_in_viewport(ratio=0.5)
+        expect(signature_end).not_to_be_in_viewport()
+
+    # Control+Home updates the caret before CodeMirror applies its scroll.
+    expect(module).not_to_be_in_viewport()
     page.keyboard.press('Control+Home')
+    expect(page.locator('.cm-activeLine')).to_have_text('MODULE = 1')
+    expect(module).to_be_in_viewport(ratio=0.5)
     expect(current).to_have_count(0)
-    scroller.evaluate('el => el.scrollTop = 620')
+    scroll_to_method_body()
     expect(pin).to_be_hidden()
-    body = page.locator('.cm-line').filter(has_text='volume_31')
-    expect(body).to_be_in_viewport()
     body.click(position={'x': 120, 'y': 10})
     expect(current).to_have_text('ƒpack')
     expect(pin).to_have_text('async def pack( self, size: int, ) -> None:')
@@ -171,7 +188,11 @@ def test_python_cursor_highlights_outline_and_pins_scrolled_definition(workspace
 
     # Keep the caret in the method while scrolling the editor independently.
     top = pin.bounding_box()['y']
-    scroller.evaluate('el => el.scrollTop += 280')
+    before = scroller.evaluate('el => el.scrollTop')
+    scroller.evaluate('el => el.scrollTop += el.clientHeight / 2')
+    page.wait_for_function('([el, before]) => el.scrollTop > before',
+                           arg=[scroller.element_handle(), before])
+    expect(pin).to_be_visible()
     assert abs(pin.bounding_box()['y'] - top) <= 1
     expect(current).to_have_text('ƒpack')
     assert page.locator('.cm-content').evaluate('el => !el.contains(document.querySelector(".python-definition-pin"))')
@@ -193,7 +214,8 @@ def test_python_cursor_highlights_outline_and_pins_scrolled_definition(workspace
     page.keyboard.press('Control+Shift+ArrowRight')
     page.keyboard.insert_text('assemble')
     expect(current).to_have_text('ƒassemble')
-    scroller.evaluate('el => el.scrollTop = 620')
+    expect(signature_end).to_be_in_viewport()
+    scroll_to_method_body()
     expect(pin).to_contain_text('async def assemble(')
     page.keyboard.press('Control+End')
     expect(page.locator('.cm-activeLine')).to_contain_text('OUTSIDE')
