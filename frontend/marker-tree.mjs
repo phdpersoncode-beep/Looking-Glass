@@ -223,7 +223,9 @@ export function mountMarkerTree({root, read, open}) {
   function renderStatus(nodes = results.children.length) {
     const messages = [];
     if (error) messages.push(error);
-    else if (!snapshot) messages.push('Scanning workspace…');
+    else if (!snapshot) {
+      if (checkedCache) messages.push('Scanning workspace…');
+    }
     else if (!nodes) messages.push(isFiltered() ? 'No matching markers.' : 'No markers found.');
     if (snapshot?.truncated) messages.push('Marker results are limited.');
     status.textContent = messages.join(' ');
@@ -245,11 +247,10 @@ export function mountMarkerTree({root, read, open}) {
       return;
     }
     loading = true;
-    if (!snapshot && !error) renderStatus();
     try {
       if (!checkedCache) {
-        checkedCache = true;
         const cached = await read(null, true).catch(() => null);
+        checkedCache = true;
         if (cached?.data) {
           snapshot = cached.data;
           etag = cached.etag;
@@ -257,6 +258,7 @@ export function mountMarkerTree({root, read, open}) {
         }
         if (!visible()) return;
       }
+      if (!snapshot && !error) renderStatus();
       const response = await read(etag);
       error = '';
       etag = response.etag;

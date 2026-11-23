@@ -110,7 +110,7 @@ export function mountTaskOutline(host, options) {
       createMilestone(milestoneInsertion(getBoard().cards, cursor?.id, cursor?.after));
     }));
   }
-  const archive = rootId === null ? iconButton('Show archived tasks', 'archive', () => {
+  const archive = rootId === null ? iconButton('Archived tasks in sidebar', 'archive', () => {
     view.showArchived = !view.showArchived;
     render();
   }) : null;
