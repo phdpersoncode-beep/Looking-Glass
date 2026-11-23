@@ -180,7 +180,9 @@ dialog:modal{margin:auto}.directory-list{height:260px;overflow:auto;margin-top:8
 .discussion-content{overflow-anchor:none;overscroll-behavior:contain}
 .discussion-summary{flex-shrink:0;padding:0 12px 10px;font-size:10px;color:var(--muted)}
 .thread-totals{display:flex;align-items:center;flex-wrap:wrap;gap:2px 10px;margin-bottom:4px}
-#thread-unread{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+#thread-unread{display:inline-flex;align-items:center;gap:5px;border:0;padding:0;white-space:nowrap}
+#thread-unread:hover,#thread-unread[aria-pressed=true]{color:var(--purple);background:var(--selection);box-shadow:0 0 0 2px var(--selection)}
+#thread-unread-empty{padding:0 12px 24px}
 #passage-spotlight{font-size:10px;color:var(--muted)}
 .spotlight-heading{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .spotlight-heading>span{min-width:0}#all-discussions{border:0;padding:3px 0;color:var(--purple);font-size:10px}
@@ -392,7 +394,7 @@ a[data-file-reference]{color:var(--purple);text-decoration:none;border-radius:3p
 .outline-tools{display:flex;justify-content:flex-end;gap:4px;padding:3px 6px;height:30px;border-bottom:1px solid var(--border)}.outline-tools button{display:grid;place-items:center;padding:0 5px;border:0;color:var(--muted)}
 .outline-item>.outline-item{margin-left:12px}.outline-item>div:not(.outline-row){padding-left:12px}
 .outline-row{display:flex;align-items:center}.reading-outline nav .outline-fold{width:22px;flex:0 0 22px;padding:4px 0;text-align:center;justify-content:center}.reading-outline nav .outline-row>button[data-kind]{min-width:0;flex:1;padding:5px 6px}.outline-row:not(:has(.outline-fold)){padding-left:22px}
-#track-source-markers[aria-pressed=true]{color:var(--purple);background:var(--selection)}.source-marker-flag{display:inline-block;font:10px var(--mono);color:var(--purple);margin:4px 0}.cm-content .python-definition-link{color:var(--purple);text-decoration:underline;cursor:pointer}
+.source-marker-flag{display:inline-block;font:10px var(--mono);color:var(--purple);margin:4px 0}.cm-content .python-definition-link{color:var(--purple);text-decoration:underline;cursor:pointer}
 .definition-choices nav{display:grid;gap:6px;margin:12px 0}.definition-choices nav button{white-space:normal;overflow-wrap:anywhere;text-align:left}
 
 /* Git colors decorate names without replacing the active-file background. */
@@ -585,6 +587,7 @@ body.tasks-view .task-sidebar:not([hidden]){display:flex}
 .task-detail-metadata .task-field>label{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .task-detail-metadata select{width:100%;min-width:0;max-width:100%;padding:5px 8px;border-radius:5px;font-size:11px;line-height:1.5;background:var(--panel);color:var(--text);text-overflow:ellipsis}
 .task-outline-heading{display:flex;align-items:center;justify-content:space-between;gap:8px}.task-outline-heading h3{margin:0;font-size:12px;font-weight:600}.task-outline-controls{display:flex;gap:2px;margin-left:auto;flex-shrink:0}.task-outline-controls .icon-button{width:27px;height:27px;padding:5px;color:var(--muted);background:transparent}.task-outline-controls .icon-button svg{width:17px;height:17px}.task-outline-controls .icon-button:hover:not(:disabled){background:var(--panel);color:var(--purple)}.task-outline-controls .icon-button:disabled{opacity:.35}
+.task-outline-controls .task-outline-archive[aria-pressed=true]{background:var(--selection);color:var(--purple)}
 
 .task-file-hint{margin:-5px 0 12px;font-size:11px;color:var(--muted)}
 .task-related-files{margin:0 0 16px;padding:8px 12px;border-left:2px solid var(--purple);background:var(--panel);border-radius:0 5px 5px 0}

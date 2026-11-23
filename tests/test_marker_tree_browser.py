@@ -94,6 +94,27 @@ def test_marker_tree_sections_grouping_filter_and_saved_line_navigation(workspac
 
 
 @pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_marker_tree_displays_cache_before_background_refresh(workspace_page):
+    root, page, url, _ = workspace_page
+    (root/'notes.md').write_text('TODO Cached marker\n', encoding='utf-8')
+    page.goto(url)
+    page.get_by_role('button', name='Marker Tree', exact=True).click()
+    expect(page.locator('#marker-count')).to_have_text('1')
+    (root/'notes.md').write_text('TODO Refreshed marker\n', encoding='utf-8')
+
+    held = []
+    page.route('**/api/marker-tree', lambda route: held.append(route))
+    page.reload()
+    expect(page.locator('#marker-count')).to_have_text('1')
+    page.get_by_role('button', name='Expand all marker branches').click()
+    expect(page.get_by_role('button', name='TODO Cached marker')).to_be_visible()
+    assert len(held) == 1
+    assert held[0].request.headers.get('if-none-match')
+    held[0].continue_()
+    expect(page.get_by_role('button', name='TODO Refreshed marker')).to_be_visible()
+
+
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
 def test_marker_tag_filter_combines_with_search_and_grouping(workspace_page):
     root, page, url, _ = workspace_page
     (root/'P1-notes.md').write_text(

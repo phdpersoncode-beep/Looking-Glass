@@ -109,6 +109,48 @@ def test_amber_dot_tracks_unviewed_discussion_activity(workspace_page):
         other_tab.close()
 
 
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_unread_badge_and_checkbox_filter_the_same_discussions(workspace_page):
+    from playwright.sync_api import expect
+    root, page, url, ws = workspace_page
+    (root/'notes.md').write_text('First passage.\nSecond passage.\n')
+    version = ws.read('notes.md')['version']
+    first = ws.create_thread('notes.md', 0, 13, 'First comment', 'Agent', version)['id']
+    second = ws.create_thread('notes.md', 15, 29, 'Second comment', 'Agent', version)['id']
+    page.goto(url)
+    open_file(page, 'notes.md')
+    badge = page.locator('#thread-unread')
+    unread_only = page.get_by_role('checkbox', name='Unread only')
+    first_card = page.locator(f'.thread[data-thread="{first}"]')
+    second_card = page.locator(f'.thread[data-thread="{second}"]')
+    first_card.locator('.jump').click()
+    expect(badge).to_have_text('1 unread')
+    badge.press('Enter')
+    expect(badge).to_have_attribute('aria-pressed', 'true')
+    expect(unread_only).to_be_checked()
+    expect(first_card).to_be_hidden()
+    expect(second_card).to_be_visible()
+
+    search = page.get_by_role('searchbox', name='Search threads')
+    search.fill('First comment')
+    expect(page.locator('#thread-search-empty')).to_be_visible()
+    unread_only.uncheck()
+    expect(badge).to_have_attribute('aria-pressed', 'false')
+    expect(first_card).to_be_visible()
+    search.fill('')
+    unread_only.check()
+    page.locator('#next').click()
+    expect(second_card.locator('.reply-form textarea')).to_be_visible()
+    expect(badge).to_have_text('0 unread')
+    page.locator('#all-discussions').click()
+    expect(page.locator('#thread-unread-empty')).to_be_visible()
+    badge.click()
+    expect(unread_only).not_to_be_checked()
+    expect(badge).to_be_hidden()
+    expect(first_card).to_be_visible()
+    expect(second_card).to_be_visible()
+
+
 def endpoint(locator,offset):
     return locator.evaluate('''(host,offset)=>{
       const walker=document.createTreeWalker(host,NodeFilter.SHOW_TEXT);let node;

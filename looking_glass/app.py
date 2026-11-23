@@ -164,7 +164,12 @@ def create_app(root):
 
     @app.get('/api/marker-tree')
     def workspace_markers():
-        result, tag = marker_tree.snapshot()
+        if request.args.get('cached') == '1':
+            result, tag = marker_tree.cached_snapshot()
+            if result is None:
+                return Response(status=204)
+        else:
+            result, tag = marker_tree.snapshot()
         if request.if_none_match.contains(tag):
             response = Response(status=304)
         else:
@@ -330,11 +335,6 @@ def create_app(root):
     def save_file():
         data = body()
         return jsonify(ws.save(data.get('path'),data.get('content'),data.get('version')))
-
-    @app.post('/api/source-markers')
-    def track_source_markers():
-        data = body()
-        return jsonify(ws.source_markers.track(data.get('path'), data.get('enabled'), data.get('version')))
 
     @app.post('/api/python/definition')
     def python_definition():

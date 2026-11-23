@@ -159,8 +159,10 @@ or attachment changes, and resolve or reopen actions. Opening the thread clears
 the dot for the version you opened. The browser remembers this for each workspace.
 Writing or editing your own comment keeps an already-read thread read. Unviewed
 changes from another writer still show the dot.
-The unread count beside the sidebar totals follows the current file scope and
-disappears when every thread in that scope has been viewed.
+Click the amber unread count beneath search or check **Unread only** to filter
+the sidebar and passage navigation to unread threads in the current file scope.
+Click either control again to clear the filter. The count stays available while
+the filter is active, even after you read the last thread.
 Clicking a thread card's general area opens spotlight too; text selection, links,
 and embedded controls keep their normal behavior. Search stays in the same position
 above the spotlight header, with a total thread count for the selected file scope.
@@ -193,17 +195,8 @@ In the editor, purple scrollbar markers jump to attached discussions and amber
 markers jump to matches for the selected text. A purple marker with several nearby
 discussions opens a list to choose from. Resolved discussions use a fainter marker.
 
-For `# TODO`, `#TODO`, `# NOTE` and `#NOTE` comments, enable **Track TODO / NOTE**
-using the comment/check icon next to the author pen at the top of the right sidebar
-for each Markdown or source file you want to review. It saves
-an unsaved Edit buffer, creates flagged discussions, and keeps them synchronized
-with later saves and external changes. The icon is highlighted while tracking is on.
-**Markers only**, alongside the other discussion filter toggles, filters discussions,
-search and the existing ↑/↓ passage arrows. Replies and original context persist;
-removed or unattached marker threads resolve automatically. Turning tracking off
-pauses imports and keeps existing discussions. New Review markers import on
-approval. Tracking handles up to 1,000 markers per file and shows when that limit
-is reached in the icon’s tooltip.
+Browse saved TODO and NOTE comments with the **Marker Tree** in the left sidebar.
+Previously imported threads retain their replies and original context.
 
 In Python, **Ctrl+click** (or **Cmd+click**) a name to go to its definition.
 Functions, classes, methods, scoped variables and imports resolve through
@@ -380,7 +373,8 @@ tabs. Unsaved tabs ask before discarding edits. Pinned tabs are protected by
 Open **Tasks** beside **Commit history** for a pinnable Kanban tab with draggable
 cards, fuzzy search, milestone filtering, and bulk selection. Cards have stable
 `#C01` identities and conversations with comments and change updates. The right
-sidebar holds milestones, active tasks, and archived tasks in one hierarchy.
+sidebar shows the active task hierarchy. Use its archive icon to show or hide
+archived tasks.
 Drag a milestone to reorder its branch and update its number. Use the Done
 column's archive icon to archive the completed tasks currently shown.
 Click a row in the sidebar or a card checklist to select it, press Enter or use its pen to open details, double-click

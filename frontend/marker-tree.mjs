@@ -82,7 +82,7 @@ export function mountMarkerTree({root, read, open}) {
   const count = $('marker-count'), filter = $('marker-filter');
   const panels = $('file-explorers');
   const storageKey = 'looking-glass-marker-tree:' + root;
-  let snapshot, etag, loading = false, pending = false, error = '';
+  let snapshot, etag, checkedCache = false, loading = false, pending = false, error = '';
   let byTag = false, filterTimer, query = '', tag = '';
   const browse = {expanded: false, overrides: new Map()};
   const filtered = {expanded: true, overrides: new Map()};
@@ -247,6 +247,16 @@ export function mountMarkerTree({root, read, open}) {
     loading = true;
     if (!snapshot && !error) renderStatus();
     try {
+      if (!checkedCache) {
+        checkedCache = true;
+        const cached = await read(null, true).catch(() => null);
+        if (cached?.data) {
+          snapshot = cached.data;
+          etag = cached.etag;
+          render();
+        }
+        if (!visible()) return;
+      }
       const response = await read(etag);
       error = '';
       etag = response.etag;

@@ -1,5 +1,7 @@
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 
 from looking_glass.app import create_app
 from looking_glass.marker_tree import find_markers
@@ -124,6 +126,71 @@ def test_marker_caps_and_workspace_switch(tmp_path, monkeypatch):
     updated = client.get('/api/marker-tree', headers=headers)
     assert updated.json['count'] == 1 and updated.json['truncated'] is False
     assert updated.json['files'][0]['path'] == 'fresh.md'
+    assert client.get('/api/marker-tree?cached=1', headers=headers).json == updated.json
+
+
+def test_restart_serves_cached_markers_while_refresh_checks_changes(tmp_path, monkeypatch):
+    (tmp_path/'change.py').write_text('# TODO Before\n')
+    (tmp_path/'remove.md').write_text('TODO Remove\n')
+    (tmp_path/'same.md').write_text('# NOTE Keep\n')
+    (tmp_path/'empty.md').write_text('No markers\n')
+    route = '/api/marker-tree'
+    app = create_app(tmp_path)
+    headers = {'X-Looking-Glass-Token': app.extensions['workspace'].token}
+    assert app.test_client().get(route + '?cached=1', headers=headers).status_code == 204
+    first = app.test_client().get(route, headers=headers)
+
+    (tmp_path/'change.py').write_text('# TODO After\n')
+    (tmp_path/'remove.md').unlink()
+    (tmp_path/'new.md').write_text('# P1 New\n')
+    restarted = create_app(tmp_path)
+    ws = restarted.extensions['workspace']
+    listing, read = ws.file_listing, ws.text
+    scanning, resume = Event(), Event()
+    reads = []
+
+    def held_listing():
+        scanning.set()
+        assert resume.wait(5)
+        return listing()
+
+    def record_read(path):
+        reads.append(path)
+        return read(path)
+
+    monkeypatch.setattr(ws, 'file_listing', held_listing)
+    monkeypatch.setattr(ws, 'text', record_read)
+    conditional = {**headers, 'If-None-Match': first.headers['ETag']}
+    with ThreadPoolExecutor() as executor:
+        refresh = executor.submit(restarted.test_client().get, route, headers=conditional)
+        try:
+            assert scanning.wait(5)
+            cached = restarted.test_client().get(route + '?cached=1', headers=headers)
+            assert cached.json == first.json
+            assert cached.headers['ETag'] == first.headers['ETag']
+            assert reads == []
+        finally:
+            resume.set()
+        updated = refresh.result()
+
+    assert reads == ['change.py', 'new.md']
+    assert updated.headers['ETag'] != first.headers['ETag']
+    assert [entry['markers'][0]['text'] for entry in updated.json['files']] == ['After', 'New', 'Keep']
+    assert restarted.test_client().get(route, headers={**headers, 'If-None-Match': updated.headers['ETag']}).status_code == 304
+
+
+def test_corrupt_marker_cache_is_rebuilt(tmp_path):
+    (tmp_path/'notes.md').write_text('TODO Recover\n')
+    app = create_app(tmp_path)
+    ws = app.extensions['workspace']
+    cache = ws.meta/'marker-tree.json'
+    cache.write_text('{"format":1,')
+    headers = {'X-Looking-Glass-Token': ws.token}
+    client = app.test_client()
+    assert client.get('/api/marker-tree?cached=1', headers=headers).status_code == 204
+    refreshed = client.get('/api/marker-tree', headers=headers)
+    assert refreshed.json['count'] == 1
+    assert create_app(tmp_path).test_client().get('/api/marker-tree?cached=1', headers=headers).json == refreshed.json
 
 
 def test_notebook_scans_cell_source_and_ignores_outputs():

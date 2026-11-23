@@ -32,17 +32,18 @@ the cell and source line. Selecting a notebook result or opening a notebook from
 the File Tree offers **Copy file path** for use in a notebook editor. Outputs,
 metadata, and raw cells are skipped.
 
-The Marker Tree includes untracked files and projects without Git. To turn saved
-TODO and NOTE comments into persistent discussions, use **Track TODO / NOTE**
-in the discussion sidebar.
+The Marker Tree includes untracked files and projects without Git. Previously
+imported TODO and NOTE discussions remain in the Discussions sidebar.
 
-The first scan starts on expansion. While visible, the tree refreshes after
-file operations and on the explorer's 12-second interval. It reuses workspace
-discovery, including `.looking.ignore` and built-in exclusions. An in-memory
-cache uses filesystem metadata to skip reading or parsing unchanged files.
-Only marker excerpts and locations are retained. Limits are 10,000 discovered
-files, 8 MiB per text file, 1,000 matches per file, and 5,000 displayed matches
-per workspace. The section reports when discovery or results hit a count limit.
+The first scan starts on expansion. After that, expanding the tree or reopening
+Looking Glass with the tree expanded shows the saved snapshot from
+`.looking-glass/marker-tree.json` while a background refresh checks for changes.
+While visible, the tree also refreshes after file operations and on the explorer's
+12-second interval. It follows `.looking.ignore` and built-in exclusions, and
+uses saved filesystem fingerprints to skip reading or parsing unchanged files.
+The cache retains marker excerpts, locations, and file fingerprints. Limits are
+10,000 discovered files, 8 MiB per text file, 1,000 matches per file, and 5,000
+displayed matches per workspace. The section reports discovery and result limits.
 Git's staging index describes staged paths and contents. Scanning the working
 tree keeps unstaged and untracked markers visible.
 

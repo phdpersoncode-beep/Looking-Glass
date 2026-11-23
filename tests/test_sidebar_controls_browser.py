@@ -99,11 +99,8 @@ def test_sidebar_controls_and_author_popover_fit_both_themes_and_narrow_panes(wo
     page.goto(url)
     page.get_by_role('button', name='Expand all folders', exact=True).click()
     open_file(page, 'folder/note.txt')
-    tracking = page.get_by_role('button', name='Track TODO / NOTE', exact=True)
-    expect(tracking).to_be_disabled()
-    assert tracking.inner_text() == ''
-    assert tracking.evaluate("el=>el.previousElementSibling.id") == 'author-edit'
-    expect(page.get_by_role('group', name='Discussion filters').get_by_role('checkbox', name='Markers only', exact=True)).to_be_visible()
+    expect(page.get_by_role('button', name='Track TODO / NOTE', exact=True)).to_have_count(0)
+    expect(page.get_by_role('group', name='Discussion filters').get_by_role('checkbox', name='Unread only', exact=True)).to_be_visible()
     for width in [1440, 900]:
         page.set_viewport_size({'width': width, 'height': 850})
         if width == 900:
@@ -177,12 +174,12 @@ def test_toolbar_icons_share_a_horizontal_centerline(workspace_page):
         left = centerline('.file-sidebar-tools svg', 3)
         centerline('#file-actions button svg', 5)
         centerline('#file-navigation button svg, #file-history > summary svg', 3)
-        right = centerline('#discussions-toggle svg, #discussion-sidebar > .panel-heading button svg', 7)
+        right = centerline('#discussions-toggle svg, #discussion-sidebar > .panel-heading button svg', 6)
         assert abs(left - right) <= 1
 
         page.locator('#tasks-open').click()
         expect(page.locator('#task-sidebar')).to_be_visible()
-        assert centerline('#discussions-toggle svg, #task-sidebar .panel-heading button svg', 5) == right
+        assert centerline('#discussions-toggle svg, #task-sidebar .panel-heading button svg', 6) == right
         for toggle, top in [('#explorer-toggle', left), ('#discussions-toggle', right)]:
             page.locator(toggle).click()
             expect(page.locator(toggle)).to_have_attribute('aria-expanded', 'false')

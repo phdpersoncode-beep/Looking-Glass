@@ -1,14 +1,18 @@
 """Read-only index of saved markers in the workspace explorer."""
 import io
+import json
+import os
 import re
 import secrets
 import stat
+from contextlib import suppress
 from itertools import islice
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from threading import Lock
 
 from .notebook_source import notebook_sources
-from .source_markers import HASH, SUPPORTED as COMMENT_FILES, python_comments, source_comment_lines
+from .source_comments import HASH, SUPPORTED as COMMENT_FILES, python_comments, source_comment_lines
 from .workspace import MAX_TEXT, Problem
 
 PYTHON = {'.py', '.pyi'}
@@ -25,6 +29,7 @@ NOTEBOOK_LANGUAGES = {
 MAX_MARKERS = 5000
 MAX_FILE_MARKERS = 1000
 MAX_LABEL = 160
+CACHE_FORMAT = 1
 
 TAGS = r'(?:TODO|NOTE|P[0-3])'
 PYTHON_CANDIDATE = re.compile(r'#[ \t]*' + TAGS + r'\b')
@@ -180,15 +185,59 @@ def find_markers(suffix, content):
 class MarkerTree:
     def __init__(self, workspace):
         self.workspace = workspace
-        self.lock = Lock()
-        self.cache = {}
-        self.result = None
-        self.etag = None
+        self.cache_path = workspace.meta / 'marker-tree.json'
+        self.scan_lock = Lock()
+        self.load_lock = Lock()
+        self.state = None
+
+    def current(self):
+        # Loading a saved snapshot never waits for workspace discovery.
+        if self.state is None:
+            with self.load_lock:
+                if self.state is None:
+                    self.state = self.load()
+        return self.state
+
+    def cached_snapshot(self):
+        _, result, etag = self.current()
+        return result, etag
+
+    def load(self):
+        try:
+            if not self.cache_path.is_symlink():
+                data = json.loads(self.cache_path.read_text(encoding='utf-8'))
+                if data['format'] == CACHE_FORMAT:
+                    cache = {path: (tuple(fingerprint), file, truncated)
+                             for path, (fingerprint, file, truncated) in data['cache'].items()}
+                    result, etag = data['result'], data['etag']
+                    if (isinstance(result['files'], list) and type(result['count']) is int
+                            and type(result['truncated']) is bool and isinstance(etag, str)
+                            and re.fullmatch(r'[0-9a-f]{32}', etag)):
+                        return cache, result, etag
+        except (OSError, ValueError, TypeError, KeyError, AttributeError, RecursionError):
+            pass  # The next refresh can rebuild a missing or damaged cache.
+        return {}, None, None
+
+    def persist(self, cache, result, etag):
+        temporary = None
+        try:
+            with NamedTemporaryFile(dir=self.cache_path.parent, prefix='.marker-tree-',
+                                    mode='w', encoding='utf-8', delete=False) as stream:
+                temporary = stream.name
+                json.dump(dict(format=CACHE_FORMAT, cache=cache, result=result, etag=etag),
+                          stream, separators=(',', ':'))
+            os.replace(temporary, self.cache_path)
+        except OSError:
+            # A cache write failure must not prevent serving freshly scanned markers.
+            if temporary is not None:
+                with suppress(OSError):
+                    os.unlink(temporary)
 
     def snapshot(self):
         # Concurrent tree requests share the cache. The editor and discussions
         # use their own lock and can continue serving while this scan runs.
-        with self.lock:
+        with self.scan_lock:
+            previous_cache, previous_result, etag = self.current()
             listing = self.workspace.file_listing()
             files, cache = [], {}
             count = 0
@@ -201,7 +250,7 @@ class MarkerTree:
                     fingerprint = self.fingerprint(path)
                     if fingerprint is None:
                         continue
-                    entry = self.cache.get(path)
+                    entry = previous_cache.get(path)
                     if entry is None or entry[0] != fingerprint:
                         entry = self.read(path, suffix, fingerprint)
                     if entry is None:
@@ -225,12 +274,13 @@ class MarkerTree:
                 files.append(file)
                 count += len(matches)
 
-            self.cache = cache
             result = dict(files=files, count=count, truncated=truncated)
-            if result != self.result:
-                self.result = result
-                self.etag = secrets.token_hex(16)
-            return self.result, self.etag
+            if result != previous_result:
+                etag = secrets.token_hex(16)
+            if result != previous_result or cache != previous_cache:
+                self.state = cache, result, etag
+                self.persist(cache, result, etag)
+            return result, etag
 
     def fingerprint(self, path):
         info = (self.workspace.root / path).lstat()

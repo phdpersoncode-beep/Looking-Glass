@@ -56,12 +56,13 @@ export function createThreadSearchView(sidebar,{onInput,onOpen,onRefresh,loadInd
     const button=event.target.closest('.thread-search-match');
     if(button){event.preventDefault();onOpen(Number(button.closest('.thread').dataset.thread));}
   });
-  function update(threads,spotlight,showResolved,nextContext=null,onlyUnattached=false,onlySourceMarkers=false){
+  function update(state,nextContext){
+    const {threads,spotlightIds,showResolved,onlyUnattached,onlyUnread,isUnread}=state;
     if(context!==nextContext){context=nextContext;globalThreads=[];globalSearch=()=>[];hintTag=null;hintTime=0;hintLoading=false;}
     if(indexed!==threads){indexed=threads;search=createThreadSearch(threads);}
-    const query=input.value.trim(),enabled=!!query&&!spotlight;
+    const query=input.value.trim(),enabled=!!query&&!spotlightIds.length;
     const back=sidebar.querySelector('#all-discussions');back.firstChild.textContent=query?'Search results ':'All discussions ';back.title=(query?'Search results':'All discussions')+' (Esc)';
-    const ids=new Set(threads.filter(t=>threadEligible(t,{showResolved,onlyUnattached,onlySourceMarkers})).map(t=>t.id));
+    const ids=new Set(threads.filter(t=>threadEligible(t,state)).map(t=>t.id));
     results=query?search(query).filter(result=>ids.has(result.id)):[];
     clear.hidden=!input.value;status.hidden=!enabled;empty.hidden=!enabled||!!results.length;
     status.textContent=`${results.length} ${results.length===1?'match':'matches'} · Best matches first`;
@@ -74,7 +75,7 @@ export function createThreadSearchView(sidebar,{onInput,onOpen,onRefresh,loadInd
       const found=new Set([...search(query).map(r=>r.id),...(!scope.checked?globalSearch(query).filter(r=>!localIds.has(r.id)).map(r=>r.id):[])]);
       const counts=new Map();
       for(const id of found){
-        const t=byId.get(id);if(!t||onlySourceMarkers&&!t.source_marker)continue;
+        const t=byId.get(id);if(!t||onlyUnread&&!isUnread(t))continue;
         const mask=(!scope.checked&&!localIds.has(id)?1:0)|(t.resolved&&!showResolved?2:0)|(onlyUnattached&&t.anchor_status==='attached'?4:0);
         if(mask)counts.set(mask,(counts.get(mask)||0)+1);
       }
@@ -84,7 +85,7 @@ export function createThreadSearchView(sidebar,{onInput,onOpen,onRefresh,loadInd
           :closed?`in resolved threads${outside?' in other files':''}`:'in other files';
         hint(count,label,outside,closed,attached);
       }
-      if(!scope.checked)refreshHints();
+      if(!scope.checked&&!onlyUnread)refreshHints();
     }
     sidebar.classList.toggle('thread-searching',enabled);
     const matches=new Map(results.map(result=>[result.id,result]));
@@ -109,7 +110,7 @@ export function createThreadSearchView(sidebar,{onInput,onOpen,onRefresh,loadInd
     const ordered=enabled?[...results.map(r=>r.id),...threads.filter(t=>!matches.has(t.id)).map(t=>t.id)]:threads.map(t=>t.id);
     let cursor=host.firstElementChild;
     for(const id of ordered){const card=cards.get(id);if(!card)continue;if(card!==cursor)host.insertBefore(card,cursor);else cursor=cursor.nextElementSibling;}
-    const placeholder=host.querySelector('.empty-discussions');if(placeholder)placeholder.hidden=enabled;
+    const placeholder=host.querySelector('.empty-discussions');if(placeholder)placeholder.hidden=enabled||onlyUnread;
     return enabled?matches:null;
   }
   return {update,get query(){return input.value.trim();}};

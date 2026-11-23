@@ -110,6 +110,14 @@ export function mountTaskOutline(host, options) {
       createMilestone(milestoneInsertion(getBoard().cards, cursor?.id, cursor?.after));
     }));
   }
+  const archive = rootId === null ? iconButton('Show archived tasks', 'archive', () => {
+    view.showArchived = !view.showArchived;
+    render();
+  }) : null;
+  if (archive) {
+    archive.classList.add('task-outline-archive');
+    controls.append(archive);
+  }
   controls.append(collapse,expand);
   if(rootId){const heading=element('div',undefined,'task-outline-heading');heading.append(element('h3','Tasks'),controls);section.append(heading);}
   else (options.controlsHost||section).append(controls);
@@ -567,7 +575,11 @@ export function mountTaskOutline(host, options) {
     const focused=section.contains(document.activeElement)?document.activeElement:null;
     const selection=focused?.matches('input[type=text]')?[focused.selectionStart,focused.selectionEnd]:null;
     const cards = getBoard().cards;
-    const scope = {rootId, archived: !!state.archived, includeArchived: rootId === null};
+    const scope = rootId === null ? {includeArchived: !!view.showArchived} : {rootId, archived: !!state.archived};
+    if (archive) {
+      archive.setAttribute('aria-pressed', String(!!view.showArchived));
+      archive.title = view.showArchived ? 'Hide archived tasks' : 'Show archived tasks';
+    }
     rows = outlineRows(cards, {...scope, collapsed: view.collapsed,
       [view.collapsed ? 'expanded' : 'folded']: view.toggled});
     const allRows = view.collapsed || view.toggled.size ? outlineRows(cards, scope) : rows;
