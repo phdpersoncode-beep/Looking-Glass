@@ -1,7 +1,7 @@
 """Explorer, Markdown contents, and JSONL navigation regressions."""
 import os
 import pytest
-from test_requested_features import workspace_page, open_file
+from test_requested_features import workspace_page, open_file, start_reply
 from test_spotlight_navigation_browser import settle
 
 pytestmark=[pytest.mark.browser,pytest.mark.skipif(not os.environ.get('LOOKING_GLASS_BROWSER'),reason='Set LOOKING_GLASS_BROWSER')]
@@ -137,7 +137,7 @@ def test_discussions_strip_preserves_control_width_and_reply(workspace_page):
     separator.focus();page.keyboard.press('Home');page.keyboard.press('Shift+ArrowLeft')
     expect(separator).to_have_attribute('aria-valuenow','270')
     page.locator('.thread blockquote').click()
-    reply=page.locator('.reply-form textarea');reply.fill('Unsaved reply')
+    reply=start_reply(page);reply.fill('Unsaved reply')
     page.locator('.cm-content').click();page.keyboard.press('Control+End');page.keyboard.insert_text('Draft')
     toggle=page.locator('#discussions-toggle');arrow_box=toggle.bounding_box()
     width=page.locator('.document-panel').bounding_box()['width']

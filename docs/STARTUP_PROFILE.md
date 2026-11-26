@@ -1,5 +1,40 @@
 # Startup and reconnect profile for PR #28
 
+## On-demand reply composers in PR #30
+
+The implementation mounts a reply form only when the reader chooses Reply or
+uses Down Arrow in spotlight. The active form retains focus through refreshes.
+Switching threads detaches its form and keeps the draft, cursor and attachments.
+
+Five runs against the same 3,000-thread, 9,000-message fixture on Chromium
+154.0.8037.57 gave the following results. The updated sidebar was ready in
+7.55–8.19 s across the five runs.
+
+| All Discussions reopen | Eager forms | On-demand forms |
+| --- | ---: | ---: |
+| Discussion sidebar ready | 25.05 s | 7.89 s |
+| Active editor ready | 0.73 s | 0.73 s |
+| Mounted reply forms at readiness | 3,000 | 0 |
+| Renderer PSS at readiness | 1,158 MiB | 1,054 MiB |
+| Discussion response body | 27.29 MB | 24.80 MB |
+| Discussion response completion | 1.67 s | 1.31 s |
+| Discussion endpoint, isolated Flask request | 522 ms | 421 ms |
+
+A native trace of the updated app had no
+`ExtractFormsAndNotifyPasswordAutofillAgent` task. The eager baseline trace had
+one such task lasting 16.5 s. The discussion list still mounts all 3,000 cards
+and renders their Markdown, which accounts for much of the remaining delay.
+
+On an already-open page, the first successful conditional discussion refresh
+after restoring connectivity took a median of 1.83 s (0.78–2.12 s). The
+existing 2.2 s timer determines when that refresh starts. All five runs
+returned a 304. Reopening the page itself benefits from the shorter mount.
+
+Run the same cases with
+`uv run --locked python scripts/benchmark_startup.py --runs 5 --scenario all-threads --scenario network-reconnect`.
+
+## Eager reply baseline on PR #28
+
 At PR #28 head `e3a8ef5`, the 3,000-thread **All Discussions** view was
 the largest startup cost. The editor appeared in 0.73 s, while the discussion
 sidebar took 25.05 s and the Chromium renderers used 1,158 MiB of proportional
@@ -197,7 +232,8 @@ uv run --locked python scripts/benchmark_startup.py --app-dir /tmp/looking-glass
 uv run --locked python scripts/benchmark_startup.py --cards 80 --threads 1000 \
   --scenario all-threads --scenario board > /tmp/looking-glass-control.json
 uv run --locked python scripts/benchmark_startup.py --cards 80 --scenario board > /tmp/looking-glass-board-control.json
-uv run --locked python scripts/benchmark_startup.py --browser-only \
+git worktree add --detach /tmp/looking-glass-eager-replies 5fae34c651046a6143c7a63fa369c3a9a5b9c497
+uv run --locked python scripts/benchmark_startup.py --browser-only --app-dir /tmp/looking-glass-eager-replies \
   --scenario all-threads-no-reply-forms > /tmp/looking-glass-reply-control.json
 ```
 

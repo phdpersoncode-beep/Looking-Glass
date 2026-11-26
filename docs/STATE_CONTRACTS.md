@@ -12,7 +12,7 @@ even when the focused thread does not change.
 | Draft operations, saved revision and synchronization status | Per-document review controller | Toolbar and review surface |
 | Durable threads, anchors, draft revisions and origins | Backend | Versioned frontend snapshots |
 | Nodes, browser ranges, scroll geometry and mounted resources | Surface lifecycle/adapter | Navigation effects |
-| Reply body, pending attachments and send state | Composer controller | Existing reply form |
+| Reply body, pending attachments and send state | Composer controller | On-demand reply form for the active thread |
 
 | Event | Decision | Reading effect |
 | --- | --- | --- |
@@ -43,8 +43,10 @@ Cancellation before that commit leaves the previous pair intact. Intent updates 
 the sidebar. Sidebar numbers/quotes/cards use the same activation, and source
 selection/focus decorations update in one transaction. Focusing search/reply,
 changing filters, Escape, or another explicit navigation cancels pending arrows.
-Hiding a review discussion in Edit must retain its reply, attachment previews
-and composer nodes. Only a newer authoritative index for the same visibility
+Reply forms mount on explicit Reply or the spotlight Down Arrow. At most one
+form is mounted. Switching threads or hiding a discussion detaches its composer
+and retains text, selection, attachments and pending sends. Discussion refreshes
+keep the active form in place. Only a newer authoritative index for the same visibility
 universe can retire a cached discussion; displaying older cached data cannot.
 Approval remains bound to the document, draft ID and revision confirmed by the
 user; later edits invalidate that target.

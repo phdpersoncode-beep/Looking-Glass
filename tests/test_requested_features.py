@@ -28,6 +28,13 @@ def open_file(page,name):
     page.locator(f'.file-entry[data-path="{name}"]').click()
     expect(page.locator('#document-name')).to_have_text(name)
 
+def start_reply(page, card=None):
+    if card is None:
+        card = page.locator('.thread.active')
+    card.locator('[data-action=open-reply]').click()
+    return card.locator('.reply-form textarea')
+
+
 def test_markdown_tables(workspace_page):
     from playwright.sync_api import expect
     root,page,url,_=workspace_page
@@ -312,6 +319,7 @@ def test_thread_attachments(workspace_page):
     f=ws.read('note.txt');t=ws.create_thread('note.txt',0,7,'Review','Tester',f['version'])
     page.goto(url);open_file(page,'note.txt')
     page.locator('.jump').click()
+    start_reply(page)
     page.locator('.reply-form .attach-files').set_input_files([{'name':'shape.svg','mimeType':'image/svg+xml','buffer':b'<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30"><rect width="30" height="30"/></svg>'},{'name':'model.stl','mimeType':'application/octet-stream','buffer':b'\x00mesh'}])
     expect(page.locator('.pending-file')).to_have_count(2)
     page.locator('.reply-form button[type=submit]').click()
@@ -528,7 +536,7 @@ def test_submitted_reply_clears_draft_and_keeps_agent_updates_live(workspace_pag
     (root/'note.txt').write_text('Passage.')
     t = ws.create_thread('note.txt', 0, 7, 'Review', 'Tester', ws.read('note.txt')['version'])
     page.goto(url); open_file(page, 'note.txt'); page.locator('#next').click()
-    field = page.locator('.reply-form textarea')
+    field = start_reply(page)
     field.fill('My reply'); page.locator('.reply-form button[type=submit]').click()
     expect(page.locator('.message').last).to_contain_text('My reply')
     expect(field).to_have_value('')

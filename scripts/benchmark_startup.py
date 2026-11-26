@@ -210,9 +210,10 @@ def browser_run(chromium, executable, name, root, app_dir, workload, profile_pat
             ready = page.evaluate(RESOURCE_TIMINGS)
             result = dict(server_start_ms=server_ms, server_initial=initial_server_memory, ready=ready,
                           memory=memory(browser_cdp, page_cdp, pid), responses=list(responses))
+            result['mounted_reply_forms'] = page.locator('#threads .reply-form').count()
             if scenario.get('collapsed') and page.locator('#threads .thread.collapsed').count() != workload['threads']:
                 raise RuntimeError('Saved discussion collapse state was not restored.')
-            if omit_reply_forms and page.locator('#threads .reply-form').count():
+            if omit_reply_forms and result['mounted_reply_forms']:
                 raise RuntimeError('Discussion reply forms were mounted in the control.')
             if name == 'all-threads':
                 # Two conditional discussion polls and their browser work.
@@ -355,6 +356,9 @@ def main():
     names = args.scenario or [name for name in SCENARIOS if marker_available or not name.startswith('markers-')]
     if not marker_available and any(name.startswith('markers-') for name in names):
         parser.error('The selected checkout does not contain Marker Tree.')
+    if REPLY_CONTROL in names and '<form class="reply-form">' not in (
+            app_dir / 'looking_glass/templates/threads.html').read_text(encoding='utf-8'):
+        parser.error('Run the reply-form control against a checkout with eager reply forms.')
 
     result = dict(commit=subprocess.check_output(['git', '-C', str(app_dir), 'rev-parse', 'HEAD'], text=True).strip(),
                   python=platform.python_version(), kernel=platform.release(), browser={}, backend={})

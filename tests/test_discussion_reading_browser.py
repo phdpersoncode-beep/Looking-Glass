@@ -1,7 +1,7 @@
 """Text-only selections, shared Markdown, and passage sidebar spotlight."""
 import os
 import pytest
-from test_requested_features import workspace_page,open_file
+from test_requested_features import workspace_page,open_file, start_reply
 
 pytestmark=[pytest.mark.browser,pytest.mark.skipif(not os.environ.get('LOOKING_GLASS_BROWSER'),reason='Set LOOKING_GLASS_BROWSER')]
 
@@ -79,7 +79,7 @@ def test_amber_dot_tracks_unviewed_discussion_activity(workspace_page):
     expect(first_card.get_by_text('External reply')).to_be_visible()
     expect(first_dot).to_have_count(0)
     expect(unread).to_have_text('1 unread')
-    reply = first_card.locator('textarea')
+    reply = start_reply(page, first_card)
     reply.fill('Unsent draft')
     reply.evaluate('el => el.setSelectionRange(1, 5)')
     message = ws.get_thread(first)['messages'][-1]['id']
@@ -140,7 +140,8 @@ def test_unread_badge_and_checkbox_filter_the_same_discussions(workspace_page):
     search.fill('')
     unread_only.check()
     page.locator('#next').click()
-    expect(second_card.locator('.reply-form textarea')).to_be_visible()
+    expect(second_card).to_have_class('thread active')
+    expect(second_card.get_by_role('button', name=f'Reply to thread {second}')).to_be_visible()
     expect(badge).to_have_text('0 unread')
     page.locator('#all-discussions').click()
     expect(page.locator('#thread-unread-empty')).to_be_visible()
@@ -173,6 +174,7 @@ def test_own_replies_do_not_mark_discussion_unread(workspace_page):
     expect(dot).to_be_visible()
     card.locator('.thread-heading .jump').click()
     expect(unread).to_be_hidden()
+    start_reply(page, card)
     reply=card.get_by_role('textbox',name=f'Reply to thread {first}')
     for body in ('My first reply','My second reply'):
         reply.fill(body)
@@ -327,6 +329,8 @@ graph TD
     for theme in ['dark','light']:
         if page.locator('html').get_attribute('data-theme')!=theme:page.locator('#theme').click()
         page.locator('.passage-highlight').first.click();expect(page.locator('#passage-spotlight')).to_be_visible()
+        if theme == 'dark':
+            start_reply(page)
         page.locator('.thread.active .reply-form textarea').fill('**Reply** with `code`')
         page.locator('.thread.active .reply-form button[type=submit]').click()
         expect(page.locator('.comment-markdown strong').filter(has_text='Reply')).to_have_count(1 if theme=='dark' else 2)
@@ -360,7 +364,7 @@ def test_spotlight_keeps_reading_and_restores_list_positions(workspace_page,mode
     assert sidebar.evaluate('el=>el.scrollTop')==0
     assert page.locator('.floating-discussion,.thread-placeholder').count()==0
     assert page.locator('#threads>.thread').evaluate_all('els=>els.every((el,i)=>el===window.originalCards[i])')
-    field=card.locator('textarea');field.fill('Unsent **draft**');field.evaluate('el=>el.setSelectionRange(3,8)')
+    field=start_reply(page, card);field.fill('Unsent **draft**');field.evaluate('el=>el.setSelectionRange(3,8)')
     ws.reply(threads[12]['id'],'External *update*.','Agent')
     # Resolve forces a refresh even while background polling defers draft edits.
     card.locator('[data-action=resolve]').evaluate('el=>el.click()')
@@ -492,7 +496,7 @@ def test_spotlight_groups_overlaps_and_refreshes_in_place(workspace_page,mode):
     expect(header).to_have_text('This passage · 2 threads')
     expect(page.locator('.thread:visible')).to_have_count(2)
     assert page.locator(f'.thread[data-thread="{other["id"]}"]').is_hidden()
-    active=page.locator('.thread.active');active.locator('textarea').fill('Retained draft')
+    active=page.locator('.thread.active');start_reply(page, active).fill('Retained draft')
     # An agent adds another discussion on the same passage and a reply elsewhere.
     third=ws.create_thread('note.md',at,at+4,'New passage thread.','Agent',version)
     ws.reply(other['id'],'Unrelated update.','Agent')
@@ -505,7 +509,7 @@ def test_spotlight_groups_overlaps_and_refreshes_in_place(workspace_page,mode):
     expect(active).to_have_attribute('data-resolved','false')
     # Expanding a sibling changes the active reply field, never the focused group.
     sibling=page.locator(f'.thread[data-thread="{second["id"]}"]');sibling.locator('[data-action=expand-thread]').click()
-    expect(header).to_have_text('This passage · 3 threads');sibling.locator('textarea').fill('Sibling draft')
+    expect(header).to_have_text('This passage · 3 threads');start_reply(page, sibling).fill('Sibling draft')
     # Bulk controls act on the focused passage, preserving the surrounding list.
     page.locator('#collapse-threads').click()
     expect(page.locator('.thread:visible.collapsed')).to_have_count(3)
@@ -513,8 +517,9 @@ def test_spotlight_groups_overlaps_and_refreshes_in_place(workspace_page,mode):
     expect(page.locator('.thread:visible.collapsed')).to_have_count(0)
     page.locator('#all-discussions').click();expect(page.locator('#passage-spotlight')).not_to_be_visible()
     expect(page.locator(f'.thread[data-thread="{other["id"]}"]')).to_have_class('thread collapsed')
-    expect(page.locator(f'#reply-{first["id"]}')).to_have_value('Retained draft')
     expect(page.locator(f'#reply-{second["id"]}')).to_have_value('Sibling draft')
+    first_card=page.locator(f'.thread[data-thread="{first["id"]}"]')
+    expect(start_reply(page, first_card)).to_have_value('Retained draft')
     target.click();expect(header).to_have_text('This passage · 3 threads')
     # Switching passage keeps the original All discussions position, not the
     # scroll offset from the previous spotlight.

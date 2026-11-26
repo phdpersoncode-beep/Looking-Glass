@@ -1087,7 +1087,7 @@ async function showReviewHistory(){
 
 function threadScope(){return appStore.state.scope;}
 const discussionCache=new Map();let lastThreadHTML='',lastThreadKey='',navigationIndex=[],indexTime=0;
-const discussionView=createDiscussionView($('#threads'),{composers,renderBody:(host,source)=>renderMarkdown(host,source,rendered=>{
+const discussionView=createDiscussionView($('#threads'),{composers,replyTemplate:$('#thread-reply-composer'),renderBody:(host,source)=>renderMarkdown(host,source,rendered=>{
   highlightMarkdown(rendered);linkThreadReferences(rendered);linkFileReferences(rendered);markdownDiagrams(rendered);
 })});
 const discussionRetention=createDiscussionRetention();
@@ -1179,7 +1179,6 @@ function receiveDiscussions(data,key,authoritative=true,activation=null,displaye
   previewThreads();cleanup.highlight?.(appStore.state.threads,appStore.state.focusedThread);
   if(retained)discussionView.prune(retained);
   discussionView.render(data.html);lastThreadHTML=data.html;lastThreadKey=key;
-  for(const form of $$('.reply-form'))composers.render(form);
   filterThreads();if(e?.kind!=='original')refreshMarkdownHighlights();if(entry()?.kind==='history')cleanup.updateCounts?.(data.index);
   if(displayedPath!==undefined&&activation&&sidebarFocus)$(`.thread[data-thread="${appStore.state.focusedThread}"]`)?.focus({preventScroll:true});
   if(displayedPath===undefined&&focusedCard?.hidden&&resolved.some(t=>t.id===Number(focusedCard.dataset.thread))){
@@ -1243,6 +1242,7 @@ function filterThreads(){
   emptyUnread.hidden=!onlyUnread||!!visible.size||!!state.searchQuery.trim();
   const emptyText=unread.size?'No unread threads match these filters.':'No unread threads.';
   if(emptyUnread.textContent!==emptyText)emptyUnread.textContent=emptyText;
+  let replyCard=null;
   $$('.thread').forEach(t=>{
     const id=Number(t.dataset.thread);
     const update=t.querySelector('.thread-update');
@@ -1251,8 +1251,9 @@ function filterThreads(){
     t.classList.toggle('active',id===appStore.state.focusedThread);
     t.classList.toggle('collapsed',appStore.state.zen?(id!==appStore.state.focusedThread||zenCollapsed):collapsedThreads.has(id));
     t.querySelector('[data-action=collapse-thread]')?.setAttribute('aria-expanded',String(!t.classList.contains('collapsed')));
-    const reply=t.querySelector('.reply-form');if(reply)reply.hidden=id!==appStore.state.focusedThread;
+    if(id===state.focusedThread&&!t.hidden&&!t.classList.contains('collapsed'))replyCard=t;
   });
+  discussionView.syncReply(replyCard);
 }
 appStore.subscribe((state,previous,event)=>{
   if(event.type!=='THREAD_ACTIVATED'&&state.threads===previous.threads&&state.focusedThread===previous.focusedThread&&state.spotlight===previous.spotlight&&state.zen===previous.zen&&state.searchQuery===previous.searchQuery&&state.scope===previous.scope&&state.showResolved===previous.showResolved&&state.onlyUnattached===previous.onlyUnattached&&state.onlyUnread===previous.onlyUnread)return;
@@ -1823,7 +1824,7 @@ document.addEventListener('keydown',event=>{
   if(threadSpotlight.active&&event.key==='ArrowDown'){
     cancelSidebarNavigation();
     const card=$(`.thread[data-thread="${appStore.state.focusedThread}"]`);
-    if(card&&!card.hidden){event.preventDefault();zenCollapsed=false;collapsedThreads.delete(appStore.state.focusedThread);rememberCollapsed();filterThreads();card.querySelector('.reply-form textarea')?.focus({preventScroll:true});threadSpotlight.reveal(card);}
+    if(card&&!card.hidden){event.preventDefault();zenCollapsed=false;collapsedThreads.delete(appStore.state.focusedThread);rememberCollapsed();filterThreads();discussionView.openReply(card).focus();}
     return;
   }
   if(event.target.matches('.thread')&&(event.key==='Enter'||event.key===' ')){
@@ -1865,6 +1866,15 @@ document.addEventListener('click',guard(async event=>{
   if(action.dataset.action==='edit-message'){const message=t.messages.find(m=>m.id===Number(action.dataset.message));$('#edit-comment-body').value=message.body;$('#edit-comment-form').dataset.thread=id;$('#edit-comment-form').dataset.message=message.id;$('#edit-comment-dialog').showModal();return;}
   if(action.dataset.action==='collapse-thread'){if(contextVisit&&entry()?.threadId===id)await returnFromOriginal();if(appStore.state.zen)zenCollapsed=true;else collapsedThreads.add(id);rememberCollapsed();filterThreads();return;}
   if(action.dataset.action==='expand-thread'){await focusSidebarThread(id);return;}
+  if(action.dataset.action==='open-reply'){
+    if(appStore.state.focusedThread!==id){
+      if(entry()?.kind==='original'&&entry().threadId!==id)await focusThreadCard(id);
+      else showThread(id,threadSpotlight.active||appStore.state.onlyUnread,threadSpotlight.includes(id)?threadSpotlight.ids:[id],false);
+    }
+    const current=$(`#threads .thread.active[data-thread="${id}"]:not([hidden]):not(.collapsed)`);
+    if(current)discussionView.openReply(current).focus();
+    return;
+  }
   if(action.dataset.action==='original'||action.dataset.action==='message-original'){await openOriginal(id,action.dataset.message);spotlightSidebarThread(id,t);return;}
   if(action.dataset.action.endsWith('-attachment')){
     const attachmentId=Number(action.closest('[data-attachment]').dataset.attachment),item=t.attachments.find(a=>a.id===attachmentId);
@@ -1903,7 +1913,7 @@ document.addEventListener('click',guard(async event=>{
 document.addEventListener('submit',event=>{
   if(event.target.matches('.reply-form')){event.preventDefault();guard(async()=>{
     const form=event.target;if(composers.isSending(form))return;
-    const id=Number(form.closest('.thread').dataset.thread),field=form.querySelector('textarea'),body=field.value;
+    const id=Number(form.dataset.replyThread),field=form.querySelector('textarea'),body=field.value;
     composers.setSending(form,true);composers.status(form,'Sending…');
     try{
       markLocalComment(await composers.post('threads/'+id+'/replies',{author:authorName,body,...(discussionReview()?{review_id:discussionReview()}: {})},form));

@@ -16,7 +16,7 @@
     <div class="attachments">{% for item in thread.attachments if item.message_id == message.id %}{% include 'attachment.html' %}{% endfor %}</div>
   </div>{% endfor %}
   <div class="attachments">{% for item in thread.attachments if not item.message_id %}{% include 'attachment.html' %}{% endfor %}</div>
-  <form class="reply-form">{% with composer_id='reply-' ~ thread.id, composer_label='Reply to thread ' ~ thread.id, composer_rows=2, composer_placeholder='Reply or paste a screenshot…', attach_label='Attach files to thread ' ~ thread.id %}{% include 'composer.html' %}{% endwith %}<button type="submit">Reply ↗</button></form>
+  <div class="thread-reply"><button type="button" data-action="open-reply" aria-label="Reply to thread {{ thread.id }}">Reply</button></div>
   </div>
 </article>
 {% endfor %}

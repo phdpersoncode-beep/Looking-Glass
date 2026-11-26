@@ -1,7 +1,7 @@
 """Discussion search composes with navigation, spotlight, drafts and polling."""
 import os
 import pytest
-from test_requested_features import workspace_page,open_file
+from test_requested_features import workspace_page,open_file, start_reply
 
 pytestmark=[pytest.mark.browser,pytest.mark.skipif(not os.environ.get('LOOKING_GLASS_BROWSER'),reason='Set LOOKING_GLASS_BROWSER')]
 
@@ -97,7 +97,7 @@ def test_search_keeps_drafts_and_updates_from_external_replies(workspace_page):
     first,second,_=seed(root,ws)
     page.goto(url);open_file(page,'note.md')
     page.locator(f'.thread[data-thread="{first["id"]}"] .jump').click()
-    draft=page.locator(f'#reply-{first["id"]}');draft.fill('Unsent reply draft')
+    draft=start_reply(page);draft.fill('Unsent reply draft')
     identity=draft.evaluate('el=>{window.savedReply=el;return true}')
     assert identity
     search=page.locator('#thread-search');search.fill('cafe');expect(page.locator('#thread-search-status')).to_contain_text('1 match')

@@ -1,7 +1,7 @@
 """Passage inspection holds its viewport; sidebar icons deliberately navigate."""
 import os
 import pytest
-from test_requested_features import workspace_page,open_file
+from test_requested_features import workspace_page,open_file, start_reply
 from test_discussion_reading_browser import endpoint
 
 pytestmark=[pytest.mark.browser,pytest.mark.skipif(not os.environ.get('LOOKING_GLASS_BROWSER'),reason='Set LOOKING_GLASS_BROWSER')]
@@ -129,7 +129,7 @@ def test_sidebar_icon_navigates_and_spotlights(workspace_page,mode):
         scroller=page.locator('#surface' if mode=='preview' else '.cm-scroller');assert scroller.evaluate('el=>el.scrollTop')>1000
         r=target.bounding_box();bounds=page.locator('#surface').bounding_box()
         assert bounds['y']+40<r['y']<bounds['y']+bounds['height']-40
-    page.locator('.thread.active textarea').fill('Draft after navigation')
+    start_reply(page).fill('Draft after navigation')
     page.keyboard.press('Escape');expect(heading).to_be_visible()
     expect(page.locator('.thread.active')).to_be_focused()
     page.keyboard.press('Escape');expect(heading).not_to_be_visible()

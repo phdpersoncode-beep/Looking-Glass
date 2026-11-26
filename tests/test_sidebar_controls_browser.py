@@ -3,7 +3,7 @@ import os
 
 import pytest
 from playwright.sync_api import expect
-from test_requested_features import workspace_page, open_file
+from test_requested_features import workspace_page, open_file, start_reply
 from test_review_mode_browser import wait_saved
 
 pytestmark = [pytest.mark.browser, pytest.mark.skipif(not os.environ.get('LOOKING_GLASS_BROWSER'), reason='Set LOOKING_GLASS_BROWSER')]
@@ -34,7 +34,7 @@ def test_author_popover_defaults_cancel_and_comment_reply_review_attribution(wor
     expect(page.locator('#author-popover')).not_to_be_visible(); expect(pen).to_be_focused()
     card = page.locator(f'.thread[data-thread="{thread["id"]}"]')
     card.locator('[data-action=jump]').first.click()
-    card.locator('textarea').fill('Default author reply')
+    start_reply(page, card).fill('Default author reply')
     card.locator('button[type=submit]').click()
     expect(card).to_contain_text('Default author reply')
     assert ws.get_thread(thread['id'])['messages'][-1]['author'] == 'User'

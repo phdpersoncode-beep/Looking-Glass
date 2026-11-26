@@ -1,7 +1,7 @@
 """Temporary immutable context and resolved passages, in Edit and Review mode."""
 import os
 import pytest
-from test_requested_features import workspace_page, open_file
+from test_requested_features import workspace_page, open_file, start_reply
 
 pytestmark = [pytest.mark.browser, pytest.mark.skipif(
     not os.environ.get('LOOKING_GLASS_BROWSER'), reason='Set LOOKING_GLASS_BROWSER')]
@@ -79,6 +79,7 @@ def test_context_restores_reader_and_drafts(workspace_page, work, mode, exit):
     else:
         page.locator('#mode').select_option(mode)
     page.locator('.thread .jump').click()
+    start_reply(page)
     reply = page.locator(f'#reply-{thread["id"]}')
     reply.fill('Unsent reply')
     # Finish the preceding jump, then let virtual editor geometry settle before
@@ -132,6 +133,10 @@ def test_context_restores_reader_and_drafts(workspace_page, work, mode, exit):
         page.locator('.cm-content').click()
         page.keyboard.press('Control+End')
         expect(page.locator('.cm-content')).to_contain_text('Local draft')
+    if exit in ('resolve', 'external_resolve'):
+        expect(reply).to_have_count(0)
+        page.locator('#show-resolved').check()
+        page.locator('.thread .jump').click()
     if exit not in ('delete', 'external_delete'):
         expect(reply).to_have_value('Unsent reply')
     assert (root / 'report.md').read_text() == text
@@ -161,7 +166,7 @@ def test_resolved_passages_are_faint_with_mapped_drafts(workspace_page, work, mo
     mark = page.locator(host + f' .passage-highlight[data-anchor="{thread["id"]}"]')
     expect(mark).to_have_text(quote)
     page.locator('.thread .jump').click()
-    page.locator(f'#reply-{thread["id"]}').fill('Reply survives polling')
+    start_reply(page).fill('Reply survives polling')
     ws.update_thread(thread['id'], resolved=True)
     expect(mark).to_have_class('passage-highlight resolved-passage', timeout=10000)
     assert mark.evaluate('el=>getComputedStyle(el).backgroundColor') == 'rgba(0, 0, 0, 0)'
@@ -312,7 +317,7 @@ def test_code_context_and_reply_snapshots_keep_syntax_and_review_scope(workspace
     page.locator('.original-context').click()
     expect(page.locator('.original-editor .cm-content')).to_contain_text('"original"')
     assert page.locator('.original-editor .cm-content span').count() > 0
-    page.locator(f'#reply-{thread["id"]}').fill('Reply from context')
+    start_reply(page).fill('Reply from context')
     page.locator('.reply-form button[type=submit]').click()
     expect(page.locator('.message')).to_have_count(2)
     # The reply records the active draft, not the displayed immutable snapshot.
