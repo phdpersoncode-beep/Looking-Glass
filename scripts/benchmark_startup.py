@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import platform
 import pstats
+import re
 import subprocess
 import sys
 import tempfile
@@ -26,6 +27,7 @@ SCENARIOS = {
     'markers-saved': dict(tabs=[ACTIVE], markers=True, saved=True),
     'network-reconnect': dict(tabs=[ACTIVE], scope='all', offline=True),
 }
+REPLY_CONTROL = 'all-threads-no-reply-forms'
 
 READINESS = """expected => {
   const start = performance.now();
@@ -84,7 +86,7 @@ def linux_mem(pid):
     return fields
 
 
-def serve(root):
+def serve(root, omit_reply_forms=False):
     from looking_glass.app import create_app
     from werkzeug.serving import WSGIRequestHandler, make_server
 
@@ -92,17 +94,27 @@ def serve(root):
         def log_request(self, *args):
             pass
 
-    server = make_server('127.0.0.1', 0, create_app(root), threaded=True,
-                         request_handler=QuietHandler)
+    app = create_app(root)
+    if omit_reply_forms:
+        from jinja2 import ChoiceLoader, DictLoader
+
+        loader = app.jinja_env.loader
+        template = loader.get_source(app.jinja_env, 'threads.html')[0]
+        template, removed = re.subn(r'<form class="reply-form">.*?</form>', '', template, flags=re.S)
+        if removed != 1:
+            raise RuntimeError('Expected one reply form in the thread template.')
+        app.jinja_env.loader = ChoiceLoader([DictLoader({'threads.html': template}), loader])
+    server = make_server('127.0.0.1', 0, app, threaded=True, request_handler=QuietHandler)
     print(server.server_port, flush=True)
     server.serve_forever()
 
 
 @contextmanager
-def server(root, app_dir):
+def server(root, app_dir, omit_reply_forms=False):
     start = time.perf_counter()
-    with subprocess.Popen([sys.executable, '-c', 'from benchmark_startup import serve; import sys; serve(sys.argv[1])',
-                           str(root)], stdout=subprocess.PIPE, text=True, cwd=app_dir,
+    with subprocess.Popen([sys.executable, '-c',
+                           'from benchmark_startup import serve; import sys; serve(sys.argv[1], sys.argv[2]=="True")',
+                           str(root), str(omit_reply_forms)], stdout=subprocess.PIPE, text=True, cwd=app_dir,
                           env={**os.environ, 'PYTHONPATH': os.pathsep.join(
                               (str(app_dir), str(Path(__file__).resolve().parent)))}) as process:
         try:
@@ -130,7 +142,8 @@ def memory(browser_cdp, page_cdp, pid):
 
 
 def browser_run(chromium, executable, name, root, app_dir, workload, profile_path=None):
-    scenario = SCENARIOS[name]
+    omit_reply_forms = name == REPLY_CONTROL
+    scenario = SCENARIOS['all-threads' if omit_reply_forms else name]
     cache = root / '.looking-glass/marker-tree.json'
     if name == 'markers-cold':
         cache.unlink(missing_ok=True)
@@ -148,7 +161,7 @@ def browser_run(chromium, executable, name, root, app_dir, workload, profile_pat
     if markers:
         expected['markers'] = workload['markers']
 
-    with server(root, app_dir) as (url, pid, server_ms):
+    with server(root, app_dir, omit_reply_forms) as (url, pid, server_ms):
         initial_server_memory = linux_mem(pid)
         browser = chromium.launch(executable_path=executable, args=['--no-sandbox'])
         try:
@@ -199,6 +212,8 @@ def browser_run(chromium, executable, name, root, app_dir, workload, profile_pat
                           memory=memory(browser_cdp, page_cdp, pid), responses=list(responses))
             if scenario.get('collapsed') and page.locator('#threads .thread.collapsed').count() != workload['threads']:
                 raise RuntimeError('Saved discussion collapse state was not restored.')
+            if omit_reply_forms and page.locator('#threads .reply-form').count():
+                raise RuntimeError('Discussion reply forms were mounted in the control.')
             if name == 'all-threads':
                 # Two conditional discussion polls and their browser work.
                 page.wait_for_function("""() => performance.getEntriesByType('resource').filter(
@@ -320,8 +335,8 @@ def main():
                         help='Chromium executable, or "installed" for the Playwright-managed browser.')
     parser.add_argument('--app-dir', type=Path, default=Path(__file__).resolve().parents[1],
                         help='Checkout whose server and bundled assets to measure.')
-    parser.add_argument('--scenario', action='append', choices=SCENARIOS,
-                        help='Repeat to select browser runs (default is all).')
+    parser.add_argument('--scenario', action='append', choices=(*SCENARIOS, REPLY_CONTROL),
+                        help='Repeat to select browser runs. Explicitly select the reply-form control to run it.')
     parser.add_argument('--backend-only', action='store_true')
     parser.add_argument('--browser-only', action='store_true')
     parser.add_argument('--cpu-profile-dir', type=Path,
@@ -354,7 +369,7 @@ def main():
                 browser_binary = executable or playwright.chromium.executable_path
                 result['chromium'] = subprocess.check_output([browser_binary, '--version'], text=True).strip()
                 for name in names:
-                    if SCENARIOS[name].get('saved') and not (root / '.looking-glass/marker-tree.json').exists():
+                    if SCENARIOS.get(name, {}).get('saved') and not (root / '.looking-glass/marker-tree.json').exists():
                         from urllib.request import Request, urlopen
 
                         with server(root, app_dir) as (url, _, _):

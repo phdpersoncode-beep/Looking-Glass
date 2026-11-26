@@ -80,6 +80,38 @@ and node count, including nodes outside the visible part of the sidebar,
 explain why the JS heap column captures only a small portion of the memory.
 Server and renderer evidence point to separate costs.
 
+The Chromium trace recorded a **16.5 s main-thread task** in
+`ExtractFormsAndNotifyPasswordAutofillAgent` immediately after mounting
+the sidebar and completing the first layout. Every thread mounts a reply
+form, including collapsed or offscreen threads. This is Chromium's native
+form discovery work, which the JavaScript profiler recorded as browser code.
+
+In the reply-form control, only the reply forms were removed from the
+served thread template. The browser still mounted the same 3,000 threads
+and 9,000 messages. The median readiness time fell from **25.05 s to
+8.44 s** (8.11–8.94 s), even though the endpoint still sent 24.39 MB.
+Renderer PSS was 1,028 MiB. The 16.61 s improvement closely matches the
+form discovery task in the full-workload trace. A second trace of this
+control had no `ExtractFormsAndNotifyPasswordAutofillAgent` task. The
+remaining cost includes rendering the discussion body, layout, and transfer.
+
+Reopening with all 3,000 cards collapsed reduced median renderer PSS to
+579 MiB and Chromium's combined layout and style time from about 3.29 s
+to 0.59 s. The sidebar still took 22.93 s (21.85–25.34 s), transferred
+the same 27.29 MB, and retained about 700,000 counted DOM nodes at readiness.
+The collapse setting hides the bodies after their markup and Markdown
+decoration have been created.
+
+A separate source-mapped Chromium CPU sample attributed about 3.7 s of
+inclusive time to the discussion view renderer, including 2.2 s in
+Markdown rendering and 1.3 s in sanitization. Another 3.4 s appeared in
+CodeMirror measurement and DOM selection reads around the same update.
+These are nested stack timings from one diagnostic sample.
+
+An independent readiness check that polled with animation frames and
+removed the benchmark's document-wide mutation observer reached the
+same state in 26.78 s. This reproduced the delay with a different probe.
+
 The 304 path avoids Jinja and response serialization. It still re-queries
 threads and messages, builds the navigation index and serializes those
 records for the ETag. The browser reuses the existing HTML and still runs
@@ -119,6 +151,10 @@ The 1,200-record task snapshot took 8 ms in Flask. The browser received
 the board cards and the sidebar hierarchy, totaling roughly 68,000
 counted DOM nodes with the rest of the app. Default file startup did not
 request tasks. The same-revision task poll took 0.4 ms in Flask.
+
+With 80 task records and the same source files and discussions, the board
+appeared at 0.74 s, renderer PSS was 185 MiB, and the node count was about
+32,000. That isolates the cost of restoring the larger board.
 
 ## Isolated HTTP measurements
 
@@ -161,6 +197,8 @@ uv run --locked python scripts/benchmark_startup.py --app-dir /tmp/looking-glass
 uv run --locked python scripts/benchmark_startup.py --cards 80 --threads 1000 \
   --scenario all-threads --scenario board > /tmp/looking-glass-control.json
 uv run --locked python scripts/benchmark_startup.py --cards 80 --scenario board > /tmp/looking-glass-board-control.json
+uv run --locked python scripts/benchmark_startup.py --browser-only \
+  --scenario all-threads-no-reply-forms > /tmp/looking-glass-reply-control.json
 ```
 
 To inspect the browser's JavaScript stacks in DevTools, record a separate
