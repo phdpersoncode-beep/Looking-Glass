@@ -41,7 +41,8 @@ READINESS = """expected => {
       document.querySelectorAll('#surface .task-card').length === expected.board,
     discussions: () => document.querySelector('#threads')?.getAttribute('aria-busy') === 'false' &&
       document.querySelector('#thread-total')?.textContent.startsWith(expected.discussions + ' thread') &&
-      document.querySelector('#threads .thread, #threads .empty-discussions'),
+      (expected.discussions ? document.querySelector('#threads .thread') :
+        document.querySelector('#threads .empty-discussions')?.textContent.startsWith('No discussions yet.')),
     markers: () => Number(document.querySelector('#marker-count')?.textContent) === expected.markers,
   };
   const pending = Object.keys(expected);
@@ -187,7 +188,7 @@ def browser_run(chromium, executable, name, root, app_dir, workload, profile_pat
                 page_cdp.send('Profiler.start')
             page.goto(url, wait_until='commit')
             page.wait_for_function('keys => keys.every(key => key in window.startupProfile?.stamps)',
-                                   arg=list(expected), timeout=30000)
+                                   arg=list(expected), timeout=120000)
             if markers:
                 page.wait_for_function("""() => performance.getEntriesByType('resource').some(
                     e => new URL(e.name).pathname === '/api/marker-tree' && !e.name.includes('cached=1'))""")

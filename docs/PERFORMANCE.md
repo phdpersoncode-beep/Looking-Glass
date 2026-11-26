@@ -1,5 +1,7 @@
 # Performance and port decision
 
+See the [startup and reconnect profile](STARTUP_PROFILE.md) for PR #28 measurements of large workspaces, restored tabs, discussions, tasks, and Marker Tree.
+
 ## Recommendation
 
 Keep the Python backend for now. The measurements below do not justify a full Rust
