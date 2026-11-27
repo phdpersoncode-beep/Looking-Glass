@@ -65,6 +65,45 @@ def test_thread_picker_browses_in_document_order_and_fuzzy_searches(workspace_pa
 
 
 @pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_thread_picker_leaves_sidebar_layout_in_place(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    passages=[f'Passage {i:02}.' for i in range(14)]
+    text='\n\n'.join(passages)
+    (root/'note.md').write_text(text)
+    version=ws.read('note.md')['version']
+    for passage in passages:
+        start=text.index(passage)
+        ws.create_thread('note.md',start,start+len(passage),f'Discussion on {passage}','Agent',version)
+    page.set_viewport_size({'width':1050,'height':640})
+    page.goto(url);open_file(page,'note.md')
+    search=page.get_by_role('combobox',name='Search threads')
+    picker=page.get_by_role('listbox',name='Thread results')
+    expect(page.locator('#threads>.thread')).to_have_count(len(passages))
+    assert page.locator('.discussion-content').evaluate('el=>{el.scrollTop=80;return el.scrollTop}')>0
+
+    def layout():
+        return page.locator('#discussion-sidebar').evaluate('''sidebar=>{
+          const measure=el=>[el.getBoundingClientRect().top,el.clientHeight,el.scrollTop];
+          return [...sidebar.querySelectorAll('.discussion-summary,.discussion-content,.thread-filters,#threads>.thread')].map(measure);
+        }''')
+
+    before=layout()
+    search.click()
+    expect(picker.get_by_role('option')).to_have_count(len(passages))
+    assert picker.evaluate('''el=>{
+      const {left,top,width,height}=el.getBoundingClientRect();
+      const x=left+width/2,y=top+height/2;
+      return y>document.querySelector('.discussion-content').getBoundingClientRect().top
+        && el.contains(document.elementFromPoint(x,y));
+    }''')
+    assert layout()==before
+    search.press('Escape')
+    expect(picker).to_be_hidden()
+    assert layout()==before
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
 def test_fuzzy_search_explains_matches_and_thread_numbers(workspace_page):
     from playwright.sync_api import expect
     root,page,url,ws=workspace_page
@@ -100,6 +139,7 @@ def test_search_scope_resolved_threads_and_cross_file_jump(workspace_page):
     ws.update_thread(first['id'],resolved=True)
     page.goto(url);open_file(page,'note.md');search=page.locator('#thread-search');search.fill('verifier')
     expect(page.locator('#thread-search-empty')).to_be_visible()
+    search.press('Tab')
     page.locator('#show-resolved').check();expect(page.locator('#thread-search-status')).to_contain_text('1 match')
     page.locator('#thread-scope').check();expect(page.locator('#thread-search-status')).to_contain_text('2 matches')
     expect(page.locator(f'.thread[data-thread="{other["id"]}"] .search-match-label')).to_contain_text('other.py')
@@ -225,7 +265,7 @@ def test_search_review_drafts_filters_navigation_and_approval(workspace_page):
     search.press('Enter');expect(page.locator('#passage-spotlight')).to_be_visible()
     expect(page.locator('.focused-highlight')).to_have_text('Draftvalue')
     page.keyboard.press('Escape');expect(search).to_have_value('draftvalue')
-    search.fill('verifier');page.locator('#thread-scope').check()
+    search.fill('verifier');search.press('Tab');page.locator('#thread-scope').check()
     expect(page.locator('#thread-search-status')).to_contain_text('1 match')
     page.locator('#show-resolved').check();expect(page.locator('#thread-search-status')).to_contain_text('2 matches')
     page.locator(f'.thread[data-thread="{outside["id"]}"] .thread-search-match').click()

@@ -138,6 +138,7 @@ def test_unread_badge_and_checkbox_filter_the_same_discussions(workspace_page):
     expect(badge).to_have_attribute('aria-pressed', 'false')
     expect(first_card).to_be_visible()
     search.fill('')
+    search.press('Tab')
     unread_only.check()
     page.locator('#next').click()
     expect(second_card).to_have_class('thread active')

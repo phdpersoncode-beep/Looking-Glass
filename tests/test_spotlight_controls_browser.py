@@ -155,7 +155,7 @@ def test_escape_from_spotlight_fields_returns_to_current_thread_shortcuts(worksp
         page.set_viewport_size({'width': 900, 'height': 960})
         search.fill('Queue')
         expect(page.locator('#thread-search-status')).to_contain_text('3 matches')
-        page.locator(f'.thread[data-thread="{threads[1]["id"]}"] .thread-search-match').click()
+        page.locator(f'#thread-option-{threads[1]["id"]}').click()
     else:
         page.locator(f'.thread[data-thread="{threads[1]["id"]}"] .thread-heading [data-action=jump]').click()
     card = page.locator(f'.thread[data-thread="{threads[1]["id"]}"]')
