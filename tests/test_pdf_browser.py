@@ -4,7 +4,7 @@ import os
 import pytest
 from playwright.sync_api import expect
 
-from test_requested_features import workspace_page, open_file
+from test_requested_features import workspace_page, open_file, start_reply
 from test_pdfs import make_pdf
 
 pytestmark = [pytest.mark.browser, pytest.mark.skipif(
@@ -124,7 +124,7 @@ def test_pdf_selection_comments_highlights_context_and_poll_stability(workspace_
     expect(page.locator('#passage-spotlight')).to_be_visible()
     # Clicking the passage only focuses the sidebar; no document jump.
     before = page.locator('#surface').evaluate('el=>el.scrollTop')
-    page.locator('.reply-form textarea').fill('An unsent reply')
+    start_reply(page).fill('An unsent reply')
     page.locator('.pdf-passage').evaluate('el=>window.pdfMark=el')
     ws.reply(identifier, 'Agent explanation', 'Agent')
     expect(page.locator('.thread')).to_contain_text('Agent explanation', timeout=10000)

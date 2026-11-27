@@ -2,7 +2,7 @@
 import os
 
 import pytest
-from test_requested_features import workspace_page, open_file
+from test_requested_features import workspace_page, open_file, start_reply
 from test_spotlight_navigation_browser import settle
 
 pytestmark = [pytest.mark.browser, pytest.mark.skipif(not os.environ.get('LOOKING_GLASS_BROWSER'), reason='Set LOOKING_GLASS_BROWSER')]
@@ -30,7 +30,7 @@ def test_resolve_shortcut_keeps_replies_and_passage_navigation(workspace_page, m
     expect(resolve).to_have_attribute('aria-keyshortcuts', 'Control+Enter Meta+Enter')
     shortcut = f'{modifier}+Enter'
 
-    reply = first.locator('.reply-form textarea')
+    reply = start_reply(page, first)
     reply.fill('Confirmed in the latest draft.')
     reply.press(shortcut)
     expect(first.locator('.message').last).to_contain_text('Confirmed in the latest draft.')
@@ -73,7 +73,7 @@ def test_spotlight_arrows_keep_sidebar_focus_drafts_and_search_position(workspac
     card(0).locator('.comment-markdown p').click()
     expect(page.locator('#passage-spotlight')).to_be_visible()
     assert abs(search.bounding_box()['y'] - before) < 1
-    field = card(0).locator('textarea'); field.fill('Unsent first reply')
+    field = start_reply(page, card(0)); field.fill('Unsent first reply')
     card(0).focus(); page.keyboard.press('ArrowRight')
     expect(card(1)).to_be_focused(); expect(card(1)).to_have_class('thread active')
     expect(page.locator('.focused-highlight')).to_have_text('Middle passage.')
@@ -159,7 +159,7 @@ def test_escape_from_spotlight_fields_returns_to_current_thread_shortcuts(worksp
     else:
         page.locator(f'.thread[data-thread="{threads[1]["id"]}"] .thread-heading [data-action=jump]').click()
     card = page.locator(f'.thread[data-thread="{threads[1]["id"]}"]')
-    field = card.locator('.reply-form textarea')
+    field = start_reply(page, card)
     field.fill('Unsent café reply')
     card.locator('.attach-files').set_input_files([
         {'name': 'notes.txt', 'mimeType': 'text/plain', 'buffer': b'Keep attachment'}])
@@ -308,7 +308,7 @@ def test_spotlight_cross_file_arrows_follow_scope_and_keep_drafts(workspace_page
     expect(page.locator('#document-name')).to_have_text('a.txt')
     page.keyboard.press('Escape'); page.locator('#thread-scope').check()
     expect(page.locator('#thread-total')).to_have_text('2 threads · 2 open · 0 closed')
-    first_card.click(position={'x':4, 'y':4}); first_card.locator('textarea').fill('Keep my reply')
+    first_card.click(position={'x':4, 'y':4}); start_reply(page, first_card).fill('Keep my reply')
     first_card.focus(); page.keyboard.press('ArrowRight')
     expect(page.locator('#document-name')).to_have_text('b.txt')
     second_card = page.locator(f'.thread[data-thread="{second["id"]}"]')

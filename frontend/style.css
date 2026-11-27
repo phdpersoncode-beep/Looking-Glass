@@ -312,6 +312,7 @@ html[data-theme="dark"] { --review-human: #78d49a; --review-agent: #84b4ff; --re
 .md-literal-brackets,.md-literal-brackets *{color:inherit;text-decoration:none}
 .thread-heading .copy-thread{display:grid;place-items:center;flex-shrink:0;padding:3px}.thread-heading .thread-actions{margin-left:auto}
 .thread{position:relative}
+.thread-reply>button{display:block;margin:6px 0 0 auto;font-size:10px}
 .thread-update-dot{width:7px;height:7px;border-radius:50%;background:#ab701c;flex:none}
 [data-theme=dark] .thread-update-dot{background:#d5a04d}
 .thread-update{position:absolute;top:0;right:11px;box-shadow:0 0 0 2px var(--paper);transform:translateY(-50%)}

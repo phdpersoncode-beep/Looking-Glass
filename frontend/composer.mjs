@@ -3,7 +3,7 @@ import {requestText} from './dialogs.mjs';
 export function createComposers({token,api,onError}){
   const drafts=new Map(),bound=new WeakSet(),signatures=new WeakMap(),limit=64*1024*1024;
   const selector='#comment-form,.reply-form,.task-comment-form';
-  const key=form=>form.id==='comment-form'?'new':form.dataset.taskCard?'task:'+form.dataset.taskCard:'reply:'+form.closest('.thread').dataset.thread;
+  const key=form=>form.id==='comment-form'?'new':form.dataset.taskCard?'task:'+form.dataset.taskCard:'reply:'+form.dataset.replyThread;
   const forms=()=>document.querySelectorAll(selector);
   const files=form=>drafts.get(key(form))?.files||[];
   function render(form){

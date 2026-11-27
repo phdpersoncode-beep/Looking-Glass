@@ -140,7 +140,7 @@ and saved discussions remain accessible. Built-in exclusions such as `.git/`,
    new thread is anchored.
 5. Click a highlight or **View thread** beside a selected highlight to open its
    discussion in the sidebar. Reply, resolve/reopen, or use ↑/↓ to move between
-   passages. Reply fields appear for the active thread.
+   passages. Choose **Reply** on a thread to open its composer.
 6. Save with Ctrl+S. The dot on a tab marks an unsaved draft.
 
 Selections in live Markdown and reading preview highlight the text without
@@ -167,8 +167,8 @@ Clicking a thread card's general area opens spotlight too; text selection, links
 and embedded controls keep their normal behavior. Search stays in the same position
 above the spotlight header, with a total thread count for the selected file scope.
 While spotlight is open and the sidebar or a thread has focus, **←/→** moves through
-the scoped, filtered thread list, **↑** focuses search, and **↓** focuses the current
-reply. **Ctrl+Enter** (or **Cmd+Enter**) resolves a focused discussion card. In the
+the scoped, filtered thread list, **↑** focuses search, and **↓** opens and focuses
+the current reply. **Ctrl+Enter** (or **Cmd+Enter**) resolves a focused discussion card. In the
 reply field, the same shortcut posts the reply. Text fields keep their native
 arrow keys. Escape from the reply or search
 field returns keyboard focus to the current thread, keeping spotlight, the search

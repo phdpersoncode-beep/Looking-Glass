@@ -3,7 +3,7 @@ import os
 
 import pytest
 from playwright.sync_api import expect
-from test_requested_features import workspace_page, open_file
+from test_requested_features import workspace_page, open_file, start_reply
 from test_spotlight_navigation_browser import settle
 
 pytestmark = [pytest.mark.browser, pytest.mark.skipif(not os.environ.get('LOOKING_GLASS_BROWSER'), reason='Set LOOKING_GLASS_BROWSER')]
@@ -72,7 +72,7 @@ def test_thread_references_open_target_file_and_preserve_drafts(workspace_page, 
     expect(page.locator('#notice')).to_have_text('Thread #999999 is unavailable.')
     expect(page.locator('#document-name')).to_have_text('from.md')
     card.locator('[data-action=jump]').first.click()
-    card.locator('textarea').fill('Keep this unsent reply')
+    start_reply(page, card).fill('Keep this unsent reply')
     card.locator(f'[data-thread-reference="{target["id"]}"]').focus()
     page.keyboard.press('Enter')
     expect(page.locator('#document-name')).to_have_text(name)
@@ -116,7 +116,7 @@ def test_horizontal_filters_counts_search_and_copy_keep_thread_state(workspace_p
     expect(only_unattached).not_to_be_checked()
     expect(lost_card).to_be_visible(); expect(first_card).to_be_visible()
     first_card.locator('[data-action=jump]').first.click()
-    first_card.locator('textarea').fill('Keep this draft across filters')
+    start_reply(page, first_card).fill('Keep this draft across filters')
     expect(page.locator('#passage-spotlight')).to_be_visible()
     page.locator('#all-discussions').click()
     only_unattached.check()

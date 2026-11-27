@@ -1,7 +1,7 @@
 import os
 import pytest
 from playwright.sync_api import expect
-from test_requested_features import workspace_page,open_file
+from test_requested_features import workspace_page,open_file, start_reply
 pytestmark=[pytest.mark.browser,pytest.mark.skipif(not os.environ.get('LOOKING_GLASS_BROWSER'),reason='Set LOOKING_GLASS_BROWSER')]
 
 
@@ -72,7 +72,7 @@ def test_file_mention_completion_ignore_rules_agent_references_and_navigation(wo
     thread=ws.create_thread('note.txt',0,7,'See @src/part.py and `@ignored.py`.','Agent',ws.read('note.txt')['version'])
     page.goto(url);open_file(page,'note.txt');page.locator('.jump').click()
     expect(page.locator('a[data-file-reference]')).to_have_count(1)
-    reply=page.locator('.reply-form textarea');reply.fill('Please inspect @')
+    reply=start_reply(page);reply.fill('Please inspect @')
     popup=page.get_by_role('listbox',name='File references');expect(popup).to_be_visible();expect(popup).not_to_contain_text('ignored.py')
     reply.fill('Please inspect @spp');expect(popup.get_by_role('option')).to_have_text(['src/part.py'])
     reply.press('Enter');expect(reply).to_have_value('Please inspect @src/part.py ')

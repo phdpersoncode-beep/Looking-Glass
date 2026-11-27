@@ -84,7 +84,19 @@ def test_collapsed_stacks_follow_passage_and_reveal_extra_threads(workspace_page
     expect(show_fewer).to_have_attribute('aria-expanded', 'true')
     expect(show_fewer).to_be_focused()
     page.get_by_role('button', name=f'Expand thread {roots[3]}', exact=True).click()
-    expect(page.locator(f'.thread.active[data-thread="{roots[3]}"] .thread-body')).to_contain_text('Define continuous soil')
+    card = page.locator(f'.thread.active[data-thread="{roots[3]}"]')
+    expect(card.locator('.thread-body')).to_contain_text('Define continuous soil')
+    composer = page.locator('#threads .reply-form')
+    expect(composer).to_have_count(0)
+    reply_label = f'Reply to thread {roots[3]}'
+    card.get_by_role('button', name=reply_label, exact=True).click()
+    expect(composer).to_have_count(1)
+    card.get_by_role('textbox', name=reply_label).fill('Draft about soil depth')
+    page.get_by_role('button', name='Collapse all threads').click()
+    expect(composer).to_have_count(0)
+    expect(page.get_by_role('button', name=f'Expand thread {roots[3]}', exact=True)).to_be_visible()
+    page.get_by_role('button', name=f'Expand thread {roots[3]}', exact=True).click()
+    expect(card.get_by_role('textbox', name=reply_label)).to_have_value('Draft about soil depth')
 
 
 @pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)

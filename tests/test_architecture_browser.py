@@ -1,7 +1,7 @@
 """Behavior contracts across architecture boundaries, in both browser engines."""
 import os
 import pytest
-from test_requested_features import workspace_page, open_file
+from test_requested_features import workspace_page, open_file, start_reply
 from test_spotlight_navigation_browser import settle
 
 pytestmark = [pytest.mark.browser, pytest.mark.skipif(
@@ -100,7 +100,7 @@ def test_poll_updates_keep_cards_messages_composers_and_selection(workspace_page
     page.goto(url); open_file(page, 'note.txt')
     card = page.locator(f'.thread[data-thread="{first["id"]}"]')
     card.click(position={'x': 4, 'y': 4})
-    field = card.locator('textarea'); field.fill('Unsent reply')
+    field = start_reply(page, card); field.fill('Unsent reply')
     field.evaluate('el=>el.setSelectionRange(2,6)')
     page.evaluate('''id=>{const card=document.querySelector(`[data-thread="${id}"]`);
       window.heldDiscussionNodes=[card,card.querySelector('.message'),card.querySelector('.comment-markdown p').firstChild,card.querySelector('.reply-form'),card.querySelector('textarea')];
@@ -184,7 +184,7 @@ def test_review_reply_and_attachment_survive_hidden_mode_scope(workspace_page):
     thread = ws.reviews.create_thread(draft['id'], draft['version'], 0, 6, 'Review-only discussion', 'Reviewer')
     card = page.locator(f'.thread[data-thread="{thread["id"]}"]')
     expect(card).to_be_visible(); card.click(position={'x': 4, 'y': 4})
-    field = card.locator('textarea'); field.fill('Unsent review reply')
+    field = start_reply(page, card); field.fill('Unsent review reply')
     field.evaluate('el=>{el.setSelectionRange(3,7);window.heldReviewForm=el.closest("form");}')
     card.locator('.attach-files').set_input_files({'name': 'pending.png', 'mimeType': 'image/png',
         'buffer': base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=')})
