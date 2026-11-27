@@ -1005,7 +1005,7 @@ function documentSize(content){
 const noPythonScopes=[];
 function updatePythonOutline(){
   const scopes=view?.plugin(pythonScopeView)?.scopes;
-  outlineController?.setDocument(scopes?entry()?.path:null,scopes?view.state.doc:null,scopes||noPythonScopes);
+  outlineController?.setDocument(scopes?entry()?.path:null,scopes?view.state.doc:null,scopes||noPythonScopes,view?.state.selection.main.head);
 }
 
 const breadcrumbs=mountBreadcrumbs($('#document-name'),$('#breadcrumb-picker'),{
@@ -1019,7 +1019,7 @@ function updateToolbar(){
   if(['py','pyi'].includes(type)&&!e?.kind)$('#file-info').title='Go to definition: Ctrl/Cmd+click a name. Tab indents.';else $('#file-info').removeAttribute('title');
   updatePythonOutline();
   const liveMarkdown=!e?.kind&&['md','markdown'].includes(type)&&e?.mode==='live';
-  contentsController?.setDocument(liveMarkdown&&view?e.path:null,liveMarkdown?view?.state.doc:null);
+  contentsController?.setDocument(liveMarkdown&&view?e.path:null,liveMarkdown?view?.state.doc:null,view?.state.selection.main.head);
   for(const [id,direction] of [['font-smaller','Decrease'],['font-larger','Increase']]){const control=$('#'+id);control.setAttribute('aria-label',direction+(type==='pdf'?' PDF zoom':' document font size'));control.title=type==='pdf'?direction+' PDF zoom':direction+' document font size';control.textContent=type==='pdf'?(direction==='Increase'?'+':'−'):(direction==='Increase'?'A+':'A−');}
   $('#pdf-contents').hidden=!!e?.kind||type!=='pdf';
   $('.font-controls').hidden=['history','tasks'].includes(e?.kind);$('#annotate').hidden=!!e?.kind;$('#save').hidden=!!e?.kind||type==='pdf';
@@ -1830,7 +1830,9 @@ document.addEventListener('keydown',event=>{
     event.preventDefault();cancelSidebarNavigation();
     const card=$(`.thread[data-thread="${appStore.state.focusedThread}"]`);
     // Leave text entry before leaving the passage's focused discussion view.
-    if(event.target.matches('#thread-search,.reply-form textarea')&&card&&!card.hidden&&!document.querySelector('dialog:modal')){event.stopPropagation();card.focus({preventScroll:true});}
+    if(event.target.matches('#thread-search,.reply-form textarea')&&card&&!card.hidden&&!document.querySelector('dialog:modal')){
+      event.stopPropagation();threadSearch.closePicker();card.focus({preventScroll:true});
+    }
     else clearSpotlight();
   }
 },true);
@@ -2143,6 +2145,7 @@ $('#explorer-toggle').onclick=()=>setExplorerHidden(!explorerHidden,true);
 setExplorerHidden(explorerHidden);
 let discussionsHidden=localStorage.getItem('looking-glass-discussions-hidden')==='true';
 function setDiscussionsHidden(hidden,focus=false){
+  if(hidden)threadSearch.closePicker();
   if(hidden&&$('#author-popover').matches(':popover-open'))$('#author-popover').hidePopover();
   if(hidden&&contextVisit)guard(returnFromOriginal)();
   if(hidden){cancelSidebarNavigation();clearSpotlight();}

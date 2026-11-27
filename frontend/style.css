@@ -264,14 +264,22 @@ html[data-theme="dark"] { --review-human: #78d49a; --review-agent: #84b4ff; --re
 .document-toolbar { flex-wrap: wrap; }
 .edit-comment { border: 0; padding: 0 3px; color: var(--muted); font-size: 10px; }
 .document-toolbar > .flex { max-width: 100%; flex-wrap: wrap; justify-content: flex-end; }
+.thread-search-area{flex-shrink:0;min-width:0}
 .thread-search-bar{display:flex;align-items:center;gap:7px;flex-shrink:0;margin:0 12px 10px;padding:0 9px;border:1px solid var(--border);border-radius:6px;background:var(--paper);color:var(--muted)}
 .thread-search-bar:focus-within{border-color:var(--purple)}.thread-search-bar svg{flex-shrink:0}
 .thread-search-bar input{flex:1;min-width:0;width:100%;border:0;background:transparent;padding:8px 0;font-size:11px;outline:none;outline-offset:0}
 .thread-search-bar input::-webkit-search-cancel-button{display:none}.thread-search-bar button{border:0;padding:2px 3px;font-size:16px;line-height:1;color:var(--muted)}
+.thread-picker{display:flex;flex-direction:column;min-width:0;margin:-6px 12px 10px;padding:4px;border:1px solid var(--border);border-radius:6px;background:var(--paper);box-shadow:0 5px 14px #0002}
+.thread-picker [role=listbox]{max-height:min(260px,33dvh);overflow:auto;overscroll-behavior:contain;scrollbar-width:thin}
+.thread-picker [role=option]{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:baseline;column-gap:8px;width:100%;border:0;padding:5px 6px;text-align:left}
+.thread-picker [role=option][aria-selected=true]{background:var(--highlight)}
+.thread-picker .thread-option-number{grid-row:1 / span 2;color:var(--purple);font:11px/1.6 var(--mono)}
+.thread-picker :is(.search-match-label,.search-match-excerpt){overflow:hidden;text-overflow:ellipsis;margin:0}
+.thread-picker p{padding:5px 6px;font-size:11px;color:var(--muted)}
 #thread-search-status{flex-shrink:0;padding:0 17px 10px;font-size:10px;color:var(--muted)}
 .thread-search-match{display:block;width:100%;text-align:left;border:0;padding:5px 0;white-space:normal;overflow-wrap:anywhere}
 .search-match-label{display:block;font-size:9px;color:var(--muted);margin-bottom:3px}.search-match-excerpt{display:block;font-size:12px;line-height:1.5}
-.thread-search-match mark{background:var(--highlight);color:var(--purple);border-radius:2px}.thread-search-match:hover{background:transparent}.thread-search-match:hover .search-match-excerpt{color:var(--purple)}
+:is(.thread-search-match,.thread-picker) mark{background:var(--highlight);color:var(--purple);border-radius:2px}.thread-search-match:hover{background:transparent}.thread-search-match:hover .search-match-excerpt{color:var(--purple)}
 .thread-searching .thread.collapsed{width:auto;padding:10px 12px}.thread-searching .thread:not(.active)>.thread-body{display:none}
 .thread-searching .thread-summary{font-size:11px}.thread-searching .thread-file{display:block}
 #thread-search-hints{margin-top:8px}#thread-search-hints button{display:block;border:0;padding:3px 0;font-size:10px;color:var(--muted);white-space:normal;text-align:left}#thread-search-hints button:hover{background:transparent;color:var(--purple)}
@@ -304,7 +312,7 @@ html[data-theme="dark"] { --review-human: #78d49a; --review-agent: #84b4ff; --re
 #markdown-contents nav button{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-sans);font-size:12px}
 .outline-symbol{flex-shrink:0;width:12px;text-align:center;color:var(--muted)}.outline-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .code-outline [data-kind=class] .outline-symbol{color:var(--purple)}
-.outline-row:has(>button[aria-current=location]){background:color-mix(in srgb,var(--text) 9%,var(--paper));border-radius:4px}
+.outline-row:has(>button[aria-current=location]),#markdown-contents button[aria-current=location]{background:color-mix(in srgb,var(--text) 9%,var(--paper));border-radius:4px}
 .python-definition-pin{position:absolute;inset:0 0 auto;z-index:6;padding:3px 12px;border:0;border-bottom:1px solid var(--border);border-radius:0;background:color-mix(in srgb,var(--text) 5%,var(--paper));color:var(--text);font:var(--document-font-size)/1.5 var(--mono);text-align:left;overflow:hidden;text-overflow:ellipsis}
 .python-definition-pin:hover{background:color-mix(in srgb,var(--text) 9%,var(--paper));border-color:var(--border)}
 .python-definition-pin:focus-visible{outline-offset:-2px}

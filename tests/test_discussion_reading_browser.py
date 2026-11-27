@@ -131,7 +131,7 @@ def test_unread_badge_and_checkbox_filter_the_same_discussions(workspace_page):
     expect(first_card).to_be_hidden()
     expect(second_card).to_be_visible()
 
-    search = page.get_by_role('searchbox', name='Search threads')
+    search = page.get_by_role('combobox', name='Search threads')
     search.fill('First comment')
     expect(page.locator('#thread-search-empty')).to_be_visible()
     unread_only.uncheck()

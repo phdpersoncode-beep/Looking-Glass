@@ -225,7 +225,10 @@ normally. Turn it on to show only threads needing reattachment in the list, sear
 results, and navigation. Changing this filter leaves the current spotlight;
 **Show resolved** and the file scope still apply. The concise summary
 shows total, open, and closed counts for the current file or across-files scope,
-including threads hidden by filters or search.
+including threads hidden by filters or search. Click **Search threads** to open a
+picker ordered by passage position within each file. Type to fuzzy-search thread
+numbers, passages, comments, and replies. Use ↑/↓ and Enter or click a result to
+jump to its passage. The picker follows the current scope and filters.
 
 In comments and replies, `#123` becomes a clickable thread reference. It opens
 that thread and its file in spotlight, including resolved or unattached threads
@@ -284,13 +287,14 @@ are not recorded as file visits.
 Python files have a compact **Outline** strip on the right of the reading pane.
 Expand it to browse classes, functions, methods, and module-level assigned
 variables. Click a name to jump to its definition. The outline highlights the
-scope at the cursor. When that definition scrolls above the editor, its
-signature stays pinned in a single row at the top. Click the row to return to
-the definition. The outline follows unsaved edits and the active Edit/Review
+class, function, method, or module variable at the cursor. When a class or
+function definition scrolls above the editor, its signature stays pinned in a
+single row at the top. Click the row to return to the definition. The outline follows unsaved edits and the active Edit/Review
 content. Its expanded/collapsed preference is remembered.
-Live Markdown has a matching **Contents** strip. Click a heading to jump to it
-while keeping the list open. Drag the left edge to set the width or focus the
-separator and use the arrow keys. The browser remembers the width and open state.
+Live Markdown has a matching **Contents** strip. It highlights the heading for
+the section at the cursor. Click a heading to jump to it while keeping the list
+open. Drag the left edge to set the width or focus the separator and use the
+arrow keys. The browser remembers the width and open state.
 
 Use **A− / A+** in the document toolbar to adjust document text size.
 The setting persists. Toolbar, sidebar, and search controls keep their size.
