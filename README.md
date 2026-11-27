@@ -239,10 +239,11 @@ or threads, and panel icons to hide/show the sidebar itself.
 Sidebar tools share a horizontal centerline with the hide/show control in their
 row. When the right sidebar is narrow, its label moves below the tools.
 Drag the discussions divider to resize it; the width persists. Collapse a thread
-with its chevron and reopen it from its comment icon and short preview. In the
-current file, collapsed previews follow their passages as you scroll. Threads on
-the same passage share a stack with two previews and a **+N more** control for
-the rest. The header also has collapse-all and expand-all controls. **Zen mode** (top-bar button or **Alt+Z**; the existing
+with its chevron and reopen it from the preview showing its comment icon, thread
+number, and first few words. In the current file, collapsed previews follow
+their passages as you scroll. Threads on the same passage share a stack with
+two previews and a **+N more** control for the rest. The header also has
+collapse-all and expand-all controls. **Zen mode** (top-bar button or **Alt+Z**; the existing
 **Ctrl+Alt+Z** and **Cmd+Alt+Z** shortcuts also work) hides the file explorer and tabs
 and expands only the focused thread. The shortcut also works inside HTML reports.
 Leaving zen restores the normal collapse settings. **Ctrl+Z remains undo.**

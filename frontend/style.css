@@ -99,6 +99,7 @@ dialog:modal{margin:auto}.directory-list{height:260px;overflow:auto;margin-top:8
   display:flex;align-items:center;gap:7px;width:100%;min-height:25px;padding:2px 10px 2px 12px;
   border:0;border-radius:0 4px 4px 0;font-size:11px;line-height:16px;text-align:start;color:var(--text)
 }
+.thread-summary-reference{display:inline-flex;align-items:center;flex:none;gap:4px;font-variant-numeric:tabular-nums;color:color-mix(in srgb,var(--purple) 72%,var(--text))}
 .thread-summary svg{flex:none;width:14px;height:14px;color:var(--purple)}
 .thread-excerpt{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .thread-excerpt-end{margin-inline-start:-4px;color:color-mix(in srgb,var(--muted) 75%,var(--text))}

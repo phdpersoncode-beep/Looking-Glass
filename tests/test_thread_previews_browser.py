@@ -51,8 +51,10 @@ def test_collapsed_stacks_follow_passage_and_reveal_extra_threads(workspace_page
     scroller = page.locator('#surface' if mode == 'preview' else '#surface .cm-scroller')
     page.get_by_role('button', name='Collapse all threads').click()
     preview = page.get_by_role('button', name=f'Expand thread {roots[0]}', exact=True)
-    expect(preview).to_have_text('Clarify how much space(...)')
-    expect(preview.locator('svg')).to_be_visible()
+    expect(preview).to_have_text(f'#{roots[0]} Clarify how much space(...)')
+    reference = preview.locator('.thread-summary-reference')
+    expect(reference.locator('svg')).to_be_visible()
+    expect(reference.get_by_text(f'#{roots[0]}', exact=True)).to_be_visible()
     toggle = page.get_by_role('button', name='+2 more', exact=True)
     expect(toggle).to_have_attribute('aria-expanded', 'false')
     expect(page.locator(f'.thread[data-thread="{roots[2]}"]')).to_be_hidden()
@@ -99,7 +101,7 @@ def test_collapsed_html_preview_tracks_report_scroll(workspace_page):
     page.get_by_role('button', name='Collapse all threads').click()
     expect(page.locator('.discussion-content')).to_have_attribute('data-aligned-thread-previews', '')
     preview = page.get_by_role('button', name=f'Expand thread {thread_id}', exact=True)
-    expect(preview).to_have_text('Clarify the findings about(...)')
+    expect(preview).to_have_text(f'#{thread_id} Clarify the findings about(...)')
     before = preview.bounding_box()['y']
     report.evaluate('() => window.scrollTo(0, 80)')
     page.wait_for_function('''([id, y]) => {
