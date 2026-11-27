@@ -192,6 +192,15 @@ def test_markdown_tables_use_available_width_and_scroll_overflow(workspace_page,
     assert .8*body_size<=cell_size<=.9*body_size
     assert small.locator('td').first.evaluate('el=>parseFloat(getComputedStyle(el).paddingTop)')<=4
     assert small.locator('td').first.evaluate('el=>parseFloat(getComputedStyle(el).paddingLeft)')<=6
+    for theme in ('light','dark'):
+        if page.locator('html').get_attribute('data-theme')!=theme:
+            page.locator('#theme').click()
+        table=small.locator('table')
+        expect(table).to_have_css('border-top-width','3px')
+        expect(table.locator('thead')).to_have_css('border-bottom-width','2px')
+        expect(table).to_have_css('border-bottom-width','3px')
+        for cell in table.locator('th,td').all():
+            expect(cell).to_have_css('border-width','0px')
     assert large.evaluate('el=>el.scrollWidth>el.clientWidth')
     # The side outline is outside the reading surface available to tables.
     assert large.bounding_box()['width']>page.locator('#surface').bounding_box()['width']-80

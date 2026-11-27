@@ -33,7 +33,7 @@ import {mountMappedMarkdown,renderMarkdown} from './markdown-render.mjs';
 import {markdownMathRanges} from './markdown-source.mjs';
 import {markdownLinks} from './markdown-links.mjs';
 import {markdownListLines} from './markdown-lists.mjs';
-import {todoRanges} from './markdown-todo.mjs';
+import {markerRanges} from './markdown-markers.mjs';
 import {linkThreadReferences} from './thread-references.mjs';
 import {textSelection,updateNativeTextSelection} from './text-selection.mjs';
 import {createThreadSpotlight} from './thread-spotlight.mjs';
@@ -112,6 +112,7 @@ function discussionPath(e=entry(),path=appStore.state.displayedDocument){return 
 function discussionReview(e=entry()){return e?.kind==='original'?e.contextReview:e?.workMode==='review'?e.review?.id:null;}
 let expandedFolders=new Set();try{expandedFolders=new Set(JSON.parse(localStorage.getItem('looking-glass-folders:'+root)||'[]'));}catch{}
 let zenCollapsed=false;
+const zenExpandedThreads=new Set();
 let collapsedThreads=new Set();try{collapsedThreads=new Set(JSON.parse(localStorage.getItem('looking-glass-collapsed-threads:'+root)||'[]'));}catch{}
 function rememberCollapsed(){localStorage.setItem('looking-glass-collapsed-threads:'+root,JSON.stringify([...collapsedThreads]));}
 let quickPaths=[],quickMatches=[],quickIndex=0,quickRequest=0;
@@ -380,19 +381,21 @@ class TaskCheckbox extends WidgetType {
   toDOM(v){const checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.className='md-task-checkbox';checkbox.checked=this.checked;checkbox.setAttribute('aria-label',this.checked?'Mark task incomplete':'Mark task complete');checkbox.onmousedown=event=>event.preventDefault();checkbox.onchange=()=>{v.dispatch({changes:{from:this.from+1,to:this.from+2,insert:checkbox.checked?'x':' '}});v.focus();};return checkbox;}
   ignoreEvent(){return true;}
 }
-const todoMark=Decoration.mark({class:'md-todo'});
-const todoSourceNodes=new Set(['FencedCode','CodeBlock','URL','LinkLabel','HTMLTag','HTMLBlock','CommentBlock']);
+const markerMarks=new Map(['P0','P1','P2','P3','TODO'].map(kind=>[
+  kind,Decoration.mark({class:'md-marker',attributes:{'data-kind':kind}})
+]));
+const markerSourceNodes=new Set(['FencedCode','CodeBlock','URL','LinkLabel','HTMLTag','HTMLBlock','CommentBlock']);
 function liveDecorations(v, activeRange) {
   const ranges=[], doc=v.state.doc, links=markdownLinks(syntaxTree(v.state),doc);
   const math=markdownMathRanges(doc.toString()),images=imageRanges(doc.toString()),editing=v.state.field(blockEditing);
   const {from:activeFrom,to:activeTo}=activeRange;
   const tree=syntaxTree(v.state);
-  for(const {from,to} of v.visibleRanges)for(const match of todoRanges(doc.sliceString(from,to))){
+  for(const {from,to} of v.visibleRanges)for(const match of markerRanges(doc.sliceString(from,to))){
     const start=from+match.from,end=from+match.to;
     if(math.some(range=>range.from<=start&&end<=range.to)||images.some(range=>range.from<=start&&end<=range.to))continue;
     let node=tree.resolveInner(start,1);
-    while(node&&!todoSourceNodes.has(node.name))node=node.parent;
-    if(!node)ranges.push(todoMark.range(start,end));
+    while(node&&!markerSourceNodes.has(node.name))node=node.parent;
+    if(!node)ranges.push(markerMarks.get(match.kind).range(start,end));
   }
   for(const line of markdownListLines(syntaxTree(v.state),doc)){
     ranges.push(Decoration.line({class:'md-list-line',attributes:{'data-list-depth':String(line.depth),style:`--md-list-depth:${line.depth};--md-list-marker-width:${line.width}em`}}).range(line.from));
@@ -1289,7 +1292,7 @@ function filterThreads(){
     if(update)update.hidden=!unread.has(id);
     t.hidden=!visible.has(id);
     t.classList.toggle('active',id===appStore.state.focusedThread);
-    t.classList.toggle('collapsed',appStore.state.zen?(id!==appStore.state.focusedThread||zenCollapsed):collapsedThreads.has(id));
+    t.classList.toggle('collapsed',appStore.state.zen?(!zenExpandedThreads.has(id)&&(id!==state.focusedThread||zenCollapsed)):collapsedThreads.has(id));
     t.querySelector('[data-action=collapse-thread]')?.setAttribute('aria-expanded',String(!t.classList.contains('collapsed')));
     if(id===state.focusedThread&&!t.hidden&&!t.classList.contains('collapsed'))replyCard=t;
   });
@@ -1918,7 +1921,14 @@ document.addEventListener('click',guard(async event=>{
   if(!['jump','expand-thread'].includes(action.dataset.action))cancelSidebarNavigation();
   if(action.dataset.action==='copy-thread'){await navigator.clipboard.writeText('#'+id);notify('Thread reference copied');return;}
   if(action.dataset.action==='edit-message'){const message=t.messages.find(m=>m.id===Number(action.dataset.message));$('#edit-comment-body').value=message.body;$('#edit-comment-form').dataset.thread=id;$('#edit-comment-form').dataset.message=message.id;$('#edit-comment-dialog').showModal();return;}
-  if(action.dataset.action==='collapse-thread'){if(contextVisit&&entry()?.threadId===id)await returnFromOriginal();if(appStore.state.zen)zenCollapsed=true;else collapsedThreads.add(id);rememberCollapsed();filterThreads();return;}
+  if(action.dataset.action==='collapse-thread'){
+    if(contextVisit&&entry()?.threadId===id)await returnFromOriginal();
+    if(appStore.state.zen){
+      zenExpandedThreads.delete(id);
+      if(id===appStore.state.focusedThread)zenCollapsed=true;
+    }else{collapsedThreads.add(id);rememberCollapsed();}
+    filterThreads();return;
+  }
   if(action.dataset.action==='expand-thread'){await focusSidebarThread(id);return;}
   if(action.dataset.action==='open-reply'){
     if(appStore.state.focusedThread!==id){
@@ -2021,8 +2031,27 @@ $('#approve-review').onclick=guard(requestReviewApproval);$('#review-approve-for
 $('#save').onclick=guard(saveActive);$('#annotate').onclick=guard(startComment);
 $('#all-discussions').onclick=guard(async()=>{passageActivation++;cancelSidebarNavigation();if(contextVisit)await returnFromOriginal();clearSpotlight();});
 function visibleThreadIds(){return $$('.thread').filter(t=>!t.hidden).map(t=>Number(t.dataset.thread));}
-$('#collapse-threads').onclick=guard(async()=>{if(contextVisit)await returnFromOriginal();if(appStore.state.zen)zenCollapsed=true;else for(const id of visibleThreadIds())collapsedThreads.add(id);rememberCollapsed();filterThreads();});
-$('#expand-threads').onclick=()=>{for(const id of visibleThreadIds())collapsedThreads.delete(id);rememberCollapsed();filterThreads();};
+$('#collapse-threads').onclick=guard(async()=>{
+  if(contextVisit)await returnFromOriginal();
+  if(appStore.state.zen){
+    zenCollapsed=true;
+    for(const id of visibleThreadIds())zenExpandedThreads.delete(id);
+  }else{
+    for(const id of visibleThreadIds())collapsedThreads.add(id);
+    rememberCollapsed();
+  }
+  filterThreads();
+});
+$('#expand-threads').onclick=()=>{
+  if(appStore.state.zen){
+    zenCollapsed=false;
+    for(const id of visibleThreadIds())zenExpandedThreads.add(id);
+  }else{
+    for(const id of visibleThreadIds())collapsedThreads.delete(id);
+    rememberCollapsed();
+  }
+  filterThreads();
+};
 $('#previous').onclick=guard(()=>navigate(-1));$('#next').onclick=guard(()=>navigate(1));$('#show-resolved').onchange=()=>{cancelSidebarNavigation();appStore.dispatch({type:'FILTERS_CHANGED',filters:{showResolved:$('#show-resolved').checked}});};
 $('#only-unattached').onchange=()=>{cancelSidebarNavigation();appStore.dispatch({type:'FILTERS_CHANGED',filters:{onlyUnattached:$('#only-unattached').checked}});};
 function setUnreadOnly(onlyUnread){
@@ -2265,9 +2294,8 @@ function applyZen(){
   document.documentElement.classList.toggle('zen-mode',appStore.state.zen);
   if(!appStore.state.zen)markerTree.refresh();
   $('#zen-toggle').setAttribute('aria-pressed',String(appStore.state.zen));
-  $('#expand-threads').disabled=appStore.state.zen;
   filterThreads();sizeSidebar();sizeDiscussions();view?.requestMeasure();
 }
-function toggleZen(){appStore.dispatch({type:'ZEN_CHANGED',value:!appStore.state.zen});zenCollapsed=false;localStorage.setItem('looking-glass-zen',String(appStore.state.zen));applyZen();}
+function toggleZen(){zenExpandedThreads.clear();appStore.dispatch({type:'ZEN_CHANGED',value:!appStore.state.zen});zenCollapsed=false;localStorage.setItem('looking-glass-zen',String(appStore.state.zen));applyZen();}
 $('#zen-toggle').onclick=toggleZen;
 applyZen();

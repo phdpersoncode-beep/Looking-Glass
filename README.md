@@ -245,8 +245,9 @@ their passages as you scroll. Threads on the same passage share a stack with
 two previews and a **+N more** control for the rest. The header also has
 collapse-all and expand-all controls. **Zen mode** (top-bar button or **Alt+Z**; the existing
 **Ctrl+Alt+Z** and **Cmd+Alt+Z** shortcuts also work) hides the file explorer and tabs
-and expands only the focused thread. The shortcut also works inside HTML reports.
-Leaving zen restores the normal collapse settings. **Ctrl+Z remains undo.**
+and expands the focused thread by default. Use **Expand all threads** to open
+all visible threads while staying in zen. The shortcut also works inside HTML
+reports. Leaving zen restores the normal collapse settings. **Ctrl+Z remains undo.**
 Resolving a discussion keeps you at the same passage. With focus in the sidebar
 in zen mode or spotlight, use **←/→** to move from that passage through the
 filtered thread list. Deleting a thread or comment in zen mode advances to the
@@ -314,7 +315,10 @@ parent item's text, for example:
 Source bytes, starting numbers, task checkboxes, editing, undo, and passage
 annotations are preserved. Raw source mode shows the original indentation.
 
-Markdown tables render in live mode; click a table to edit its source. Fenced Python,
+Rendered Markdown uses lavender for inline code and the Marker Tree colors for
+monospace P0, P1, P2, P3, and TODO markers.
+Markdown tables use horizontal rules above and below the header and at the
+bottom of the table. Click a live table to edit its source. Fenced Python,
 Bash, JSON, HTML, YAML (`yaml` or `yml`), and TOML blocks have basic syntax
 highlighting in live/source mode and reading preview. Inactive fence markers and
 language labels are hidden in live mode.

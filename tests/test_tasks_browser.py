@@ -735,7 +735,7 @@ def test_task_comment_attaches_previews_and_downloads_files(workspace_page):
     card = page.get_by_role('article', name='Task', exact=True)
     card.click()
     detail = page.locator('.task-detail')
-    expect(detail.locator('.task-description-preview .md-todo')).to_have_text('TODO')
+    expect(detail.locator('.task-description-preview .md-marker[data-kind=TODO]')).to_have_text('TODO')
     attach = detail.get_by_role('button', name='Attach files to card comment')
     for theme in ('light', 'dark'):
         page.evaluate('(theme)=>document.documentElement.dataset.theme=theme', theme)
@@ -769,7 +769,7 @@ def test_task_comment_attaches_previews_and_downloads_files(workspace_page):
     detail.get_by_role('button', name='Comment', exact=True).click()
     comment = detail.locator('.task-comment')
     expect(comment).to_have_count(1)
-    expect(comment.locator('.md-todo')).to_have_text('TODO')
+    expect(comment.locator('.md-marker[data-kind=TODO]')).to_have_text('TODO')
     comment.get_by_text('Preview review.png').click()
     expect(comment.get_by_role('img', name='review.png')).to_be_visible()
     page.wait_for_function("document.querySelector('.task-comment img').naturalWidth === 8")

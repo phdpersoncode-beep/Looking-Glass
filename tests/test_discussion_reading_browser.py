@@ -216,28 +216,45 @@ def test_own_replies_do_not_mark_discussion_unread(workspace_page):
 
 
 @pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
-def test_markdown_todo_style_survives_passage_highlights(workspace_page):
+def test_markdown_marker_styles_survive_passage_highlights(workspace_page):
     from playwright.sync_api import expect
     root,page,url,ws=workspace_page
-    text='TODO: finish the first draft. **TODO**? `TODO`! TODO_1 and TODOs.\n\n```python\nTODO = True\n```\n'
+    text=(
+        'TODO: finish the draft. **TODO**? `TODO`! TODO_1 and TODOs.\n\n'
+        'P0 **P1** `P2` P3. XP0 P1_ P20 P3s P4 NOTE. `sample`\n\n'
+        '| Item | Status |\n| --- | --- |\n| `table_code` | P3 |\n\n'
+        '```python\nTODO = "P0"\n```\n'
+    )
     (root/'note.md').write_text(text)
+    (root/'markers.py').write_text('\n'.join(f'# {kind}: Example' for kind in ('P0','P1','P2','P3','TODO')))
     thread=ws.create_thread('note.md',0,2,'**TODO**: discuss the draft','Agent',ws.read('note.md')['version'])
-    ws.reply(thread['id'],'A `TODO` in a reply. See @TODO.md.','Agent')
+    ws.reply(thread['id'],'A `TODO` in a reply with P2 and `reply_code`. See @TODO.md.','Agent')
     page.goto(url);open_file(page,'note.md')
-    todo=page.locator('#surface .md-todo')
-    for mode in ('live','preview'):
-        page.locator('#mode').select_option(mode)
-        expect(todo.first).to_be_visible()
-        assert ''.join(todo.all_text_contents())=='TODOTODOTODO'
-        colors=todo.first.evaluate('''el=>{
-          const actual=getComputedStyle(el),sample=document.createElement('span');
-          sample.style.cssText='font-family:var(--mono);color:var(--purple)';el.append(sample);
-          const expected=getComputedStyle(sample),result=[actual.fontFamily===expected.fontFamily,actual.color===expected.color];
-          sample.remove();return result;
-        }''')
-        assert all(colors)
-        expect(page.locator('#surface .passage-highlight[data-anchor]').first).to_have_text('TO')
-    expect(page.locator('#threads .comment-markdown .md-todo')).to_have_text(['TODO','TODO','TODO'])
+    page.get_by_role('button',name='Marker Tree',exact=True).click()
+    page.get_by_role('button',name='Group markers by tag').click()
+    badges=page.locator('#marker-results > details > summary .marker-tag')
+    expect(badges).to_have_count(5)
+    surface=page.locator('#surface')
+    comments=page.locator('#threads .comment-markdown')
+    markers=surface.locator('.md-marker')
+    style='el=>{const s=getComputedStyle(el);return [s.fontFamily,s.color,s.backgroundColor]}'
+    for theme,color in [('light','rgb(121, 86, 159)'),('dark','rgb(209, 179, 245)')]:
+        if page.locator('html').get_attribute('data-theme')!=theme:
+            page.locator('#theme').click()
+        for mode in ('live','preview'):
+            page.locator('#mode').select_option(mode)
+            expect(markers.first).to_be_visible()
+            assert ''.join(markers.all_text_contents())=='TODOTODOTODOP0P1P2P3P3'
+            for marker in markers.all():
+                badge=badges.filter(has_text=marker.get_attribute('data-kind'))
+                assert marker.evaluate(style)==badge.evaluate(style)
+            plain_code=surface.locator('.md-code,code').filter(has_text='sample')
+            expect(plain_code).to_have_css('color',color)
+            expect(surface.locator('table code')).to_have_css('color',color)
+            expect(surface.locator('.passage-highlight[data-anchor]').first).to_have_text('TO')
+        expect(comments.locator('.md-marker')).to_have_text(['TODO','TODO','P2','TODO'])
+        assert comments.locator('.md-marker[data-kind=P2]').evaluate(style)==badges.filter(has_text='P2').evaluate(style)
+        expect(comments.locator('code',has_text='reply_code')).to_have_css('color',color)
     expect(page.locator('#threads [data-file-reference="TODO.md"]')).to_have_text('@TODO.md')
 
 
