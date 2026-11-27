@@ -182,6 +182,8 @@ def test_outline_sibling_drag_keyboard_nesting_and_shared_selection(workspace_pa
     for id in (3,5):
         row(id).click(button='right',position={'x':8,'y':16})
         page.get_by_role('menuitem',name='Assign to M2: Later epic').click()
+        # Each assignment must finish saving before the next task mutation.
+        expect(page.locator(f'.task-card[data-id="{id}"] .task-assignment')).to_contain_text('#M2')
     expect(row(5)).to_have_attribute('data-depth','1')
     status = row(5).get_by_role('button', name='Cycle status for Write docs')
     status.drag_to(row(3), target_position={'x':30,'y':4})
