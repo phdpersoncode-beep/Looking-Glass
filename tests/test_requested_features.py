@@ -450,7 +450,9 @@ def test_background_discussion_polls_do_not_shift_threads(workspace_page,zen,col
     page.goto(url);open_file(page,'note.txt')
     expect(page.locator('.thread')).to_have_count(3)
     if zen:page.locator('#zen-toggle').click()
-    if collapsed:page.get_by_role('button',name='Collapse all threads',exact=True).click()
+    if collapsed:
+        page.get_by_role('button',name='Collapse all threads',exact=True).click()
+        expect(page.locator('.discussion-content')).to_have_attribute('data-aligned-thread-previews','')
     page.evaluate('''async()=>{
         await document.fonts.ready;
         window.sidebarSnapshot=[...document.querySelectorAll('.thread')].map(node=>({

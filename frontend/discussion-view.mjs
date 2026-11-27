@@ -6,6 +6,7 @@ export function createDiscussionView(host, {renderBody, composers}) {
     : node.dataset.attachment ? 'attachment:' + node.dataset.attachment
     : node.matches('.reply-form') ? 'composer'
     : node.dataset.action ? node.tagName + ':' + node.dataset.action + ':' + (node.dataset.message || '') : null;
+  const managed = node => node.matches?.('.thread-search-match, [data-thread-preview-control]');
   const compatible = (a, b) => a.nodeType === b.nodeType && (a.nodeType !== 1 || a.tagName === b.tagName);
   function decorate(node) {
     for (const body of [...(node.matches('.comment-markdown')?[node]:[]),...node.querySelectorAll('.comment-markdown')]) {
@@ -29,14 +30,14 @@ export function createDiscussionView(host, {renderBody, composers}) {
     const old = [...current.childNodes], keyed = new Map(old.filter(node => key(node)).map(node => [key(node), node])), used = new Set();
     let cursor = current.firstChild;
     for (const incoming of next.childNodes) {
-      while(cursor?.nodeType===1&&cursor.matches('.thread-search-match'))cursor=cursor.nextSibling;
+      while(cursor&&managed(cursor))cursor=cursor.nextSibling;
       const id = key(incoming);
       let node = id ? keyed.get(id) : cursor && !key(cursor) && compatible(cursor, incoming) ? cursor : null;
       if (!node || used.has(node)) {node = incoming.cloneNode(true); current.insertBefore(node, cursor); if (node.nodeType === 1) decorate(node);}
       else {if (node !== cursor) current.insertBefore(node, cursor); node = patch(node, incoming);}
       used.add(node); cursor = node.nextSibling;
     }
-    for (const node of old) if (!used.has(node)&&!node.matches?.('.thread-search-match')) node.remove();
+    for (const node of old) if (!used.has(node)&&!managed(node)) node.remove();
     return current;
   }
   function render(html) {

@@ -37,6 +37,7 @@ import {todoRanges} from './markdown-todo.mjs';
 import {linkThreadReferences} from './thread-references.mjs';
 import {textSelection,updateNativeTextSelection} from './text-selection.mjs';
 import {createThreadSpotlight} from './thread-spotlight.mjs';
+import {createThreadPreviews,threadMarkPositions} from './thread-previews.mjs';
 import {createThreadSearchView} from './thread-search-view.mjs';
 import {mountMarkdownContents} from './markdown-contents.mjs';
 import {createFileHistory,mountFileHistory} from './file-history.mjs';
@@ -69,6 +70,7 @@ const root = $('.root-label').textContent;
 const authorKey='looking-glass-author:'+root;
 let authorName=localStorage.getItem(authorKey)?.trim()||'User';
 const appStore=createAppStore({zen:localStorage.getItem('looking-glass-zen')==='true',reviewPreference:localStorage.getItem('looking-glass-review-mode:'+root)==='true',scope:localStorage.getItem('looking-glass-thread-scope:'+root)||'file',isUnread:isThreadUnread});
+const threadPreviews=createThreadPreviews($('#threads'),$('#surface'),readThreadPreviewPositions);
 const threadSpotlight=createThreadSpotlight($('.discussion-sidebar'),()=>appStore.state);
 function clearSpotlight(){appStore.dispatch({type:'SPOTLIGHT_CLEARED'});}
 function clearThreadFocus(){appStore.dispatch({type:'FOCUS_CLEARED'});}
@@ -129,7 +131,39 @@ function currentReviewRanges(normalized=false){const e=entry();return e?.review&
 function refreshMarkdownHighlights(){imageTools.refresh();if(entry()?.kind==='original')return;const spans=markdownSpans();for(const rendered of markdownViews){if(rendered.host.isConnected)rendered.highlight(spans,appStore.state.focusedThread);else markdownViews.delete(rendered);}}
 
 
+function readThreadPreviewPositions(threads){
+  const ids=new Set(threads.filter(t=>t?.path===appStore.state.displayedDocument&&t.anchor_status==='attached').map(t=>t.id));
+  if(renderedPreview){
+    const layout=renderedPreview.threadPreviewLayout;
+    if(!layout)return null;
+    const points=new Map([...layout.points].filter(([id])=>ids.has(id)));
+    return {...layout,points,top:renderedPreview.frame.getBoundingClientRect().top,scroller:null};
+  }
+  const surface=$('#surface'),scroller=view?.scrollDOM||surface;
+  const top=scroller.getBoundingClientRect().top,scrollTop=scroller.scrollTop,origin=top-scrollTop;
+  const points=threadMarkPositions(surface,ids,origin);
+  if(view){
+    for(const {id,from} of view.state.field(spanField)){
+      if(!ids.has(id)||points.has(id)&&from>=view.viewport.from&&from<=view.viewport.to)continue;
+      const line=view.lineBlockAt(from);
+      const coordinates=view.coordsAtPos(from);
+      const center=coordinates?(coordinates.top+coordinates.bottom)/2:
+        view.documentTop+line.top+Math.min(line.height,view.defaultLineHeight)/2;
+      points.set(id,center-origin);
+    }
+  }
+  return {scroller,top,scrollTop,height:scroller.clientHeight,scrollHeight:scroller.scrollHeight,points};
+}
+
 function previewMessage(type,data={}){const preview=renderedPreview;if(preview?.ready)preview.frame.contentWindow.postMessage({lookingGlass:preview.channel,type,...data},'*');}
+let alignHTMLThreadPreviews=false;
+function configureHTMLThreadPreviews(){
+  const report=renderedPreview;
+  if(!report?.ready||report.measureThreadPreviews===alignHTMLThreadPreviews)return;
+  report.measureThreadPreviews=alignHTMLThreadPreviews;
+  report.threadPreviewLayout=null;
+  previewMessage('measure-thread-previews',{enabled:alignHTMLThreadPreviews});
+}
 function previewThreads(){
   const e=entry();if(!renderedPreview||!e)return;
   const draft=e.dirty?new Map((e.state?.field(spanField)||[]).map(span=>[span.id,{from:toRawUnits(e.content,span.from),to:toRawUnits(e.content,span.to)}])):null;
@@ -655,6 +689,7 @@ function makeState(e){
     EditorView.updateListener.of(u=>{if(u.docChanged){for(const pending of pendingImagePastes)if(pending.e===e){pending.from=u.changes.mapPos(pending.from,1);pending.to=u.changes.mapPos(pending.to,1);}if(tracked){if(!u.transactions.some(t=>t.effects.some(effect=>effect.is(remoteReview)))){for(const tr of u.transactions)if(tr.docChanged)queueReviewOperations(e,operationsFor(tr),u.state.field(e.reviewField).segments);scheduleReviewSave(e);}}e.content=u.state.sliceDoc();e.dirty=e.content!==e.diskContent;e.state=u.state;updateToolbar();renderTabs();}if(u.selectionSet)updateToolbar();
       else if(!u.docChanged&&u.view===view&&u.view.plugin(pythonScopeView)&&syntaxTree(u.startState)!==syntaxTree(u.state))updatePythonOutline();
       if(u.selectionSet||u.docChanged||u.viewportChanged||u.geometryChanged)scheduleSelectionTools();
+      if(u.docChanged||u.viewportChanged||u.geometryChanged)threadPreviews.schedule();
     })
   ]});
 }
@@ -819,7 +854,7 @@ async function loadFile(path,request){
       contextVisit=null;
       if(resume){
         held.surface.resume();view=held.editor;cleanup=held.cleanup;renderedPreview=held.preview;renderedSelection=held.selection;renderedJump=held.jump;if(!activation)appStore.dispatch({type:'THREAD_ACTIVATED',threadId:held.thread});
-        previewMessage('resume');
+        previewMessage('resume');configureHTMLThreadPreviews();
         if(view&&held.snapshot)view.dispatch({effects:held.snapshot});
         const scroller=view?.scrollDOM||$('#surface');let remaining=3;
         const restore=()=>{if(appStore.state.displayedDocument!==path||!scroller.isConnected)return;scroller.scrollTop=held.top;scroller.scrollLeft=held.left;if(--remaining)requestAnimationFrame(restore);};
@@ -914,6 +949,11 @@ function mountDocument(e){
     previewMessage('resume');
     cleanup=()=>{
       if(renderedPreview&&renderedPreview===surface.preview){
+        if(renderedPreview.measureThreadPreviews){
+          previewMessage('measure-thread-previews',{enabled:false});
+          renderedPreview.measureThreadPreviews=false;
+          renderedPreview.threadPreviewLayout=null;
+        }
         surface.selection=renderedSelection;surface.jump=renderedJump;
         renderedPreview=null;renderedSelection=null;renderedJump=null;
       }
@@ -928,7 +968,7 @@ function mountDocument(e){
     view.dispatch({effects:[themeSlot.reconfigure(theme()),liveSlot.reconfigure(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables,textSelection]:[]),...(snapshot?[snapshot]:[])]});
     guard(refreshBaseline)();
   }
-  updateToolbar();
+  updateToolbar();threadPreviews.schedule();
 }
 async function refreshBaseline(){const editor=view,path=appStore.state.displayedDocument;if(!editor||entry()?.kind||entry()?.workMode==='review')return;const baseline=await api('git/baseline?'+new URLSearchParams({path}));if(view===editor&&appStore.state.displayedDocument===path)editor.dispatch({effects:[baselineEffect.of(baseline.content),gitSlot.reconfigure(baseline.content===null?[]:gitGutter)]});}
 async function mountPDFDocument(e){
@@ -946,7 +986,7 @@ async function mountPDFDocument(e){
       Object.assign(e,disk);version=e.version;continue;
     }
     if(!current()){dispose?.();return;}
-    mounted=true;cleanup=Object.assign(()=>{cancelled=true;dispose?.();},dispose);cleanup.highlight?.(appStore.state.threads,appStore.state.focusedThread);return;
+    mounted=true;cleanup=Object.assign(()=>{cancelled=true;dispose?.();},dispose);cleanup.highlight?.(appStore.state.threads,appStore.state.focusedThread);threadPreviews.schedule();return;
   }
 }
 function supportsReview(e){return !!e&&!e.kind&&!['stl','jsonl','json','html','htm','pdf'].includes(ext(e.path))&&!isImage(e.path);}
@@ -1253,6 +1293,11 @@ function filterThreads(){
     t.querySelector('[data-action=collapse-thread]')?.setAttribute('aria-expanded',String(!t.classList.contains('collapsed')));
     const reply=t.querySelector('.reply-form');if(reply)reply.hidden=id!==appStore.state.focusedThread;
   });
+  const browsing=!!state.spotlight||!!state.searchQuery.trim();
+  const align=!browsing&&state.scope==='file'&&!entry()?.kind;
+  alignHTMLThreadPreviews=align&&!!$('#threads>.thread.collapsed:not([hidden])');
+  configureHTMLThreadPreviews();
+  threadPreviews.update(threads,state.displayedDocument,{group:!browsing,align});
 }
 appStore.subscribe((state,previous,event)=>{
   if(event.type!=='THREAD_ACTIVATED'&&state.threads===previous.threads&&state.focusedThread===previous.focusedThread&&state.spotlight===previous.spotlight&&state.zen===previous.zen&&state.searchQuery===previous.searchQuery&&state.scope===previous.scope&&state.showResolved===previous.showResolved&&state.onlyUnattached===previous.onlyUnattached&&state.onlyUnread===previous.onlyUnread)return;
@@ -1662,10 +1707,19 @@ window.addEventListener('message',guard(async event=>{
   if(message.type==='ready'){
     preview.ready=true;preview.resolveReady?.();
     preview.frame.contentWindow.postMessage({lookingGlass:preview.channel,type:'initialize',mapping:preview.mapping},'*');
-    if(preview===renderedPreview){previewThreads();if(renderedJump)previewMessage('jump',{id:renderedJump});}
+    if(preview===renderedPreview){previewThreads();configureHTMLThreadPreviews();if(renderedJump)previewMessage('jump',{id:renderedJump});}
   }
   if(message.type==='suspended'){preview.requests?.get(message.requestId)?.();preview.requests?.delete(message.requestId);}
   if(preview!==renderedPreview)return;
+  if(message.type==='thread-preview-positions'&&preview.measureThreadPreviews&&Array.isArray(message.points)){
+    const {scrollTop,height,scrollHeight}=message;
+    if(![scrollTop,height,scrollHeight].every(value=>Number.isFinite(value)&&value>=0&&value<=33554432))return;
+    const points=new Map(message.points.slice(0,4096).filter(point=>Array.isArray(point)&&
+      Number.isSafeInteger(point[0])&&Number.isFinite(point[1])&&Math.abs(point[1])<=33554432));
+    const tracked=preview.threadPreviewLayout?.scrollTop!==scrollTop;
+    preview.threadPreviewLayout={scrollTop,height,scrollHeight,points};
+    threadPreviews.schedule(tracked);
+  }
   if(message.type==='selection'){
     const selection=message.selection;
     renderedSelection=selection&&typeof selection.anchor?.quote==='string'&&selection.anchor.quote.length<=50000&&['left','right','top','bottom'].every(key=>Number.isFinite(selection.rect?.[key]))?selection:null;
