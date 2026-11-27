@@ -2,7 +2,7 @@
 import os
 import pytest
 from playwright.sync_api import expect
-from test_requested_features import workspace_page,open_file
+from test_requested_features import workspace_page,open_file, start_reply
 from test_images_browser import no_native_dialogs
 
 pytestmark=[pytest.mark.browser,pytest.mark.skipif(not os.environ.get('LOOKING_GLASS_BROWSER'),reason='Set LOOKING_GLASS_BROWSER')]
@@ -14,6 +14,7 @@ def test_attachment_popups_keep_values_and_cancel_without_changes(workspace_page
     (root/'note.txt').write_text('Discuss this.')
     thread=ws.create_thread('note.txt',0,7,'Review','User',ws.read('note.txt')['version'])
     page.goto(url);open_file(page,'note.txt');page.locator('.jump').click()
+    start_reply(page)
     page.locator('.reply-form .attach-files').set_input_files({'name':'draft.txt','mimeType':'text/plain','buffer':b'Attachment'})
     page.locator('.pending-file button').first.click()
     dialog=page.get_by_role('dialog',name='Rename attachment',exact=True)

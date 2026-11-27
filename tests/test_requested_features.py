@@ -28,6 +28,13 @@ def open_file(page,name):
     page.locator(f'.file-entry[data-path="{name}"]').click()
     expect(page.locator('#document-name')).to_have_text(name)
 
+def start_reply(page, card=None):
+    if card is None:
+        card = page.locator('.thread.active')
+    card.locator('[data-action=open-reply]').click()
+    return card.locator('.reply-form textarea')
+
+
 def test_markdown_tables(workspace_page):
     from playwright.sync_api import expect
     root,page,url,_=workspace_page
@@ -312,6 +319,7 @@ def test_thread_attachments(workspace_page):
     f=ws.read('note.txt');t=ws.create_thread('note.txt',0,7,'Review','Tester',f['version'])
     page.goto(url);open_file(page,'note.txt')
     page.locator('.jump').click()
+    start_reply(page)
     page.locator('.reply-form .attach-files').set_input_files([{'name':'shape.svg','mimeType':'image/svg+xml','buffer':b'<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30"><rect width="30" height="30"/></svg>'},{'name':'model.stl','mimeType':'application/octet-stream','buffer':b'\x00mesh'}])
     expect(page.locator('.pending-file')).to_have_count(2)
     page.locator('.reply-form button[type=submit]').click()
@@ -417,6 +425,14 @@ def test_zen_mode_preserves_undo_and_collapse_state(workspace_page):
     expect(page.locator('.thread:not(.collapsed)')).to_have_count(1)
     page.locator('#next').click();expect(page.locator('.thread.active')).to_have_attribute('data-thread','2')
     expect(page.locator('.thread:not(.collapsed)')).to_have_count(1)
+    page.get_by_role('button',name='Expand all threads',exact=True).click()
+    expect(page.locator('.thread:not(.collapsed)')).to_have_count(3)
+    page.get_by_role('button',name='Collapse thread 1',exact=True).click()
+    expect(page.locator('.thread:not(.collapsed)')).to_have_count(2)
+    page.get_by_role('button',name='Collapse all threads',exact=True).click()
+    expect(page.locator('.thread.collapsed')).to_have_count(3)
+    page.get_by_role('button',name='Expand all threads',exact=True).click()
+    expect(page.locator('.thread:not(.collapsed)')).to_have_count(3)
     page.locator('#zen-toggle').click()
     expect(page.locator('.thread[data-thread="2"]')).to_have_class('thread active collapsed')
     expect(page.locator('.file-sidebar')).to_be_visible();expect(page.locator('#tabs')).to_be_visible()
@@ -450,7 +466,11 @@ def test_background_discussion_polls_do_not_shift_threads(workspace_page,zen,col
     page.goto(url);open_file(page,'note.txt')
     expect(page.locator('.thread')).to_have_count(3)
     if zen:page.locator('#zen-toggle').click()
-    if collapsed:page.get_by_role('button',name='Collapse all threads',exact=True).click()
+    if collapsed:
+        page.get_by_role('button',name='Collapse all threads',exact=True).click()
+    if zen or collapsed:
+        # With no focused thread, entering zen also collapses every preview.
+        expect(page.locator('.discussion-content')).to_have_attribute('data-aligned-thread-previews','')
     page.evaluate('''async()=>{
         await document.fonts.ready;
         window.sidebarSnapshot=[...document.querySelectorAll('.thread')].map(node=>({
@@ -528,7 +548,7 @@ def test_submitted_reply_clears_draft_and_keeps_agent_updates_live(workspace_pag
     (root/'note.txt').write_text('Passage.')
     t = ws.create_thread('note.txt', 0, 7, 'Review', 'Tester', ws.read('note.txt')['version'])
     page.goto(url); open_file(page, 'note.txt'); page.locator('#next').click()
-    field = page.locator('.reply-form textarea')
+    field = start_reply(page)
     field.fill('My reply'); page.locator('.reply-form button[type=submit]').click()
     expect(page.locator('.message').last).to_contain_text('My reply')
     expect(field).to_have_value('')

@@ -4,7 +4,10 @@ import {matchOverview} from './match-overview.mjs';
 import {threadOverview} from './thread-overview.mjs';
 import {mountOutlineResize} from './outline-resize.mjs';
 import {quickFileMatches} from './file-search.mjs';
+import {mountBreadcrumbs} from './breadcrumbs.mjs';
 import {mountExplorer} from './explorer.mjs';
+import {mountExplorerSplit} from './explorer-split.mjs';
+import {markerOffset,mountMarkerTree} from './marker-tree.mjs';
 import {linkFileReferences,mountFileMentions} from './file-references.mjs';
 import {resizedImageSource,imageCaption} from './image-size.mjs';
 import {confirmAction,requestText} from './dialogs.mjs';
@@ -30,10 +33,11 @@ import {mountMappedMarkdown,renderMarkdown} from './markdown-render.mjs';
 import {markdownMathRanges} from './markdown-source.mjs';
 import {markdownLinks} from './markdown-links.mjs';
 import {markdownListLines} from './markdown-lists.mjs';
-import {todoRanges} from './markdown-todo.mjs';
+import {markerRanges} from './markdown-markers.mjs';
 import {linkThreadReferences} from './thread-references.mjs';
 import {textSelection,updateNativeTextSelection} from './text-selection.mjs';
 import {createThreadSpotlight} from './thread-spotlight.mjs';
+import {createThreadPreviews,threadMarkPositions} from './thread-previews.mjs';
 import {createThreadSearchView} from './thread-search-view.mjs';
 import {mountMarkdownContents} from './markdown-contents.mjs';
 import {createFileHistory,mountFileHistory} from './file-history.mjs';
@@ -48,7 +52,7 @@ import {markdown} from '@codemirror/lang-markdown';
 import {python} from '@codemirror/lang-python';
 import {html} from '@codemirror/lang-html';
 import {json} from '@codemirror/lang-json';
-import {syntaxTree, syntaxHighlighting, HighlightStyle, ensureSyntaxTree, foldable, foldEffect, unfoldAll} from '@codemirror/language';
+import {syntaxTree, syntaxHighlighting, HighlightStyle, ensureSyntaxTree, foldable, foldEffect, foldedRanges, unfoldEffect, unfoldAll} from '@codemirror/language';
 import {codeLanguage,shellLanguage} from './code-languages.mjs';
 import {mountPythonOutline} from './python-outline.mjs';
 import {pythonIndentation} from './python-indentation.mjs';
@@ -65,7 +69,8 @@ const token = $('meta[name=looking-glass-token]').content;
 const root = $('.root-label').textContent;
 const authorKey='looking-glass-author:'+root;
 let authorName=localStorage.getItem(authorKey)?.trim()||'User';
-const appStore=createAppStore({zen:localStorage.getItem('looking-glass-zen')==='true',reviewPreference:localStorage.getItem('looking-glass-review-mode:'+root)==='true',scope:localStorage.getItem('looking-glass-thread-scope:'+root)||'file'});
+const appStore=createAppStore({zen:localStorage.getItem('looking-glass-zen')==='true',reviewPreference:localStorage.getItem('looking-glass-review-mode:'+root)==='true',scope:localStorage.getItem('looking-glass-thread-scope:'+root)||'file',isUnread:isThreadUnread});
+const threadPreviews=createThreadPreviews($('#threads'),$('#surface'),readThreadPreviewPositions);
 const threadSpotlight=createThreadSpotlight($('.discussion-sidebar'),()=>appStore.state);
 function clearSpotlight(){appStore.dispatch({type:'SPOTLIGHT_CLEARED'});}
 function clearThreadFocus(){appStore.dispatch({type:'FOCUS_CLEARED'});}
@@ -107,6 +112,7 @@ function discussionPath(e=entry(),path=appStore.state.displayedDocument){return 
 function discussionReview(e=entry()){return e?.kind==='original'?e.contextReview:e?.workMode==='review'?e.review?.id:null;}
 let expandedFolders=new Set();try{expandedFolders=new Set(JSON.parse(localStorage.getItem('looking-glass-folders:'+root)||'[]'));}catch{}
 let zenCollapsed=false;
+const zenExpandedThreads=new Set();
 let collapsedThreads=new Set();try{collapsedThreads=new Set(JSON.parse(localStorage.getItem('looking-glass-collapsed-threads:'+root)||'[]'));}catch{}
 function rememberCollapsed(){localStorage.setItem('looking-glass-collapsed-threads:'+root,JSON.stringify([...collapsedThreads]));}
 let quickPaths=[],quickMatches=[],quickIndex=0,quickRequest=0;
@@ -126,7 +132,39 @@ function currentReviewRanges(normalized=false){const e=entry();return e?.review&
 function refreshMarkdownHighlights(){imageTools.refresh();if(entry()?.kind==='original')return;const spans=markdownSpans();for(const rendered of markdownViews){if(rendered.host.isConnected)rendered.highlight(spans,appStore.state.focusedThread);else markdownViews.delete(rendered);}}
 
 
+function readThreadPreviewPositions(threads){
+  const ids=new Set(threads.filter(t=>t?.path===appStore.state.displayedDocument&&t.anchor_status==='attached').map(t=>t.id));
+  if(renderedPreview){
+    const layout=renderedPreview.threadPreviewLayout;
+    if(!layout)return null;
+    const points=new Map([...layout.points].filter(([id])=>ids.has(id)));
+    return {...layout,points,top:renderedPreview.frame.getBoundingClientRect().top,scroller:null};
+  }
+  const surface=$('#surface'),scroller=view?.scrollDOM||surface;
+  const top=scroller.getBoundingClientRect().top,scrollTop=scroller.scrollTop,origin=top-scrollTop;
+  const points=threadMarkPositions(surface,ids,origin);
+  if(view){
+    for(const {id,from} of view.state.field(spanField)){
+      if(!ids.has(id)||points.has(id)&&from>=view.viewport.from&&from<=view.viewport.to)continue;
+      const line=view.lineBlockAt(from);
+      const coordinates=view.coordsAtPos(from);
+      const center=coordinates?(coordinates.top+coordinates.bottom)/2:
+        view.documentTop+line.top+Math.min(line.height,view.defaultLineHeight)/2;
+      points.set(id,center-origin);
+    }
+  }
+  return {scroller,top,scrollTop,height:scroller.clientHeight,scrollHeight:scroller.scrollHeight,points};
+}
+
 function previewMessage(type,data={}){const preview=renderedPreview;if(preview?.ready)preview.frame.contentWindow.postMessage({lookingGlass:preview.channel,type,...data},'*');}
+let alignHTMLThreadPreviews=false;
+function configureHTMLThreadPreviews(){
+  const report=renderedPreview;
+  if(!report?.ready||report.measureThreadPreviews===alignHTMLThreadPreviews)return;
+  report.measureThreadPreviews=alignHTMLThreadPreviews;
+  report.threadPreviewLayout=null;
+  previewMessage('measure-thread-previews',{enabled:alignHTMLThreadPreviews});
+}
 function previewThreads(){
   const e=entry();if(!renderedPreview||!e)return;
   const draft=e.dirty?new Map((e.state?.field(spanField)||[]).map(span=>[span.id,{from:toRawUnits(e.content,span.from),to:toRawUnits(e.content,span.to)}])):null;
@@ -343,19 +381,21 @@ class TaskCheckbox extends WidgetType {
   toDOM(v){const checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.className='md-task-checkbox';checkbox.checked=this.checked;checkbox.setAttribute('aria-label',this.checked?'Mark task incomplete':'Mark task complete');checkbox.onmousedown=event=>event.preventDefault();checkbox.onchange=()=>{v.dispatch({changes:{from:this.from+1,to:this.from+2,insert:checkbox.checked?'x':' '}});v.focus();};return checkbox;}
   ignoreEvent(){return true;}
 }
-const todoMark=Decoration.mark({class:'md-todo'});
-const todoSourceNodes=new Set(['FencedCode','CodeBlock','URL','LinkLabel','HTMLTag','HTMLBlock','CommentBlock']);
+const markerMarks=new Map(['P0','P1','P2','P3','TODO'].map(kind=>[
+  kind,Decoration.mark({class:'md-marker',attributes:{'data-kind':kind}})
+]));
+const markerSourceNodes=new Set(['FencedCode','CodeBlock','URL','LinkLabel','HTMLTag','HTMLBlock','CommentBlock']);
 function liveDecorations(v, activeRange) {
   const ranges=[], doc=v.state.doc, links=markdownLinks(syntaxTree(v.state),doc);
   const math=markdownMathRanges(doc.toString()),images=imageRanges(doc.toString()),editing=v.state.field(blockEditing);
   const {from:activeFrom,to:activeTo}=activeRange;
   const tree=syntaxTree(v.state);
-  for(const {from,to} of v.visibleRanges)for(const match of todoRanges(doc.sliceString(from,to))){
+  for(const {from,to} of v.visibleRanges)for(const match of markerRanges(doc.sliceString(from,to))){
     const start=from+match.from,end=from+match.to;
     if(math.some(range=>range.from<=start&&end<=range.to)||images.some(range=>range.from<=start&&end<=range.to))continue;
     let node=tree.resolveInner(start,1);
-    while(node&&!todoSourceNodes.has(node.name))node=node.parent;
-    if(!node)ranges.push(todoMark.range(start,end));
+    while(node&&!markerSourceNodes.has(node.name))node=node.parent;
+    if(!node)ranges.push(markerMarks.get(match.kind).range(start,end));
   }
   for(const line of markdownListLines(syntaxTree(v.state),doc)){
     ranges.push(Decoration.line({class:'md-list-line',attributes:{'data-list-depth':String(line.depth),style:`--md-list-depth:${line.depth};--md-list-marker-width:${line.width}em`}}).range(line.from));
@@ -435,6 +475,7 @@ async function binary(path){const r=await fetch('/api/binary?'+new URLSearchPara
 function guard(fn){return (...args)=>Promise.resolve().then(()=>fn(...args)).catch(e=>notify(e.message,true));}
 const selectionPoints=(state,units)=>rawUnitsToCodePoints(state.sliceDoc(0,units));
 const ext=path=>path.split('.').pop().toLowerCase();
+const absoluteFilePath=/^(?:[A-Za-z]:[\\/]|\/)/;
 const isImage=path=>['png','jpg','jpeg','svg'].includes(ext(path));
 function entry(){return appStore.state.displayedDocument?tabs.get(appStore.state.displayedDocument):null;}
 function remember(){localStorage.setItem('looking-glass-tabs:'+root,JSON.stringify({active:entry()?.kind==='original'?contextVisit?.path:appStore.state.displayedDocument,tabs:[...tabs.values()].filter(e=>e.kind!=='original').map(e=>({path:e.path,pinned:e.pinned,mode:e.mode,kind:e.kind,...(e.kind==='history'?{history:{target:e.history?.target,selection:e.history?.selection}}:{})}))}));}
@@ -651,6 +692,7 @@ function makeState(e){
     EditorView.updateListener.of(u=>{if(u.docChanged){for(const pending of pendingImagePastes)if(pending.e===e){pending.from=u.changes.mapPos(pending.from,1);pending.to=u.changes.mapPos(pending.to,1);}if(tracked){if(!u.transactions.some(t=>t.effects.some(effect=>effect.is(remoteReview)))){for(const tr of u.transactions)if(tr.docChanged)queueReviewOperations(e,operationsFor(tr),u.state.field(e.reviewField).segments);scheduleReviewSave(e);}}e.content=u.state.sliceDoc();e.dirty=e.content!==e.diskContent;e.state=u.state;updateToolbar();renderTabs();}if(u.selectionSet)updateToolbar();
       else if(!u.docChanged&&u.view===view&&u.view.plugin(pythonScopeView)&&syntaxTree(u.startState)!==syntaxTree(u.state))updatePythonOutline();
       if(u.selectionSet||u.docChanged||u.viewportChanged||u.geometryChanged)scheduleSelectionTools();
+      if(u.docChanged||u.viewportChanged||u.geometryChanged)threadPreviews.schedule();
     })
   ]});
 }
@@ -664,7 +706,7 @@ function rememberFileVisit(e,at){
   else cancelFileVisit();
 }
 historyControls=mountFileHistory($('#file-navigation'),fileHistory,{
-  navigate:guard(target=>{cancelSidebarNavigation();return navigation.open(target.path,{fileHistoryIndex:target.index});}),
+  navigate:guard(target=>{cancelSidebarNavigation();return requestFile(target.path,{fileHistoryIndex:target.index});}),
   save:snapshot=>localStorage.setItem('looking-glass-file-history:'+root,JSON.stringify(snapshot))
 });
 const discussionRequests=createRequestGate(),indexRequests=createRequestGate(),referenceRequests=createRequestGate();
@@ -673,7 +715,23 @@ function cancelSidebarNavigation(){
   if(appStore.state.requestedThread!==null)navigation.invalidate();
   appStore.dispatch({type:'THREAD_NAVIGATION_CANCELLED'});
 }
-function openFile(path){cancelSidebarNavigation();return navigation.open(path);}
+async function requestFile(path,context=null){
+  if(ext(path)!=='ipynb')return navigation.open(path,context);
+  navigation.invalidate();
+  if(context?.threadNavigation)appStore.dispatch({type:'THREAD_NAVIGATION_CANCELLED'});
+  const separator=/^[A-Za-z]:/.test(root)?'\\':'/';
+  const absolute=absoluteFilePath.test(path)?path:
+    root.replace(/[\\/]$/,'')+separator+path.replaceAll('/',separator);
+  const copied=await confirmAction({
+    title:'Notebooks are not supported',
+    message:'Copy the file path to open this notebook in another app.',
+    value:absolute,label:'File path',readOnly:true,confirmLabel:'Copy file path',symbol:'copy',
+    onSubmit:()=>navigator.clipboard.writeText(absolute)
+  });
+  if(copied)notify('File path copied');
+  return {status:'unsupported',path};
+}
+function openFile(path){cancelSidebarNavigation();return requestFile(path);}
 async function openTaskDocument(session,path,position){
   if(path.includes('//'))throw new Error('Choose a workspace file.');
   const previous=session.tasks.documentReturn, jump={...position,path};
@@ -799,7 +857,7 @@ async function loadFile(path,request){
       contextVisit=null;
       if(resume){
         held.surface.resume();view=held.editor;cleanup=held.cleanup;renderedPreview=held.preview;renderedSelection=held.selection;renderedJump=held.jump;if(!activation)appStore.dispatch({type:'THREAD_ACTIVATED',threadId:held.thread});
-        previewMessage('resume');
+        previewMessage('resume');configureHTMLThreadPreviews();
         if(view&&held.snapshot)view.dispatch({effects:held.snapshot});
         const scroller=view?.scrollDOM||$('#surface');let remaining=3;
         const restore=()=>{if(appStore.state.displayedDocument!==path||!scroller.isConnected)return;scroller.scrollTop=held.top;scroller.scrollLeft=held.left;if(--remaining)requestAnimationFrame(restore);};
@@ -894,6 +952,11 @@ function mountDocument(e){
     previewMessage('resume');
     cleanup=()=>{
       if(renderedPreview&&renderedPreview===surface.preview){
+        if(renderedPreview.measureThreadPreviews){
+          previewMessage('measure-thread-previews',{enabled:false});
+          renderedPreview.measureThreadPreviews=false;
+          renderedPreview.threadPreviewLayout=null;
+        }
         surface.selection=renderedSelection;surface.jump=renderedJump;
         renderedPreview=null;renderedSelection=null;renderedJump=null;
       }
@@ -908,7 +971,7 @@ function mountDocument(e){
     view.dispatch({effects:[themeSlot.reconfigure(theme()),liveSlot.reconfigure(['md','markdown'].includes(ext(e.path))&&e.mode==='live'?[liveMarkdown,liveTables,textSelection]:[]),...(snapshot?[snapshot]:[])]});
     guard(refreshBaseline)();
   }
-  updateToolbar();
+  updateToolbar();threadPreviews.schedule();
 }
 async function refreshBaseline(){const editor=view,path=appStore.state.displayedDocument;if(!editor||entry()?.kind||entry()?.workMode==='review')return;const baseline=await api('git/baseline?'+new URLSearchParams({path}));if(view===editor&&appStore.state.displayedDocument===path)editor.dispatch({effects:[baselineEffect.of(baseline.content),gitSlot.reconfigure(baseline.content===null?[]:gitGutter)]});}
 async function mountPDFDocument(e){
@@ -926,7 +989,7 @@ async function mountPDFDocument(e){
       Object.assign(e,disk);version=e.version;continue;
     }
     if(!current()){dispose?.();return;}
-    mounted=true;cleanup=Object.assign(()=>{cancelled=true;dispose?.();},dispose);cleanup.highlight?.(appStore.state.threads,appStore.state.focusedThread);return;
+    mounted=true;cleanup=Object.assign(()=>{cancelled=true;dispose?.();},dispose);cleanup.highlight?.(appStore.state.threads,appStore.state.focusedThread);threadPreviews.schedule();return;
   }
 }
 function supportsReview(e){return !!e&&!e.kind&&!['stl','jsonl','json','html','htm','pdf'].includes(ext(e.path))&&!isImage(e.path);}
@@ -942,21 +1005,21 @@ function documentSize(content){
 const noPythonScopes=[];
 function updatePythonOutline(){
   const scopes=view?.plugin(pythonScopeView)?.scopes;
-  outlineController?.setDocument(scopes?entry()?.path:null,scopes?view.state.doc:null,scopes||noPythonScopes);
+  outlineController?.setDocument(scopes?entry()?.path:null,scopes?view.state.doc:null,scopes||noPythonScopes,view?.state.selection.main.head);
 }
 
+const breadcrumbs=mountBreadcrumbs($('#document-name'),$('#breadcrumb-picker'),{
+  read:directory=>api('workspace/children?'+new URLSearchParams({directory})),
+  open:guard(async path=>{if((await openFile(path)).status==='ready')view?.focus();})
+});
 function updateToolbar(){
   const locked=!!changingWorkMode||!!fileMutation||entry()?.reviewSync?.status==='approving'||entry()?.kind==='original';
   if(view&&view.state.readOnly!==locked)view.dispatch({effects:workLockSlot.reconfigure(EditorState.readOnly.of(locked))});
   const e=entry(), type=e?ext(e.path):'', viewer=!!e?.kind||['stl','jsonl','pdf'].includes(type)||isImage(e?.path||'');
-  const markerButton=$('#track-source-markers');
-  markerButton.disabled=locked||!e||viewer||e.trackingMarkers||e.workMode==='review'||!['py','pyi','md','markdown','sh','bash','yaml','yml','toml','r','rb','pl','js','mjs','cjs','ts','tsx','jsx','c','h','cpp','hpp','cs','java','go','rs','css','scss','swift','kt','php','html','htm','sql','lua'].includes(type);
-  markerButton.setAttribute('aria-pressed',String(!!e?.track_source_markers));
-  markerButton.title='Create threads from the first 1,000 saved TODO/NOTE comments in this file; keep them in sync after saves and external edits.'+(e?.source_markers_truncated?' The 1,000-marker limit has been reached.':'');
   if(['py','pyi'].includes(type)&&!e?.kind)$('#file-info').title='Go to definition: Ctrl/Cmd+click a name. Tab indents.';else $('#file-info').removeAttribute('title');
   updatePythonOutline();
   const liveMarkdown=!e?.kind&&['md','markdown'].includes(type)&&e?.mode==='live';
-  contentsController?.setDocument(liveMarkdown&&view?e.path:null,liveMarkdown?view?.state.doc:null);
+  contentsController?.setDocument(liveMarkdown&&view?e.path:null,liveMarkdown?view?.state.doc:null,view?.state.selection.main.head);
   for(const [id,direction] of [['font-smaller','Decrease'],['font-larger','Increase']]){const control=$('#'+id);control.setAttribute('aria-label',direction+(type==='pdf'?' PDF zoom':' document font size'));control.title=type==='pdf'?direction+' PDF zoom':direction+' document font size';control.textContent=type==='pdf'?(direction==='Increase'?'+':'−'):(direction==='Increase'?'A+':'A−');}
   $('#pdf-contents').hidden=!!e?.kind||type!=='pdf';
   $('.font-controls').hidden=['history','tasks'].includes(e?.kind);$('#annotate').hidden=!!e?.kind;$('#save').hidden=!!e?.kind||type==='pdf';
@@ -967,7 +1030,10 @@ function updateToolbar(){
   taskReturn.hidden=!jump||e?.path!==jump.path;
   if(!taskReturn.hidden)taskReturn.textContent='↩ '+cardReference(jump.id);
   $('#go-to-top').hidden=!e||['history','tasks','oversized'].includes(e.kind)||type==='stl'||isImage(e.path);
-  $('#document-name').textContent=e?.kind==='tasks'?'Tasks':e?.kind==='history'?'Commit history':e?.kind==='original'?'Original · '+e.sourcePath:e?.path||'Open a file';$('#dirty').textContent=e?.dirty&&e.workMode!=='review'?' · Unsaved':'';
+  const label=e?.kind==='tasks'?'Tasks':e?.kind==='history'?'Commit history':e?.kind==='original'?'Original · '+e.sourcePath:e?.path||'Open a file';
+  const workspacePath=e&&(!e.kind||e.kind==='oversized')&&!absoluteFilePath.test(e.path)?e.path:null;
+  breadcrumbs.update(workspacePath,label);
+  $('#dirty').textContent=e?.dirty&&e.workMode!=='review'?' · Unsaved':'';
   $('#save').disabled=!e||viewer||!e.dirty||saving;$('#annotate').disabled=!e||(viewer&&type!=='pdf')||!(type==='pdf'?cleanup.selection?.():renderedPreview?renderedSelection:removedSelection()||markdownSelection()||view&&!view.state.selection.main.empty);
   const mode=$('#mode');const modes=type==='md'||type==='markdown'?[['live','Live Markdown'],['source','Raw source'],['preview','Reading preview']]:type==='html'||type==='htm'?[['rendered','Rendered HTML'],['source','HTML source']]:[['source',viewer?'Viewer':'Source']];
   if(mode.dataset.path!==appStore.state.displayedDocument){mode.replaceChildren(...modes.map(([value,label])=>{const opt=document.createElement('option');opt.value=value;opt.textContent=label;return opt;}));mode.dataset.path=appStore.state.displayedDocument||'';}
@@ -992,8 +1058,8 @@ async function saveActive(){
   const e=entry();if(e?.workMode==='review'){await flushReview(e);return e;}if(!e||!e.dirty)return e;if(e.conflict)throw new Error('Resolve the external change before saving.');syncState();saving=true;updateToolbar();
   const content=e.content;
   try{
-    const saved=await api('file','PUT',{path:e.path,content,version:e.version});e.diskContent=content;e.version=saved.version;e.dirty=e.content!==content;e.source_markers_truncated=saved.source_markers_truncated;
-    if(e.path===appStore.state.displayedDocument)await refreshThreads();notify('Saved to disk');renderTabs();return e;
+    const saved=await api('file','PUT',{path:e.path,content,version:e.version});e.diskContent=content;e.version=saved.version;e.dirty=e.content!==content;
+    markerTree.refresh(true);if(e.path===appStore.state.displayedDocument)await refreshThreads();notify('Saved to disk');renderTabs();return e;
   }catch(error){if(error.status===409){const disk=await api('file?'+new URLSearchParams({path:e.path}));e.conflict=disk;}throw error;}
   finally{saving=false;updateToolbar();}
 }
@@ -1049,6 +1115,7 @@ async function approveReview(event){
   saving=true;updateToolbar();
   try{
     await reviewSync(e).approve(target);
+    markerTree.refresh(true);
     // Approval concludes the active file; other drafts stay stored for resuming.
     await setWorkMode('edit');notify('Reviewed version approved and saved');
   }catch(error){notify(error.message,true);throw error;}
@@ -1063,7 +1130,7 @@ async function showReviewHistory(){
 
 function threadScope(){return appStore.state.scope;}
 const discussionCache=new Map();let lastThreadHTML='',lastThreadKey='',navigationIndex=[],indexTime=0;
-const discussionView=createDiscussionView($('#threads'),{composers,renderBody:(host,source)=>renderMarkdown(host,source,rendered=>{
+const discussionView=createDiscussionView($('#threads'),{composers,replyTemplate:$('#thread-reply-composer'),renderBody:(host,source)=>renderMarkdown(host,source,rendered=>{
   highlightMarkdown(rendered);linkThreadReferences(rendered);linkFileReferences(rendered);markdownDiagrams(rendered);
 })});
 const discussionRetention=createDiscussionRetention();
@@ -1077,6 +1144,9 @@ function readViewedActivity(id){
     viewedActivity.set(id,activity);
   }
   return viewedActivity.get(id);
+}
+function isThreadUnread(thread){
+  return !!thread.activity&&thread.activity!==previousViewedActivity.get(thread.id)&&thread.activity!==readViewedActivity(thread.id);
 }
 function markThreadViewed(thread){
   if(!thread?.activity)return;
@@ -1152,7 +1222,6 @@ function receiveDiscussions(data,key,authoritative=true,activation=null,displaye
   previewThreads();cleanup.highlight?.(appStore.state.threads,appStore.state.focusedThread);
   if(retained)discussionView.prune(retained);
   discussionView.render(data.html);lastThreadHTML=data.html;lastThreadKey=key;
-  for(const form of $$('.reply-form'))composers.render(form);
   filterThreads();if(e?.kind!=='original')refreshMarkdownHighlights();if(entry()?.kind==='history')cleanup.updateCounts?.(data.index);
   if(displayedPath!==undefined&&activation&&sidebarFocus)$(`.thread[data-thread="${appStore.state.focusedThread}"]`)?.focus({preventScroll:true});
   if(displayedPath===undefined&&focusedCard?.hidden&&resolved.some(t=>t.id===Number(focusedCard.dataset.thread))){
@@ -1187,37 +1256,55 @@ async function getNavigationIndex(){
   return navigationIndex;
 }
 function filterThreads(){
-  const {threads}=appStore.state;
-  threadSearch.update(threads,threadSpotlight.active,$('#show-resolved').checked,discussionReview(),appStore.state.onlyUnattached,appStore.state.onlySourceMarkers);
-  const visible=new Set(selectVisibleThreads(appStore.state).map(t=>t.id));
+  const state=appStore.state,{threads,onlyUnread}=state;
   const unread=new Set();
   let closed=0;
   for(const thread of threads){
     if(thread.resolved)closed++;
     if(thread.activity===previousViewedActivity.get(thread.id))continue;
     previousViewedActivity.delete(thread.id);
-    if(thread.activity&&readViewedActivity(thread.id)!==thread.activity)unread.add(thread.id);
+    if(isThreadUnread(thread))unread.add(thread.id);
   }
+  threadSearch.update(state,discussionReview());
+  const visible=new Set(selectVisibleThreads(state).map(t=>t.id));
   const total=threads.length,openCount=String(total-closed);
   const totalText=`${total} ${total===1?'thread':'threads'} · ${openCount} open · ${closed} closed`;
   const unreadText=`${unread.size} unread`;
   if($('#thread-count').textContent!==openCount)$('#thread-count').textContent=openCount;
   if($('#thread-total').textContent!==totalText)$('#thread-total').textContent=totalText;
   if($('#thread-unread-count').textContent!==unreadText)$('#thread-unread-count').textContent=unreadText;
-  $('#thread-unread').hidden=unread.size===0;
+  const unreadOnly=$('#only-unread'),unreadButton=$('#thread-unread');
+  unreadOnly.checked=onlyUnread;
+  if(!unread.size&&!onlyUnread&&document.activeElement===unreadButton){
+    $('#thread-search').focus({preventScroll:true});
+  }
+  unreadButton.hidden=unread.size===0&&!onlyUnread;
+  unreadButton.setAttribute('aria-pressed',String(onlyUnread));
+  unreadButton.title=onlyUnread?'Show all threads':'Show unread threads only';
+  const emptyUnread=$('#thread-unread-empty');
+  emptyUnread.hidden=!onlyUnread||!!visible.size||!!state.searchQuery.trim();
+  const emptyText=unread.size?'No unread threads match these filters.':'No unread threads.';
+  if(emptyUnread.textContent!==emptyText)emptyUnread.textContent=emptyText;
+  let replyCard=null;
   $$('.thread').forEach(t=>{
     const id=Number(t.dataset.thread);
     const update=t.querySelector('.thread-update');
     if(update)update.hidden=!unread.has(id);
     t.hidden=!visible.has(id);
     t.classList.toggle('active',id===appStore.state.focusedThread);
-    t.classList.toggle('collapsed',appStore.state.zen?(id!==appStore.state.focusedThread||zenCollapsed):collapsedThreads.has(id));
+    t.classList.toggle('collapsed',appStore.state.zen?(!zenExpandedThreads.has(id)&&(id!==state.focusedThread||zenCollapsed)):collapsedThreads.has(id));
     t.querySelector('[data-action=collapse-thread]')?.setAttribute('aria-expanded',String(!t.classList.contains('collapsed')));
-    const reply=t.querySelector('.reply-form');if(reply)reply.hidden=id!==appStore.state.focusedThread;
+    if(id===state.focusedThread&&!t.hidden&&!t.classList.contains('collapsed'))replyCard=t;
   });
+  const browsing=!!state.spotlight||!!state.searchQuery.trim();
+  const align=!browsing&&state.scope==='file'&&!entry()?.kind;
+  alignHTMLThreadPreviews=align&&!!$('#threads>.thread.collapsed:not([hidden])');
+  configureHTMLThreadPreviews();
+  threadPreviews.update(threads,state.displayedDocument,{group:!browsing,align});
+  discussionView.syncReply(replyCard);
 }
 appStore.subscribe((state,previous,event)=>{
-  if(event.type!=='THREAD_ACTIVATED'&&state.threads===previous.threads&&state.focusedThread===previous.focusedThread&&state.spotlight===previous.spotlight&&state.zen===previous.zen&&state.searchQuery===previous.searchQuery&&state.scope===previous.scope&&state.showResolved===previous.showResolved&&state.onlyUnattached===previous.onlyUnattached)return;
+  if(event.type!=='THREAD_ACTIVATED'&&state.threads===previous.threads&&state.focusedThread===previous.focusedThread&&state.spotlight===previous.spotlight&&state.zen===previous.zen&&state.searchQuery===previous.searchQuery&&state.scope===previous.scope&&state.showResolved===previous.showResolved&&state.onlyUnattached===previous.onlyUnattached&&state.onlyUnread===previous.onlyUnread)return;
   if(state.focusedThread!==previous.focusedThread)zenCollapsed=false;
   threadSpotlight.capture();filterThreads();threadSpotlight.render();
   if(state.focusedThread!==previous.focusedThread){zenCollapsed=false;previewThreads();cleanup.highlight?.(state.threads,state.focusedThread);refreshMarkdownHighlights();if(view&&event.origin!=='sidebar-navigation'&&!event.activation)view.dispatch({effects:threadFocusEffect.of(state.focusedThread)});}
@@ -1289,7 +1376,7 @@ function spotlightSidebarThread(id,thread){
 const threadNavigator=createThreadNavigator({
   paths:{historyPath:HISTORY},
   find:id=>appStore.state.threads.find(t=>t.id===id),session:path=>tabs.get(path),displayed:()=>appStore.state.displayedDocument,
-  read:id=>api('threads/'+id),open:(path,activation)=>navigation.open(path,{threadNavigation:activation}),
+  read:id=>api('threads/'+id),open:(path,activation)=>requestFile(path,{threadNavigation:activation}),
   focus:(id,spotlight,thread,reveal)=>showThread(id,spotlight,spotlight&&threadSpotlight.includes(id)?threadSpotlight.ids:[id],true,reveal?'sidebar-navigation':'sidebar-focus'),
   selectGit:async target=>{cleanup.selectTarget?.(target);await refreshThreads();},
   revealRemoved:thread=>{if(entry()?.workMode!=='review'||entry()?.path!==thread.path)return false;const ghost=$$('.review-deletion').find(el=>Number(el.dataset.reviewDeletion)===thread.render_anchor?.edit_id&&el.textContent===thread.render_anchor?.text);if(!ghost)return false;ghost.scrollIntoView({block:'center'});return true;},
@@ -1332,18 +1419,18 @@ let navigationQueue=Promise.resolve();
 function navigate(direction,{sidebarFocus=false}={}){
   if(sidebarFocus){
     const state=appStore.state;
-    // Keep resolved threads in the ordering so the current passage remains
-    // the starting point, even when resolved destinations are filtered out.
-    const sequence=selectThreadSequence({...state,showResolved:true});
+    // Keep the current passage in the ordering even after viewing or resolving it.
+    const sequence=selectThreadSequence({...state,showResolved:true,onlyUnread:false});
     const target=stepThread(sequence,state.requestedThread??state.focusedThread,direction,state);
     return target ? arrowNavigation.request(target) : Promise.resolve();
   }
   navigationQueue=navigationQueue.catch(()=>{}).then(async()=>{
-    const sequence=appStore.state.searchQuery?selectThreadSequence({...appStore.state,showResolved:true}):
+    const current=appStore.state;
+    const sequence=current.searchQuery||current.onlyUnread?selectThreadSequence({...current,showResolved:true,onlyUnread:false}):
       [...await getNavigationIndex()].sort(compareThreadPosition);
     const state=appStore.state;
     const target=stepThread(sequence,state.focusedThread,direction,state,state.displayedDocument);
-    if(target)await jump(target.id,target);
+    if(target)await jump(target.id,target,state.onlyUnread);
   });return navigationQueue;
 }
 
@@ -1624,10 +1711,19 @@ window.addEventListener('message',guard(async event=>{
   if(message.type==='ready'){
     preview.ready=true;preview.resolveReady?.();
     preview.frame.contentWindow.postMessage({lookingGlass:preview.channel,type:'initialize',mapping:preview.mapping},'*');
-    if(preview===renderedPreview){previewThreads();if(renderedJump)previewMessage('jump',{id:renderedJump});}
+    if(preview===renderedPreview){previewThreads();configureHTMLThreadPreviews();if(renderedJump)previewMessage('jump',{id:renderedJump});}
   }
   if(message.type==='suspended'){preview.requests?.get(message.requestId)?.();preview.requests?.delete(message.requestId);}
   if(preview!==renderedPreview)return;
+  if(message.type==='thread-preview-positions'&&preview.measureThreadPreviews&&Array.isArray(message.points)){
+    const {scrollTop,height,scrollHeight}=message;
+    if(![scrollTop,height,scrollHeight].every(value=>Number.isFinite(value)&&value>=0&&value<=33554432))return;
+    const points=new Map(message.points.slice(0,4096).filter(point=>Array.isArray(point)&&
+      Number.isSafeInteger(point[0])&&Number.isFinite(point[1])&&Math.abs(point[1])<=33554432));
+    const tracked=preview.threadPreviewLayout?.scrollTop!==scrollTop;
+    preview.threadPreviewLayout={scrollTop,height,scrollHeight,points};
+    threadPreviews.schedule(tracked);
+  }
   if(message.type==='selection'){
     const selection=message.selection;
     renderedSelection=selection&&typeof selection.anchor?.quote==='string'&&selection.anchor.quote.length<=50000&&['left','right','top','bottom'].every(key=>Number.isFinite(selection.rect?.[key]))?selection:null;
@@ -1734,7 +1830,9 @@ document.addEventListener('keydown',event=>{
     event.preventDefault();cancelSidebarNavigation();
     const card=$(`.thread[data-thread="${appStore.state.focusedThread}"]`);
     // Leave text entry before leaving the passage's focused discussion view.
-    if(event.target.matches('#thread-search,.reply-form textarea')&&card&&!card.hidden&&!document.querySelector('dialog:modal')){event.stopPropagation();card.focus({preventScroll:true});}
+    if(event.target.matches('#thread-search,.reply-form textarea')&&card&&!card.hidden&&!document.querySelector('dialog:modal')){
+      event.stopPropagation();threadSearch.closePicker();card.focus({preventScroll:true});
+    }
     else clearSpotlight();
   }
 },true);
@@ -1785,7 +1883,7 @@ document.addEventListener('keydown',event=>{
   if(threadSpotlight.active&&event.key==='ArrowDown'){
     cancelSidebarNavigation();
     const card=$(`.thread[data-thread="${appStore.state.focusedThread}"]`);
-    if(card&&!card.hidden){event.preventDefault();zenCollapsed=false;collapsedThreads.delete(appStore.state.focusedThread);rememberCollapsed();filterThreads();card.querySelector('.reply-form textarea')?.focus({preventScroll:true});threadSpotlight.reveal(card);}
+    if(card&&!card.hidden){event.preventDefault();zenCollapsed=false;collapsedThreads.delete(appStore.state.focusedThread);rememberCollapsed();filterThreads();discussionView.openReply(card).focus();}
     return;
   }
   if(event.target.matches('.thread')&&(event.key==='Enter'||event.key===' ')){
@@ -1825,8 +1923,24 @@ document.addEventListener('click',guard(async event=>{
   if(!['jump','expand-thread'].includes(action.dataset.action))cancelSidebarNavigation();
   if(action.dataset.action==='copy-thread'){await navigator.clipboard.writeText('#'+id);notify('Thread reference copied');return;}
   if(action.dataset.action==='edit-message'){const message=t.messages.find(m=>m.id===Number(action.dataset.message));$('#edit-comment-body').value=message.body;$('#edit-comment-form').dataset.thread=id;$('#edit-comment-form').dataset.message=message.id;$('#edit-comment-dialog').showModal();return;}
-  if(action.dataset.action==='collapse-thread'){if(contextVisit&&entry()?.threadId===id)await returnFromOriginal();if(appStore.state.zen)zenCollapsed=true;else collapsedThreads.add(id);rememberCollapsed();filterThreads();return;}
+  if(action.dataset.action==='collapse-thread'){
+    if(contextVisit&&entry()?.threadId===id)await returnFromOriginal();
+    if(appStore.state.zen){
+      zenExpandedThreads.delete(id);
+      if(id===appStore.state.focusedThread)zenCollapsed=true;
+    }else{collapsedThreads.add(id);rememberCollapsed();}
+    filterThreads();return;
+  }
   if(action.dataset.action==='expand-thread'){await focusSidebarThread(id);return;}
+  if(action.dataset.action==='open-reply'){
+    if(appStore.state.focusedThread!==id){
+      if(entry()?.kind==='original'&&entry().threadId!==id)await focusThreadCard(id);
+      else showThread(id,threadSpotlight.active||appStore.state.onlyUnread,threadSpotlight.includes(id)?threadSpotlight.ids:[id],false);
+    }
+    const current=$(`#threads .thread.active[data-thread="${id}"]:not([hidden]):not(.collapsed)`);
+    if(current)discussionView.openReply(current).focus();
+    return;
+  }
   if(action.dataset.action==='original'||action.dataset.action==='message-original'){await openOriginal(id,action.dataset.message);spotlightSidebarThread(id,t);return;}
   if(action.dataset.action.endsWith('-attachment')){
     const attachmentId=Number(action.closest('[data-attachment]').dataset.attachment),item=t.attachments.find(a=>a.id===attachmentId);
@@ -1865,7 +1979,7 @@ document.addEventListener('click',guard(async event=>{
 document.addEventListener('submit',event=>{
   if(event.target.matches('.reply-form')){event.preventDefault();guard(async()=>{
     const form=event.target;if(composers.isSending(form))return;
-    const id=Number(form.closest('.thread').dataset.thread),field=form.querySelector('textarea'),body=field.value;
+    const id=Number(form.dataset.replyThread),field=form.querySelector('textarea'),body=field.value;
     composers.setSending(form,true);composers.status(form,'Sending…');
     try{
       markLocalComment(await composers.post('threads/'+id+'/replies',{author:authorName,body,...(discussionReview()?{review_id:discussionReview()}: {})},form));
@@ -1919,22 +2033,35 @@ $('#approve-review').onclick=guard(requestReviewApproval);$('#review-approve-for
 $('#save').onclick=guard(saveActive);$('#annotate').onclick=guard(startComment);
 $('#all-discussions').onclick=guard(async()=>{passageActivation++;cancelSidebarNavigation();if(contextVisit)await returnFromOriginal();clearSpotlight();});
 function visibleThreadIds(){return $$('.thread').filter(t=>!t.hidden).map(t=>Number(t.dataset.thread));}
-$('#collapse-threads').onclick=guard(async()=>{if(contextVisit)await returnFromOriginal();if(appStore.state.zen)zenCollapsed=true;else for(const id of visibleThreadIds())collapsedThreads.add(id);rememberCollapsed();filterThreads();});
-$('#expand-threads').onclick=()=>{for(const id of visibleThreadIds())collapsedThreads.delete(id);rememberCollapsed();filterThreads();};
+$('#collapse-threads').onclick=guard(async()=>{
+  if(contextVisit)await returnFromOriginal();
+  if(appStore.state.zen){
+    zenCollapsed=true;
+    for(const id of visibleThreadIds())zenExpandedThreads.delete(id);
+  }else{
+    for(const id of visibleThreadIds())collapsedThreads.add(id);
+    rememberCollapsed();
+  }
+  filterThreads();
+});
+$('#expand-threads').onclick=()=>{
+  if(appStore.state.zen){
+    zenCollapsed=false;
+    for(const id of visibleThreadIds())zenExpandedThreads.add(id);
+  }else{
+    for(const id of visibleThreadIds())collapsedThreads.delete(id);
+    rememberCollapsed();
+  }
+  filterThreads();
+};
 $('#previous').onclick=guard(()=>navigate(-1));$('#next').onclick=guard(()=>navigate(1));$('#show-resolved').onchange=()=>{cancelSidebarNavigation();appStore.dispatch({type:'FILTERS_CHANGED',filters:{showResolved:$('#show-resolved').checked}});};
 $('#only-unattached').onchange=()=>{cancelSidebarNavigation();appStore.dispatch({type:'FILTERS_CHANGED',filters:{onlyUnattached:$('#only-unattached').checked}});};
-$('#only-source-markers').onchange=()=>{cancelSidebarNavigation();appStore.dispatch({type:'FILTERS_CHANGED',filters:{onlySourceMarkers:$('#only-source-markers').checked}});};
-$('#track-source-markers').onclick=guard(async()=>{
-  const e=entry();if(!e||e.kind||e.workMode==='review'||e.trackingMarkers)return;
-  e.trackingMarkers=true;updateToolbar();
-  try{
-    await saveActive();if(entry()!==e)return;
-    const result=await api('source-markers','POST',{path:e.path,version:e.version,enabled:!e.track_source_markers});
-    e.track_source_markers=result.enabled;
-    e.source_markers_truncated=result.truncated;
-    if(entry()===e){await refreshThreads();notify(result.truncated?'Tracking the first 1,000 comments; this file has additional TODO / NOTE markers':result.enabled?'Tracking saved TODO / NOTE comments':'Source comment tracking paused');}
-  }finally{e.trackingMarkers=false;updateToolbar();}
-});
+function setUnreadOnly(onlyUnread){
+  cancelSidebarNavigation();
+  appStore.dispatch({type:'FILTERS_CHANGED',filters:{onlyUnread}});
+}
+$('#only-unread').onchange=event=>setUnreadOnly(event.target.checked);
+$('#thread-unread').onclick=()=>setUnreadOnly(!appStore.state.onlyUnread);
 $('#thread-scope').checked=localStorage.getItem('looking-glass-thread-scope:'+root)==='all';
 $('#thread-scope').onchange=guard(async()=>{cancelSidebarNavigation();appStore.dispatch({type:'FILTERS_CHANGED',filters:{scope:$('#thread-scope').checked?'all':'file'}});clearSpotlight();localStorage.setItem('looking-glass-thread-scope:'+root,threadScope());await refreshThreads(true);});
 async function setMode(value){if(fileMutation)await fileMutation;const e=entry();if(!e||e.mode===value)return;await suspendHTMLPreview();syncState();e.mode=value;view?.destroy();view=null;cleanup();cleanup=()=>{};mountDocument(e);await e.ready;await refreshThreads();remember();}
@@ -1945,7 +2072,39 @@ $('#font-smaller').onclick=()=>{if(ext(entry()?.path||'')==='pdf'){cleanup.zoom?
 $('#font-larger').onclick=()=>{if(ext(entry()?.path||'')==='pdf'){cleanup.zoom?.(1);return;}fontStep=Math.min(12,fontStep+1);localStorage.setItem('looking-glass-font-step',fontStep);applyFontSize();};
 applyFontSize();
 function filterFiles(){const query=$('#file-filter').value.toLowerCase();$$('.file-entry').forEach(b=>b.hidden=!b.dataset.path.toLowerCase().includes(query));$$('.file-folder').reverse().forEach(folder=>{folder.hidden=!!query&&![...folder.querySelectorAll('.file-entry')].some(b=>!b.hidden);folder.open=query?!folder.hidden:expandedFolders.has(folder.dataset.directory);});}
-$('#file-filter').oninput=filterFiles;$('#refresh-files').onclick=()=>window.htmx.trigger('#file-tree','refresh');
+const markerTree=mountMarkerTree({
+  root,
+  async read(etag,cached=false){
+    const headers={'X-Looking-Glass-Token':token};
+    if(etag)headers['If-None-Match']=etag;
+    const response=await fetch(cached?'/api/marker-tree?cached=1':'/api/marker-tree',{headers});
+    if(!response.ok&&response.status!==304)throw new Error('Could not refresh markers.');
+    return {data:response.status===200?await response.json():null,etag:response.headers.get('ETag')};
+  },
+  open:guard(async(path,version,marker)=>{
+    const opening=openFile(path),request=navigation.requestId;
+    if((await opening).status!=='ready'||navigation.requestId!==request||entry()?.path!==path)return;
+    const e=entry(),review=e.workMode==='review';
+    if((review?e.review.base_version:e.version)!==version||e.conflict){
+      markerTree.refresh(true);
+      throw new Error('This marker and the open file are from different disk versions. Reload the file or refresh markers.');
+    }
+    if(!view)await setMode('source');
+    if(navigation.requestId!==request||entry()!==e||!view)return;
+    const disk=review?e.review.base:e.diskContent;
+    const saved=(review?e.content!==disk:e.dirty)?Text.of(disk.split(/\r\n?|\n/)):null;
+    const from=markerOffset(view.state.doc,marker,saved);
+    if(from===null)throw new Error('This marker’s line changed in the current draft.');
+    const effects=[EditorView.scrollIntoView(from,{y:'center'})];
+    foldedRanges(view.state).between(from,from,(start,end)=>effects.push(unfoldEffect.of({from:start,to:end})));
+    view.dispatch({selection:{anchor:from},effects});
+    view.focus();
+    notify(path+':'+marker.line);
+  })
+});
+mountExplorerSplit($('#file-explorers'),'looking-glass-explorer-split:'+root);
+$('#file-filter').oninput=filterFiles;
+$('#refresh-files').onclick=()=>{window.htmx.trigger('#file-tree','refresh');markerTree.refresh(true);};
 const fileResize=$('#file-resize');
 let sidebarWidth=Number(localStorage.getItem('looking-glass-sidebar-width'))||$('.file-sidebar').getBoundingClientRect().width;
 function sidebarLimits(){return {min:120,max:Math.max(120,Math.min(600,innerWidth-$('.discussion-sidebar').getBoundingClientRect().width-(innerWidth<=800?260:innerWidth<=1100?300:350)))};}
@@ -1978,6 +2137,7 @@ function setExplorerHidden(hidden,focus=false){
     else child.hidden=hidden;
   }
   localStorage.setItem('looking-glass-explorer-hidden',String(hidden));
+  if(!hidden&&focus)markerTree.refresh();
   sizeSidebar();sizeDiscussions();view?.requestMeasure();
   if(focus)$('#explorer-toggle').focus({preventScroll:true});
 }
@@ -1985,6 +2145,7 @@ $('#explorer-toggle').onclick=()=>setExplorerHidden(!explorerHidden,true);
 setExplorerHidden(explorerHidden);
 let discussionsHidden=localStorage.getItem('looking-glass-discussions-hidden')==='true';
 function setDiscussionsHidden(hidden,focus=false){
+  if(hidden)threadSearch.closePicker();
   if(hidden&&$('#author-popover').matches(':popover-open'))$('#author-popover').hidePopover();
   if(hidden&&contextVisit)guard(returnFromOriginal)();
   if(hidden){cancelSidebarNavigation();clearSpotlight();}
@@ -2029,7 +2190,7 @@ mountExplorer($('#file-tree'),{root,api,error:message=>notify(message,true),crea
   const parts=result.path.split('/');if(!result.directory)parts.pop();
   parts.forEach((_,i)=>expandedFolders.add(parts.slice(0,i+1).join('/')));
   localStorage.setItem('looking-glass-folders:'+root,JSON.stringify([...expandedFolders]));
-  $('#file-filter').value='';window.htmx.trigger('#file-tree','refresh');
+  $('#file-filter').value='';window.htmx.trigger('#file-tree','refresh');markerTree.refresh(true);
   if(!result.directory)await openFile(result.path);
   notify(result.directory?'Folder created':'File created');
 },change:async(info,options)=>{
@@ -2056,7 +2217,7 @@ mountExplorer($('#file-tree'),{root,api,error:message=>notify(message,true),crea
     const folders=[...expandedFolders].map(map).filter(Boolean);expandedFolders.clear();folders.forEach(f=>expandedFolders.add(f));
     if(result.destination){const parts=result.destination.split('/').slice(0,-1);parts.forEach((_,i)=>expandedFolders.add(parts.slice(0,i+1).join('/')));}localStorage.setItem('looking-glass-folders:'+root,JSON.stringify([...expandedFolders]));
     if(changedActive){appStore.dispatch({type:'DOCUMENT_DISPLAYED',path:next});if(next){clearSurface();const session=tabs.get(next);await mountFileSurface(session);await session.ready;await refreshThreads();}else if(tabs.size){release();await openFile([...tabs.keys()].at(-1));}else{clearSurface();appStore.dispatch({type:'THREADS_RECEIVED',threads:[]});$('#threads').replaceChildren();lastThreadHTML='';lastThreadKey='';discussionView.reset();}}
-    remember();renderTabs();updateToolbar();window.htmx.trigger('#file-tree','refresh');if(changedActive&&next)view?.focus();notify(result.deleted?'Moved to workspace trash':'File location updated');
+    remember();renderTabs();updateToolbar();window.htmx.trigger('#file-tree','refresh');markerTree.refresh(true);if(changedActive&&next)view?.focus();notify(result.deleted?'Moved to workspace trash':'File location updated');
   }finally{release();}
 }});
 function renderQuickResults(keepPath=null){const query=$('#quick-query').value;quickMatches=quickFileMatches(quickPaths,query,[...fileHistory.snapshot.entries].reverse());quickIndex=keepPath&&quickMatches.some(item=>item.path===keepPath)?quickMatches.findIndex(item=>item.path===keepPath):Math.min(quickIndex,Math.max(0,quickMatches.length-1));$('#quick-results').replaceChildren(...quickMatches.map((item,index)=>{const button=document.createElement('button');button.textContent=item.path;button.id='quick-option-'+index;button.setAttribute('role','option');button.setAttribute('aria-selected',String(index===quickIndex));button.classList.toggle('selected',index===quickIndex);button.onclick=guard(async()=>{$('#quick-dialog').close();await openFile(item.path);if(!document.querySelector('dialog:modal'))view?.focus();});return button;}));if(!quickMatches.length)$('#quick-results').textContent='No matching files.';$('#quick-query').setAttribute('aria-activedescendant',quickMatches.length?'quick-option-'+quickIndex:'');$('#quick-results .selected')?.scrollIntoView({block:'nearest'});}
@@ -2118,7 +2279,7 @@ document.documentElement.dataset.theme=localStorage.getItem('looking-glass-theme
 // Restore tab metadata only; unsaved text is never silently persisted over disk.
 let restored={tabs:[]};try{restored=JSON.parse(localStorage.getItem('looking-glass-tabs:'+root)||'{"tabs":[]}');if(Array.isArray(restored))restored={tabs:restored};}catch{}
 restoreReady=(async()=>{
-  const results=await Promise.allSettled((restored.tabs||[]).filter(item=>!item.path.startsWith(ORIGINAL)).map(async item=>{
+  const results=await Promise.allSettled((restored.tabs||[]).filter(item=>!item.path.startsWith(ORIGINAL)&&ext(item.path)!=='ipynb').map(async item=>{
     const file=await readTab(item.path),session=createDocumentSession(item.path,file,item.mode||'source');
     session.pinned=!!item.pinned;session.history=item.history;return session;
   }));
@@ -2129,15 +2290,15 @@ guard(async()=>{
   if(!navigation.requestId&&tabs.size)await openFile(tabs.has(restored.active)?restored.active:[...tabs.keys()].at(-1));
   renderTabs();if(!appStore.state.displayedDocument&&!navigation.busy)await refreshThreads();
 })();
-setInterval(poll,2200);setInterval(()=>{if(!document.hidden)window.htmx.trigger('#file-tree','refresh');},12000);
+setInterval(poll,2200);setInterval(()=>{if(!document.hidden)window.htmx.trigger('#file-tree','refresh');markerTree.refresh();},12000);
 
 
 function applyZen(){
   document.documentElement.classList.toggle('zen-mode',appStore.state.zen);
+  if(!appStore.state.zen)markerTree.refresh();
   $('#zen-toggle').setAttribute('aria-pressed',String(appStore.state.zen));
-  $('#expand-threads').disabled=appStore.state.zen;
   filterThreads();sizeSidebar();sizeDiscussions();view?.requestMeasure();
 }
-function toggleZen(){appStore.dispatch({type:'ZEN_CHANGED',value:!appStore.state.zen});zenCollapsed=false;localStorage.setItem('looking-glass-zen',String(appStore.state.zen));applyZen();}
+function toggleZen(){zenExpandedThreads.clear();appStore.dispatch({type:'ZEN_CHANGED',value:!appStore.state.zen});zenCollapsed=false;localStorage.setItem('looking-glass-zen',String(appStore.state.zen));applyZen();}
 $('#zen-toggle').onclick=toggleZen;
 applyZen();

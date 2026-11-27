@@ -1,7 +1,7 @@
 """Discussion search composes with navigation, spotlight, drafts and polling."""
 import os
 import pytest
-from test_requested_features import workspace_page,open_file
+from test_requested_features import workspace_page,open_file, start_reply
 
 pytestmark=[pytest.mark.browser,pytest.mark.skipif(not os.environ.get('LOOKING_GLASS_BROWSER'),reason='Set LOOKING_GLASS_BROWSER')]
 
@@ -22,11 +22,93 @@ def visible_ids(page):
 
 
 @pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_thread_picker_browses_in_document_order_and_fuzzy_searches(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    text='Opening passage.\n\nClosing passage.'
+    (root/'note.md').write_text(text)
+    version=ws.read('note.md')['version']
+    closing=ws.create_thread('note.md',text.index('Closing'),len(text),'Geometry verifier','Agent',version)
+    opening=ws.create_thread('note.md',0,len('Opening passage.'),'Opening comment','Agent',version)
+    page.set_viewport_size({'width':1050,'height':680})
+    page.goto(url);open_file(page,'note.md')
+    search=page.get_by_role('combobox',name='Search threads')
+    picker=page.get_by_role('listbox',name='Thread results')
+    options=picker.get_by_role('option')
+    expect(picker).to_be_hidden()
+    search.click()
+    expect(options.locator('.thread-option-number')).to_have_text([f"#{opening['id']}",f"#{closing['id']}"])
+    expect(search).to_have_attribute('aria-expanded','true')
+    if page.locator('html').get_attribute('data-theme')!='dark':
+        page.locator('#theme').click()
+    expect(picker).to_be_hidden()
+    search.click()
+    assert picker.evaluate('el=>el.scrollWidth<=el.clientWidth')
+    search.fill('verifer')
+    expect(options).to_have_count(1)
+    expect(options.locator('mark')).to_have_text('verifier')
+    options.click()
+    expect(picker).to_be_hidden()
+    expect(page.locator('.thread.active')).to_have_attribute('data-thread',str(closing['id']))
+    expect(page.locator('.focused-highlight')).to_have_text('Closing passage.')
+    expect(page.locator('#passage-spotlight')).to_be_visible()
+    page.keyboard.press('Escape')
+    search.click();search.press('Escape')
+    expect(search).to_have_value('')
+    expect(search).to_have_attribute('aria-expanded','false')
+    search.click()
+    expect(options).to_have_count(2)
+    search.press('ArrowDown')
+    expect(search).to_have_attribute('aria-activedescendant',f"thread-option-{opening['id']}")
+    search.press('Enter')
+    expect(page.locator('.thread.active')).to_have_attribute('data-thread',str(opening['id']))
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
+def test_thread_picker_leaves_sidebar_layout_in_place(workspace_page):
+    from playwright.sync_api import expect
+    root,page,url,ws=workspace_page
+    passages=[f'Passage {i:02}.' for i in range(14)]
+    text='\n\n'.join(passages)
+    (root/'note.md').write_text(text)
+    version=ws.read('note.md')['version']
+    for passage in passages:
+        start=text.index(passage)
+        ws.create_thread('note.md',start,start+len(passage),f'Discussion on {passage}','Agent',version)
+    page.set_viewport_size({'width':1050,'height':640})
+    page.goto(url);open_file(page,'note.md')
+    search=page.get_by_role('combobox',name='Search threads')
+    picker=page.get_by_role('listbox',name='Thread results')
+    expect(page.locator('#threads>.thread')).to_have_count(len(passages))
+    assert page.locator('.discussion-content').evaluate('el=>{el.scrollTop=80;return el.scrollTop}')>0
+
+    def layout():
+        return page.locator('#discussion-sidebar').evaluate('''sidebar=>{
+          const measure=el=>[el.getBoundingClientRect().top,el.clientHeight,el.scrollTop];
+          return [...sidebar.querySelectorAll('.discussion-summary,.discussion-content,.thread-filters,#threads>.thread')].map(measure);
+        }''')
+
+    before=layout()
+    search.click()
+    expect(picker.get_by_role('option')).to_have_count(len(passages))
+    assert picker.evaluate('''el=>{
+      const {left,top,width,height}=el.getBoundingClientRect();
+      const x=left+width/2,y=top+height/2;
+      return y>document.querySelector('.discussion-content').getBoundingClientRect().top
+        && el.contains(document.elementFromPoint(x,y));
+    }''')
+    assert layout()==before
+    search.press('Escape')
+    expect(picker).to_be_hidden()
+    assert layout()==before
+
+
+@pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
 def test_fuzzy_search_explains_matches_and_thread_numbers(workspace_page):
     from playwright.sync_api import expect
     root,page,url,ws=workspace_page
     first,second,text=seed(root,ws)
-    page.goto(url);open_file(page,'note.md');search=page.get_by_role('searchbox',name='Search threads')
+    page.goto(url);open_file(page,'note.md');search=page.get_by_role('combobox',name='Search threads')
     search.fill('verifer')
     expect(page.locator('#thread-search-status')).to_have_text('1 match · Best matches first')
     assert visible_ids(page)==[first['id']]
@@ -57,6 +139,7 @@ def test_search_scope_resolved_threads_and_cross_file_jump(workspace_page):
     ws.update_thread(first['id'],resolved=True)
     page.goto(url);open_file(page,'note.md');search=page.locator('#thread-search');search.fill('verifier')
     expect(page.locator('#thread-search-empty')).to_be_visible()
+    search.press('Tab')
     page.locator('#show-resolved').check();expect(page.locator('#thread-search-status')).to_contain_text('1 match')
     page.locator('#thread-scope').check();expect(page.locator('#thread-search-status')).to_contain_text('2 matches')
     expect(page.locator(f'.thread[data-thread="{other["id"]}"] .search-match-label')).to_contain_text('other.py')
@@ -78,7 +161,9 @@ def test_keyboard_search_navigation_and_spotlight_return_preserve_reading(worksp
     expect(page.locator('#thread-search-status')).to_contain_text('2 matches')
     assert pane.evaluate('el=>el.scrollTop')==before
     assert visible_ids(page)==[first['id'],second['id']]
-    search.press('ArrowDown');expect(page.locator('.thread-search-match:focus')).to_have_attribute('aria-label',f'Open thread #{first["id"]}, matched comment')
+    search.press('ArrowDown')
+    expect(search).to_have_attribute('aria-activedescendant',f"thread-option-{first['id']}")
+    expect(search).to_be_focused()
     page.keyboard.press('ArrowDown');page.keyboard.press('Enter')
     expect(page.locator('#passage-spotlight')).to_be_visible();expect(page.locator('.thread.active')).to_have_attribute('data-thread',str(second['id']))
     expect(page.locator('.focused-highlight')).to_have_text('Topology passage')
@@ -97,7 +182,7 @@ def test_search_keeps_drafts_and_updates_from_external_replies(workspace_page):
     first,second,_=seed(root,ws)
     page.goto(url);open_file(page,'note.md')
     page.locator(f'.thread[data-thread="{first["id"]}"] .jump').click()
-    draft=page.locator(f'#reply-{first["id"]}');draft.fill('Unsent reply draft')
+    draft=start_reply(page);draft.fill('Unsent reply draft')
     identity=draft.evaluate('el=>{window.savedReply=el;return true}')
     assert identity
     search=page.locator('#thread-search');search.fill('cafe');expect(page.locator('#thread-search-status')).to_contain_text('1 match')
@@ -180,7 +265,7 @@ def test_search_review_drafts_filters_navigation_and_approval(workspace_page):
     search.press('Enter');expect(page.locator('#passage-spotlight')).to_be_visible()
     expect(page.locator('.focused-highlight')).to_have_text('Draftvalue')
     page.keyboard.press('Escape');expect(search).to_have_value('draftvalue')
-    search.fill('verifier');page.locator('#thread-scope').check()
+    search.fill('verifier');search.press('Tab');page.locator('#thread-scope').check()
     expect(page.locator('#thread-search-status')).to_contain_text('1 match')
     page.locator('#show-resolved').check();expect(page.locator('#thread-search-status')).to_contain_text('2 matches')
     page.locator(f'.thread[data-thread="{outside["id"]}"] .thread-search-match').click()

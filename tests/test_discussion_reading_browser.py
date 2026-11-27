@@ -1,7 +1,7 @@
 """Text-only selections, shared Markdown, and passage sidebar spotlight."""
 import os
 import pytest
-from test_requested_features import workspace_page,open_file
+from test_requested_features import workspace_page,open_file, start_reply
 
 pytestmark=[pytest.mark.browser,pytest.mark.skipif(not os.environ.get('LOOKING_GLASS_BROWSER'),reason='Set LOOKING_GLASS_BROWSER')]
 
@@ -53,6 +53,9 @@ def test_amber_dot_tracks_unviewed_discussion_activity(workspace_page):
     expect(page.locator('#thread-search-status')).to_contain_text('1 match')
     expect(unread).to_have_text('3 unread')
     page.locator('#thread-search-clear').click()
+    expect(page.get_by_role('listbox', name='Thread results')).to_be_hidden()
+    expect(page.locator('#thread-search')).to_have_value('')
+    expect(page.locator('#thread-search')).to_be_focused()
     scope.uncheck()
     expect(unread).to_have_text('2 unread')
     first_card.locator('.thread-heading .jump').click()
@@ -79,7 +82,7 @@ def test_amber_dot_tracks_unviewed_discussion_activity(workspace_page):
     expect(first_card.get_by_text('External reply')).to_be_visible()
     expect(first_dot).to_have_count(0)
     expect(unread).to_have_text('1 unread')
-    reply = first_card.locator('textarea')
+    reply = start_reply(page, first_card)
     reply.fill('Unsent draft')
     reply.evaluate('el => el.setSelectionRange(1, 5)')
     message = ws.get_thread(first)['messages'][-1]['id']
@@ -109,6 +112,50 @@ def test_amber_dot_tracks_unviewed_discussion_activity(workspace_page):
         other_tab.close()
 
 
+@pytest.mark.parametrize('workspace_page', ['chromium', 'firefox'], indirect=True)
+def test_unread_badge_and_checkbox_filter_the_same_discussions(workspace_page):
+    from playwright.sync_api import expect
+    root, page, url, ws = workspace_page
+    (root/'notes.md').write_text('First passage.\nSecond passage.\n')
+    version = ws.read('notes.md')['version']
+    first = ws.create_thread('notes.md', 0, 13, 'First comment', 'Agent', version)['id']
+    second = ws.create_thread('notes.md', 15, 29, 'Second comment', 'Agent', version)['id']
+    page.goto(url)
+    open_file(page, 'notes.md')
+    badge = page.locator('#thread-unread')
+    unread_only = page.get_by_role('checkbox', name='Unread only')
+    first_card = page.locator(f'.thread[data-thread="{first}"]')
+    second_card = page.locator(f'.thread[data-thread="{second}"]')
+    first_card.locator('.jump').click()
+    expect(badge).to_have_text('1 unread')
+    badge.press('Enter')
+    expect(badge).to_have_attribute('aria-pressed', 'true')
+    expect(unread_only).to_be_checked()
+    expect(first_card).to_be_hidden()
+    expect(second_card).to_be_visible()
+
+    search = page.get_by_role('combobox', name='Search threads')
+    search.fill('First comment')
+    expect(page.locator('#thread-search-empty')).to_be_visible()
+    unread_only.uncheck()
+    expect(badge).to_have_attribute('aria-pressed', 'false')
+    expect(first_card).to_be_visible()
+    search.fill('')
+    search.press('Tab')
+    unread_only.check()
+    page.locator('#next').click()
+    expect(second_card).to_have_class('thread active')
+    expect(second_card.get_by_role('button', name=f'Reply to thread {second}')).to_be_visible()
+    expect(badge).to_have_text('0 unread')
+    page.locator('#all-discussions').click()
+    expect(page.locator('#thread-unread-empty')).to_be_visible()
+    badge.click()
+    expect(unread_only).not_to_be_checked()
+    expect(badge).to_be_hidden()
+    expect(first_card).to_be_visible()
+    expect(second_card).to_be_visible()
+
+
 def endpoint(locator,offset):
     return locator.evaluate('''(host,offset)=>{
       const walker=document.createTreeWalker(host,NodeFilter.SHOW_TEXT);let node;
@@ -131,6 +178,7 @@ def test_own_replies_do_not_mark_discussion_unread(workspace_page):
     expect(dot).to_be_visible()
     card.locator('.thread-heading .jump').click()
     expect(unread).to_be_hidden()
+    start_reply(page, card)
     reply=card.get_by_role('textbox',name=f'Reply to thread {first}')
     for body in ('My first reply','My second reply'):
         reply.fill(body)
@@ -172,28 +220,45 @@ def test_own_replies_do_not_mark_discussion_unread(workspace_page):
 
 
 @pytest.mark.parametrize('workspace_page',['chromium','firefox'],indirect=True)
-def test_markdown_todo_style_survives_passage_highlights(workspace_page):
+def test_markdown_marker_styles_survive_passage_highlights(workspace_page):
     from playwright.sync_api import expect
     root,page,url,ws=workspace_page
-    text='TODO: finish the first draft. **TODO**? `TODO`! TODO_1 and TODOs.\n\n```python\nTODO = True\n```\n'
+    text=(
+        'TODO: finish the draft. **TODO**? `TODO`! TODO_1 and TODOs.\n\n'
+        'P0 **P1** `P2` P3. XP0 P1_ P20 P3s P4 NOTE. `sample`\n\n'
+        '| Item | Status |\n| --- | --- |\n| `table_code` | P3 |\n\n'
+        '```python\nTODO = "P0"\n```\n'
+    )
     (root/'note.md').write_text(text)
+    (root/'markers.py').write_text('\n'.join(f'# {kind}: Example' for kind in ('P0','P1','P2','P3','TODO')))
     thread=ws.create_thread('note.md',0,2,'**TODO**: discuss the draft','Agent',ws.read('note.md')['version'])
-    ws.reply(thread['id'],'A `TODO` in a reply. See @TODO.md.','Agent')
+    ws.reply(thread['id'],'A `TODO` in a reply with P2 and `reply_code`. See @TODO.md.','Agent')
     page.goto(url);open_file(page,'note.md')
-    todo=page.locator('#surface .md-todo')
-    for mode in ('live','preview'):
-        page.locator('#mode').select_option(mode)
-        expect(todo.first).to_be_visible()
-        assert ''.join(todo.all_text_contents())=='TODOTODOTODO'
-        colors=todo.first.evaluate('''el=>{
-          const actual=getComputedStyle(el),sample=document.createElement('span');
-          sample.style.cssText='font-family:var(--mono);color:var(--purple)';el.append(sample);
-          const expected=getComputedStyle(sample),result=[actual.fontFamily===expected.fontFamily,actual.color===expected.color];
-          sample.remove();return result;
-        }''')
-        assert all(colors)
-        expect(page.locator('#surface .passage-highlight[data-anchor]').first).to_have_text('TO')
-    expect(page.locator('#threads .comment-markdown .md-todo')).to_have_text(['TODO','TODO','TODO'])
+    page.get_by_role('button',name='Marker Tree',exact=True).click()
+    page.get_by_role('button',name='Group markers by tag').click()
+    badges=page.locator('#marker-results > details > summary .marker-tag')
+    expect(badges).to_have_count(5)
+    surface=page.locator('#surface')
+    comments=page.locator('#threads .comment-markdown')
+    markers=surface.locator('.md-marker')
+    style='el=>{const s=getComputedStyle(el);return [s.fontFamily,s.color,s.backgroundColor]}'
+    for theme,color in [('light','rgb(121, 86, 159)'),('dark','rgb(209, 179, 245)')]:
+        if page.locator('html').get_attribute('data-theme')!=theme:
+            page.locator('#theme').click()
+        for mode in ('live','preview'):
+            page.locator('#mode').select_option(mode)
+            expect(markers.first).to_be_visible()
+            assert ''.join(markers.all_text_contents())=='TODOTODOTODOP0P1P2P3P3'
+            for marker in markers.all():
+                badge=badges.filter(has_text=marker.get_attribute('data-kind'))
+                assert marker.evaluate(style)==badge.evaluate(style)
+            plain_code=surface.locator('.md-code,code').filter(has_text='sample')
+            expect(plain_code).to_have_css('color',color)
+            expect(surface.locator('table code')).to_have_css('color',color)
+            expect(surface.locator('.passage-highlight[data-anchor]').first).to_have_text('TO')
+        expect(comments.locator('.md-marker')).to_have_text(['TODO','TODO','P2','TODO'])
+        assert comments.locator('.md-marker[data-kind=P2]').evaluate(style)==badges.filter(has_text='P2').evaluate(style)
+        expect(comments.locator('code',has_text='reply_code')).to_have_css('color',color)
     expect(page.locator('#threads [data-file-reference="TODO.md"]')).to_have_text('@TODO.md')
 
 
@@ -285,6 +350,8 @@ graph TD
     for theme in ['dark','light']:
         if page.locator('html').get_attribute('data-theme')!=theme:page.locator('#theme').click()
         page.locator('.passage-highlight').first.click();expect(page.locator('#passage-spotlight')).to_be_visible()
+        if theme == 'dark':
+            start_reply(page)
         page.locator('.thread.active .reply-form textarea').fill('**Reply** with `code`')
         page.locator('.thread.active .reply-form button[type=submit]').click()
         expect(page.locator('.comment-markdown strong').filter(has_text='Reply')).to_have_count(1 if theme=='dark' else 2)
@@ -318,7 +385,7 @@ def test_spotlight_keeps_reading_and_restores_list_positions(workspace_page,mode
     assert sidebar.evaluate('el=>el.scrollTop')==0
     assert page.locator('.floating-discussion,.thread-placeholder').count()==0
     assert page.locator('#threads>.thread').evaluate_all('els=>els.every((el,i)=>el===window.originalCards[i])')
-    field=card.locator('textarea');field.fill('Unsent **draft**');field.evaluate('el=>el.setSelectionRange(3,8)')
+    field=start_reply(page, card);field.fill('Unsent **draft**');field.evaluate('el=>el.setSelectionRange(3,8)')
     ws.reply(threads[12]['id'],'External *update*.','Agent')
     # Resolve forces a refresh even while background polling defers draft edits.
     card.locator('[data-action=resolve]').evaluate('el=>el.click()')
@@ -450,7 +517,7 @@ def test_spotlight_groups_overlaps_and_refreshes_in_place(workspace_page,mode):
     expect(header).to_have_text('This passage · 2 threads')
     expect(page.locator('.thread:visible')).to_have_count(2)
     assert page.locator(f'.thread[data-thread="{other["id"]}"]').is_hidden()
-    active=page.locator('.thread.active');active.locator('textarea').fill('Retained draft')
+    active=page.locator('.thread.active');start_reply(page, active).fill('Retained draft')
     # An agent adds another discussion on the same passage and a reply elsewhere.
     third=ws.create_thread('note.md',at,at+4,'New passage thread.','Agent',version)
     ws.reply(other['id'],'Unrelated update.','Agent')
@@ -463,7 +530,7 @@ def test_spotlight_groups_overlaps_and_refreshes_in_place(workspace_page,mode):
     expect(active).to_have_attribute('data-resolved','false')
     # Expanding a sibling changes the active reply field, never the focused group.
     sibling=page.locator(f'.thread[data-thread="{second["id"]}"]');sibling.locator('[data-action=expand-thread]').click()
-    expect(header).to_have_text('This passage · 3 threads');sibling.locator('textarea').fill('Sibling draft')
+    expect(header).to_have_text('This passage · 3 threads');start_reply(page, sibling).fill('Sibling draft')
     # Bulk controls act on the focused passage, preserving the surrounding list.
     page.locator('#collapse-threads').click()
     expect(page.locator('.thread:visible.collapsed')).to_have_count(3)
@@ -471,8 +538,9 @@ def test_spotlight_groups_overlaps_and_refreshes_in_place(workspace_page,mode):
     expect(page.locator('.thread:visible.collapsed')).to_have_count(0)
     page.locator('#all-discussions').click();expect(page.locator('#passage-spotlight')).not_to_be_visible()
     expect(page.locator(f'.thread[data-thread="{other["id"]}"]')).to_have_class('thread collapsed')
-    expect(page.locator(f'#reply-{first["id"]}')).to_have_value('Retained draft')
     expect(page.locator(f'#reply-{second["id"]}')).to_have_value('Sibling draft')
+    first_card=page.locator(f'.thread[data-thread="{first["id"]}"]')
+    expect(start_reply(page, first_card)).to_have_value('Retained draft')
     target.click();expect(header).to_have_text('This passage · 3 threads')
     # Switching passage keeps the original All discussions position, not the
     # scroll offset from the previous spotlight.

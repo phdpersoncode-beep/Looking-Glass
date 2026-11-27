@@ -2,7 +2,7 @@
 import os
 
 import pytest
-from test_requested_features import workspace_page, open_file
+from test_requested_features import workspace_page, open_file, start_reply
 from test_spotlight_navigation_browser import settle
 from test_spotlight_controls_browser import discussions
 
@@ -59,7 +59,7 @@ def test_repeated_cross_file_arrows_keep_spotlight_until_latest_destination_read
     page.goto(url); open_file(page, 'a.txt'); page.locator('#thread-scope').check()
     first = page.locator(f'.thread[data-thread="{threads[0]["id"]}"]')
     first.click(position={'x':4, 'y':4}); expect(page.locator('#passage-spotlight')).to_be_visible()
-    first.locator('textarea').fill('Unsent draft'); first.focus()
+    start_reply(page, first).fill('Unsent draft'); first.focus()
     held = []
     def hold(route):
         if 'path=b.txt' in route.request.url:
@@ -104,7 +104,7 @@ def test_arrow_key_burst_keeps_one_spotlight_and_no_document_selection_popup(wor
     page.goto(url); open_file(page, 'note.md'); page.locator('#mode').select_option(mode)
     page.locator('.thread .thread-heading [data-action=jump]').first.click()
     expect(page.locator('#passage-spotlight')).to_be_visible(); settle(page)
-    page.locator('.thread.active textarea').fill('Keep this draft')
+    start_reply(page).fill('Keep this draft')
     page.locator('.thread.active').focus()
     page.evaluate('''()=>{window.burstSurface=document.querySelector('#surface').firstElementChild;
       window.burstFrames=[];let remaining=25;function sample(){
@@ -175,7 +175,7 @@ def test_unanchored_spotlight_preserves_reading_and_opens_context_only_on_reques
     first = page.locator(f'.thread[data-thread="{threads[0]["id"]}"]')
     detached = page.locator(f'.thread[data-thread="{threads[1]["id"]}"]')
     first.locator('.thread-heading [data-action=jump]').click(); settle(page)
-    first.locator('textarea').fill('Keep my reply draft'); first.focus()
+    start_reply(page, first).fill('Keep my reply draft'); first.focus()
     page.evaluate('''()=>{window.readingNode=document.querySelector('#surface').firstElementChild;
       window.readingScroller=document.querySelector('.cm-scroller')||document.querySelector('#surface');
       window.readingTop=window.readingScroller.scrollTop;}''')
@@ -206,7 +206,7 @@ def test_unanchored_spotlight_preserves_reading_and_opens_context_only_on_reques
     frames = page.evaluate('window.unanchoredFrames')
     assert all(frame['surface'] and frame['spotlight'] and frame['active']==1 and not frame['original'] for frame in frames), frames
     assert context_requests == []
-    detached.locator('textarea').fill('Detached draft')
+    start_reply(page, detached).fill('Detached draft')
     detached.locator('[data-action=original]').click()
     expect(page.locator('.original-banner')).to_be_visible()
     expect(page.locator('.original-reading,.original-editor')).to_contain_text('Detached passage')
@@ -215,7 +215,8 @@ def test_unanchored_spotlight_preserves_reading_and_opens_context_only_on_reques
     expect(page.locator('#document-name')).to_have_text('note.md')
     assert page.evaluate('window.readingNode===document.querySelector("#surface").firstElementChild')
     expect(detached.locator('textarea')).to_have_value('Detached draft')
-    detached.focus(); page.keyboard.press('ArrowLeft')
+    page.locator('#discussion-sidebar').focus(); page.keyboard.press('ArrowLeft')
+    expect(first).to_be_focused()
     expect(first.locator('textarea')).to_have_value('Keep my reply draft')
 
 
@@ -278,6 +279,9 @@ def test_cancelling_arrow_navigation_while_discussions_load_keeps_document_and_c
     page.goto(url); open_file(page, 'a.txt'); page.locator('#thread-scope').check()
     first = page.locator(f'.thread[data-thread="{threads[0]["id"]}"]')
     first.locator('.thread-heading [data-action=jump]').click()
+    if control == 'reply':
+        start_reply(page, first)
+        first.focus()
     held = []
     def hold(route):
         if 'path=b.txt' in route.request.url:

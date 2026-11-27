@@ -1,4 +1,4 @@
-"""Source comment review and real Python navigation preserve ordinary editor state."""
+"""Real Python navigation preserve ordinary editor state."""
 import json
 import os
 import re
@@ -56,84 +56,6 @@ def test_python_enter_and_tab_share_indentation(workspace_page, review):
     else:
         expect(page.locator('#dirty')).to_have_text('')
         assert path.read_bytes() == expected.encode()
-
-
-@pytest.mark.parametrize('workspace_page', ['chromium','firefox'], indirect=True)
-def test_markdown_marker_tracking_filter_navigation_reply_and_restart(workspace_page):
-    from playwright.sync_api import expect
-    root,page,url,ws = workspace_page
-    content = '# TODO first\n\n#TODO second\n\n# NOTE third\n\n#NOTE fourth\n'
-    (root/'notes.md').write_text(content)
-    manual = ws.create_thread('notes.md', 2, 12, 'Ordinary feedback', 'User', ws.read('notes.md')['version'])
-    page.goto(url); open_file(page, 'notes.md')
-    expect(page.locator('.thread')).to_have_count(1)
-    track = page.get_by_role('button', name='Track TODO / NOTE', exact=True)
-    track.click(); expect(track).to_have_attribute('aria-pressed','true')
-    expect(track.locator('svg')).to_have_count(1)
-    assert track.inner_text() == ''
-    expect(page.locator('.source-marker-flag')).to_have_text(['⚑ TODO','⚑ TODO','⚑ NOTE','⚑ NOTE'])
-    page.get_by_role('checkbox', name='Markers only', exact=True).check()
-    expect(page.locator('.thread:not([hidden])')).to_have_count(4)
-    assert page.locator(f'.thread[data-thread="{manual["id"]}"]').is_hidden()
-    page.locator('#thread-search').fill('Ordinary feedback')
-    expect(page.locator('#thread-search-empty')).to_be_visible()
-    markers_only = page.get_by_role('checkbox', name='Markers only', exact=True)
-    markers_only.focus(); page.keyboard.press('Space')
-    expect(markers_only).not_to_be_checked()
-    expect(page.locator(f'.thread[data-thread="{manual["id"]}"]')).to_be_visible()
-    page.locator('#thread-search').fill('')
-    markers_only.check()
-    expect(page.locator('.thread:not([hidden])')).to_have_count(4)
-    page.locator('#next').click()
-    expect(page.locator('.thread.active .source-marker-flag')).to_have_text('⚑ TODO')
-    page.locator('.thread.active .reply-form textarea').fill('Keep this reply draft')
-    page.locator('#next').click(); expect(page.locator('.thread.active blockquote')).to_have_text('TODO second')
-    page.locator('#previous').click()
-    expect(page.locator('.thread.active .reply-form textarea')).to_have_value('Keep this reply draft')
-    page.locator('#mode').select_option('preview')
-    page.locator('#next').click(); expect(page.locator('.thread.active blockquote')).to_have_text('TODO second')
-    focused=page.locator('.markdown-preview .focused-highlight')
-    expect(focused).to_be_visible()
-    expect(focused).to_have_text('TODO second')
-    expect(focused.locator('.md-todo')).to_have_text('TODO')
-    page.reload(); expect(page.locator('#document-name')).to_have_text('notes.md')
-    expect(track).to_have_attribute('aria-pressed','true')
-    expect(track.locator('svg')).to_have_count(1)
-    expect(page.locator('.source-marker-flag')).to_have_count(4)
-    assert (root/'notes.md').read_text() == content
-
-
-@pytest.mark.parametrize('workspace_page', ['chromium','firefox'], indirect=True)
-@pytest.mark.parametrize('theme,width', [('light',1440),('dark',900)])
-def test_source_marker_save_external_edits_pause_and_narrow_layout(workspace_page, theme, width):
-    from playwright.sync_api import expect
-    root,page,url,ws = workspace_page
-    (root/'main.py').write_text('value = "#TODO literal"\n# TODO first\n#NOTE second\n')
-    page.goto(url); open_file(page, 'main.py')
-    if page.locator('html').get_attribute('data-theme') != theme: page.locator('#theme').click()
-    page.set_viewport_size({'width':width,'height':800})
-    page.get_by_role('button', name='Track TODO / NOTE', exact=True).click()
-    expect(page.locator('.source-marker-flag')).to_have_count(2)
-    settle(page)
-    sidebar=page.locator('#discussion-sidebar').bounding_box()
-    for selector in ['#track-source-markers', '.thread-filters']:
-        bounds=page.locator(selector).bounding_box()
-        assert bounds['x']>=sidebar['x'] and bounds['x']+bounds['width']<=sidebar['x']+sidebar['width']+1
-    replace_source(page, '#NOTE second\n#TODO added\n'); page.keyboard.press('Control+s')
-    expect(page.locator('#dirty')).to_have_text('')
-    page.get_by_role('checkbox', name='Markers only', exact=True).check()
-    expect(page.locator('.thread:not([hidden])')).to_have_count(2)
-    page.locator('#show-resolved').check()
-    expect(page.locator('.thread:not([hidden])')).to_have_count(3)
-    expect(page.locator('.thread.resolved .anchor-warning')).to_contain_text('reattachment')
-    (root/'main.py').write_text('#NOTE second\n#TODO added\n# NOTE external\n')
-    expect(page.locator('.source-marker-flag')).to_have_count(4, timeout=10000)
-    page.get_by_role('button', name='Track TODO / NOTE', exact=True).click()
-    expect(page.locator('#track-source-markers')).to_have_attribute('aria-pressed','false')
-    replace_source(page, '#NOTE second\n#TODO added\n# NOTE external\n#TODO paused\n')
-    page.keyboard.press('Control+s'); expect(page.locator('#dirty')).to_have_text('')
-    expect(page.locator('.source-marker-flag')).to_have_count(4)
-    assert len(ws.threads('main.py')) == 4
 
 
 @pytest.mark.parametrize('workspace_page', ['chromium','firefox'], indirect=True)

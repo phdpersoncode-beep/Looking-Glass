@@ -1,5 +1,68 @@
 # Files, outline, and discussion references
 
+## Marker Tree
+
+Open **Marker Tree** above **File Tree** in the left sidebar. Marker Tree starts
+collapsed, and File Tree starts expanded. Expand a folder or file to see its
+marker count and matching comments. Select a marker to open its file at the tag.
+Markdown reading preview switches to source for the jump. A saved marker can
+still be located in an open draft if its line survives exactly once.
+
+Choose **All tags** or a specific tag (P0 through P3, TODO, or NOTE) in the
+dropdown. Use the filter icon to search text, tags, or relative paths within
+that selection. The tag icon groups matches by tag and keeps the folder
+hierarchy within each group. Use the stacked minus and plus buttons to
+collapse or expand all branches. The refresh icon rescans saved files.
+
+When both trees are expanded, drag the divider between them to change their
+heights. The split is remembered per workspace. Focus the divider and use
+↑/↓ to resize, Shift for larger steps, or Home/End to move to either limit.
+Double-click to restore automatic sizing. Escape cancels an active drag.
+
+The tree reads saved Markdown, supported source code, and Jupyter notebooks
+(`.ipynb`). It accepts hashes with or without spaces, optional colons, Markdown
+list markers, bare TODO at the start of a Markdown line, and HTML comments.
+Source comments use the delimiters for their language. Supported source extensions
+include Python, shell, JavaScript and TypeScript, C and C++, Java, Kotlin, Go, Rust,
+HTML and CSS, SQL, Ruby, R, Perl, Lua, Swift, C#, and PHP. Plain text and data or
+configuration formats such as JSON and YAML are skipped.
+
+Notebook results come from Markdown cells and supported code cells. Tooltips show
+the cell and source line. Selecting a notebook result or opening a notebook from
+the File Tree offers **Copy file path** for use in a notebook editor. Outputs,
+metadata, and raw cells are skipped.
+
+The Marker Tree includes untracked files and projects without Git. Previously
+imported TODO and NOTE discussions remain in the Discussions sidebar.
+
+The first scan starts on expansion. After that, expanding the tree or reopening
+Looking Glass with the tree expanded shows the saved snapshot from
+`.looking-glass/marker-tree.json` while a background refresh checks for changes.
+While visible, the tree also refreshes after file operations and on the explorer's
+12-second interval. It follows `.looking.ignore` and built-in exclusions, and
+uses saved filesystem fingerprints to skip reading or parsing unchanged files.
+The cache retains marker excerpts, locations, and file fingerprints. Limits are
+10,000 discovered files, 8 MiB per text file, 1,000 matches per file, and 5,000
+displayed matches per workspace. The section reports discovery and result limits.
+Git's staging index describes staged paths and contents. Scanning the working
+tree keeps unstaged and untracked markers visible.
+
+## Breadcrumb picker
+
+For an open workspace file, click its name above the reading pane to see files
+and folders in the same directory. Click a folder segment to see its siblings.
+Choose a folder in the picker to browse inside it, or use the up arrow to return
+to its parent. Type to filter the current folder. Use ↑/↓ to move through results,
+Enter to choose, or Escape to close and return to the breadcrumb.
+
+Opening a neighbor uses ordinary tabs and file history, so returning to an
+edited file restores its unsaved work. The picker follows `.looking.ignore` and
+the File Tree's hidden metadata and symlink rules. It reads only the selected
+directory when opened. Files explicitly opened outside the workspace retain an
+absolute path and the path-copy control.
+
+## File Tree
+
 The left explorer supports files and empty folders, with the same workspace-root
 `.looking.ignore` rules as Quick Open. Folder expansion is remembered per
 workspace. **Alt+Q** collapses every folder and clears an active explorer filter,

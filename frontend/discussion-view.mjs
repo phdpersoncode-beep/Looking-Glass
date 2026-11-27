@@ -1,23 +1,24 @@
 // Keyed DOM projection. Reply forms and unchanged messages keep their nodes,
 // native selections and listeners; no whole-list replacement or restoration.
-export function createDiscussionView(host, {renderBody, composers}) {
-  const cards = new Map(); let lastHTML = null;
+export function createDiscussionView(host, {renderBody, composers, replyTemplate}) {
+  const cards = new Map(), replies = new WeakMap();
+  let lastHTML = null, mountedReply = null;
   const key = node => node.nodeType !== 1 ? null : node.dataset.messageId ? 'message:' + node.dataset.messageId
     : node.dataset.attachment ? 'attachment:' + node.dataset.attachment
-    : node.matches('.reply-form') ? 'composer'
+    : node.matches('.thread-reply') ? 'composer'
     : node.dataset.action ? node.tagName + ':' + node.dataset.action + ':' + (node.dataset.message || '') : null;
+  const managed = node => node.matches?.('.thread-search-match, [data-thread-preview-control]');
   const compatible = (a, b) => a.nodeType === b.nodeType && (a.nodeType !== 1 || a.tagName === b.tagName);
   function decorate(node) {
     for (const body of [...(node.matches('.comment-markdown')?[node]:[]),...node.querySelectorAll('.comment-markdown')]) {
       body._discussionSource = body.textContent; renderBody(body, body._discussionSource);
     }
-    for (const form of node.querySelectorAll('.reply-form')) composers.render(form);
   }
   function patch(current, next) {
     if (!compatible(current, next)) {const replacement = next.cloneNode(true); current.replaceWith(replacement); if (replacement.nodeType === 1) decorate(replacement); return replacement;}
     if (current.nodeType === 3) {if (current.data !== next.data) current.data = next.data; return current;}
     if (current.nodeType !== 1) return current;
-    if (current.matches('.reply-form')) return current;
+    if (current.matches('.thread-reply')) return current;
     if (current.matches('.comment-markdown')) {
       if (current._discussionSource !== next.textContent) {current._discussionSource = next.textContent; renderBody(current, next.textContent);}
       return current;
@@ -29,14 +30,14 @@ export function createDiscussionView(host, {renderBody, composers}) {
     const old = [...current.childNodes], keyed = new Map(old.filter(node => key(node)).map(node => [key(node), node])), used = new Set();
     let cursor = current.firstChild;
     for (const incoming of next.childNodes) {
-      while(cursor?.nodeType===1&&cursor.matches('.thread-search-match'))cursor=cursor.nextSibling;
+      while(cursor&&managed(cursor))cursor=cursor.nextSibling;
       const id = key(incoming);
       let node = id ? keyed.get(id) : cursor && !key(cursor) && compatible(cursor, incoming) ? cursor : null;
       if (!node || used.has(node)) {node = incoming.cloneNode(true); current.insertBefore(node, cursor); if (node.nodeType === 1) decorate(node);}
       else {if (node !== cursor) current.insertBefore(node, cursor); node = patch(node, incoming);}
       used.add(node); cursor = node.nextSibling;
     }
-    for (const node of old) if (!used.has(node)&&!node.matches?.('.thread-search-match')) node.remove();
+    for (const node of old) if (!used.has(node)&&!managed(node)) node.remove();
     return current;
   }
   function render(html) {
@@ -55,6 +56,38 @@ export function createDiscussionView(host, {renderBody, composers}) {
     for (const child of [...host.children]) if (!visible.has(Number(child.dataset.thread))) child.remove();
     if (!incoming.length) {const empty = template.content.querySelector('.empty-discussions'); if (empty) host.append(empty);}
   }
+  function syncReply(card) {
+    const slot = card?.querySelector('.thread-reply');
+    const form = replies.get(slot) ?? null;
+    if (form === mountedReply) return form;
+    if (mountedReply) {
+      mountedReply.parentElement.firstElementChild.hidden = false;
+      mountedReply.remove();
+    }
+    mountedReply = form;
+    if (form) {
+      slot.firstElementChild.hidden = true;
+      slot.append(form);
+      composers.render(form);
+    }
+    return form;
+  }
+  function openReply(card) {
+    const slot = card.querySelector('.thread-reply');
+    if (!replies.has(slot)) {
+      const id = card.dataset.thread;
+      const form = replyTemplate.content.firstElementChild.cloneNode(true);
+      form.dataset.replyThread = id;
+      const field = form.querySelector('textarea'), label = form.querySelector('label');
+      field.id = label.htmlFor = `reply-${id}`;
+      label.textContent = `Reply to thread ${id}`;
+      for (const control of form.querySelectorAll('.attach-trigger,.attach-files')) {
+        control.setAttribute('aria-label', `Attach files to thread ${id}`);
+      }
+      replies.set(slot, form);
+    }
+    return syncReply(card).querySelector('textarea');
+  }
   function prune(ids) {for (const [id, record] of cards) if (!ids.has(id)) {record.node.remove(); cards.delete(id);}}
-  return {render, prune, reset() {lastHTML = null;}};
+  return {render, openReply, syncReply, prune, reset() {syncReply(null); lastHTML = null;}};
 }

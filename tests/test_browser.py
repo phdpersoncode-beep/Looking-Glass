@@ -17,6 +17,7 @@ import pytest
 from werkzeug.serving import make_server
 from looking_glass.app import create_app
 from looking_glass.workspace import Workspace
+from test_requested_features import start_reply
 
 pytestmark = [pytest.mark.browser, pytest.mark.skipif(not os.environ.get('LOOKING_GLASS_BROWSER'), reason='Set LOOKING_GLASS_BROWSER to run the browser workflow')]
 
@@ -153,7 +154,7 @@ def test_rendered_html_discussions(tmp_path, browser_pool):
             ws=app.extensions['workspace'];t=ws.threads()[0]
             assert t['anchor_kind']=='rendered' and t['quote']=='Hello world & friends.'
             assert frame.locator('body').evaluate("()=>CSS.highlights.get('looking-glass-passages').size")==1
-            page.locator('.reply-form textarea').fill('A sidebar reply.')
+            start_reply(page).fill('A sidebar reply.')
             page.locator('.reply-form button[type=submit]').click()
             expect(page.get_by_text('A sidebar reply.',exact=True)).to_be_visible()
             select('#later')
@@ -338,7 +339,7 @@ def test_end_to_end(tmp_path, browser_pool):
         reply=agent('reply',str(id),'--body','Yes. I would add a concrete example.','--author','Codex')
         assert len(reply['messages'])==2
         page.get_by_text('Yes. I would add a concrete example.',exact=True).wait_for()
-        page.locator('.reply-form textarea').fill('Add the example in the next editing pass.')
+        start_reply(page).fill('Add the example in the next editing pass.')
         page.locator('.reply-form button[type=submit]').click()
         page.get_by_text('Add the example in the next editing pass.',exact=True).wait_for()
         assert len(agent('read',str(id))['messages'])==3

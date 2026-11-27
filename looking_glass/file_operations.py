@@ -51,7 +51,7 @@ class FileOperations:
             if full.exists():
                 raise Problem('A file or folder with that name already exists.', 409)
             with self.ws.connection() as db:
-                for table in ['snapshots', 'threads', 'review_drafts', 'review_heads', 'pdf_bookmarks', 'source_marker_files']:
+                for table in ['snapshots', 'threads', 'review_drafts', 'review_heads', 'pdf_bookmarks']:
                     if db.execute(f'SELECT 1 FROM {table} WHERE path=? OR substr(path,1,?)=? LIMIT 1',
                                   (key, len(key)+1, key+'/')).fetchone():
                         raise Problem('This path has existing review history. Choose another name.', 409)
@@ -86,7 +86,7 @@ class FileOperations:
                     db.execute('BEGIN IMMEDIATE')
                     if not delete:
                         # Refuse to merge histories left at a formerly occupied destination.
-                        for table in ['snapshots','threads','review_drafts','review_heads','pdf_bookmarks','source_marker_files']:
+                        for table in ['snapshots','threads','review_drafts','review_heads','pdf_bookmarks']:
                             for row in db.execute(f'SELECT DISTINCT path FROM {table}'):
                                 value=row['path']
                                 if (value==new or value.startswith(new+'/')) and remap(value)==value:
@@ -96,9 +96,8 @@ class FileOperations:
                         for row in db.execute('SELECT id,path FROM threads').fetchall():
                             if row['path']==path or row['path'].startswith(path+'/'):
                                 db.execute("UPDATE threads SET anchor_status='needs_reattachment' WHERE id=?",(row['id'],))
-                        self.ws.source_markers.resolve_unattached(db)
                     else:
-                        for table in ['snapshots','threads','review_drafts','review_heads','pdf_bookmarks','source_marker_files']:
+                        for table in ['snapshots','threads','review_drafts','review_heads','pdf_bookmarks']:
                             for row in db.execute(f'SELECT DISTINCT path FROM {table}').fetchall():
                                 value=row['path'];mapped=remap(value)
                                 if mapped!=value:db.execute(f'UPDATE {table} SET path=? WHERE path=?',(mapped,value))

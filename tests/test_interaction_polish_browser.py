@@ -1,7 +1,7 @@
 """Stable focus and autosave feedback through real user interactions."""
 import os
 import pytest
-from test_requested_features import workspace_page, open_file
+from test_requested_features import workspace_page, open_file, start_reply
 from test_spotlight_navigation_browser import settle
 from test_discussion_reading_browser import endpoint
 
@@ -91,7 +91,7 @@ def test_thread_card_focus_preserves_selection_and_controls(workspace_page):
     b.click(position={'x':4,'y':4}); expect(b).to_have_class('thread active')
     page.keyboard.press('Escape')
     a.locator('.comment-markdown p').click(position={'x':15,'y':8}); expect(a).to_have_class('thread active')
-    a.locator('textarea').fill('Draft reply')
+    start_reply(page, a).fill('Draft reply')
     expect(a.locator('textarea')).to_be_focused()
     # Double-click and drag selections remain in the sidebar, ready to copy.
     a.locator('.comment-markdown p').dblclick(position={'x':15,'y':8})

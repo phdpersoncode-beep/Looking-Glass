@@ -3,7 +3,7 @@ import os
 
 import pytest
 from playwright.sync_api import expect
-from test_requested_features import workspace_page, open_file
+from test_requested_features import workspace_page, open_file, start_reply
 from test_review_mode_browser import wait_saved
 
 pytestmark = [pytest.mark.browser, pytest.mark.skipif(not os.environ.get('LOOKING_GLASS_BROWSER'), reason='Set LOOKING_GLASS_BROWSER')]
@@ -34,7 +34,7 @@ def test_author_popover_defaults_cancel_and_comment_reply_review_attribution(wor
     expect(page.locator('#author-popover')).not_to_be_visible(); expect(pen).to_be_focused()
     card = page.locator(f'.thread[data-thread="{thread["id"]}"]')
     card.locator('[data-action=jump]').first.click()
-    card.locator('textarea').fill('Default author reply')
+    start_reply(page, card).fill('Default author reply')
     card.locator('button[type=submit]').click()
     expect(card).to_contain_text('Default author reply')
     assert ws.get_thread(thread['id'])['messages'][-1]['author'] == 'User'
@@ -99,11 +99,8 @@ def test_sidebar_controls_and_author_popover_fit_both_themes_and_narrow_panes(wo
     page.goto(url)
     page.get_by_role('button', name='Expand all folders', exact=True).click()
     open_file(page, 'folder/note.txt')
-    tracking = page.get_by_role('button', name='Track TODO / NOTE', exact=True)
-    expect(tracking).to_be_disabled()
-    assert tracking.inner_text() == ''
-    assert tracking.evaluate("el=>el.previousElementSibling.id") == 'author-edit'
-    expect(page.get_by_role('group', name='Discussion filters').get_by_role('checkbox', name='Markers only', exact=True)).to_be_visible()
+    expect(page.get_by_role('button', name='Track TODO / NOTE', exact=True)).to_have_count(0)
+    expect(page.get_by_role('group', name='Discussion filters').get_by_role('checkbox', name='Unread only', exact=True)).to_be_visible()
     for width in [1440, 900]:
         page.set_viewport_size({'width': width, 'height': 850})
         if width == 900:
@@ -111,10 +108,11 @@ def test_sidebar_controls_and_author_popover_fit_both_themes_and_narrow_panes(wo
                 page.locator(separator).focus(); page.keyboard.press('Home')
         for theme in ['light', 'dark']:
             if page.locator('html').get_attribute('data-theme') != theme: page.locator('#theme').click()
-            for sidebar in ['#file-sidebar', '#discussion-sidebar']:
+            for sidebar, section in [('#file-sidebar', '.file-section .explorer-heading'), ('#discussion-sidebar', '.panel-heading')]:
                 bounds = page.locator(sidebar).bounding_box()
-                heading = page.locator(sidebar+' .panel-heading').bounding_box()
-                boxes = page.locator(sidebar+' .panel-heading button').evaluate_all('els=>els.map(el=>{const r=el.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom}})')
+                panel = page.locator(f'{sidebar} {section}')
+                heading = panel.bounding_box()
+                boxes = panel.locator('button').evaluate_all('els=>els.map(el=>{const r=el.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom}})')
                 assert all(box['left'] >= bounds['x'] and box['right'] <= bounds['x']+bounds['width'] for box in boxes)
                 assert all(box['top'] >= heading['y'] and box['bottom'] <= heading['y']+heading['height'] for box in boxes)
                 # Controls may wrap onto another row at the minimum pane width.
@@ -174,14 +172,14 @@ def test_toolbar_icons_share_a_horizontal_centerline(workspace_page):
                 page.locator(separator).press('Home')
 
         left = centerline('.file-sidebar-tools svg', 3)
-        centerline('#file-sidebar .panel-heading button svg', 5)
+        centerline('#file-actions button svg', 5)
         centerline('#file-navigation button svg, #file-history > summary svg', 3)
-        right = centerline('#discussions-toggle svg, #discussion-sidebar > .panel-heading button svg', 7)
+        right = centerline('#discussions-toggle svg, #discussion-sidebar > .panel-heading button svg', 6)
         assert abs(left - right) <= 1
 
         page.locator('#tasks-open').click()
         expect(page.locator('#task-sidebar')).to_be_visible()
-        assert centerline('#discussions-toggle svg, #task-sidebar .panel-heading button svg', 5) == right
+        assert centerline('#discussions-toggle svg, #task-sidebar .panel-heading button svg', 6) == right
         for toggle, top in [('#explorer-toggle', left), ('#discussions-toggle', right)]:
             page.locator(toggle).click()
             expect(page.locator(toggle)).to_have_attribute('aria-expanded', 'false')

@@ -78,6 +78,7 @@ def test_edited_comments_search_resolve_reopen_and_context_survive_reload(worksp
     page.locator('#thread-search').fill('verifer')
     expect(page.locator('#thread-search-status')).to_contain_text('1 match')
     expect(page.locator('.thread-search-match:visible mark')).to_have_text('verifier')
+    page.locator('#thread-search').press('Tab')
     page.locator('.thread-search-match:visible').click()
     expect(page.locator('#passage-spotlight')).to_be_visible()
     page.locator('.original-context').click()

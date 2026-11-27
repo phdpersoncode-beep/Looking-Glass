@@ -1,7 +1,7 @@
 """Rendered HTML ↔ raw source annotation regressions in both browser engines."""
 import os
 import pytest
-from test_requested_features import workspace_page, open_file
+from test_requested_features import workspace_page, open_file, start_reply
 
 pytestmark=[pytest.mark.browser,pytest.mark.skipif(not os.environ.get('LOOKING_GLASS_BROWSER'),reason='Set LOOKING_GLASS_BROWSER')]
 
@@ -99,7 +99,7 @@ def test_html_source_selection_navigation_and_persistence(workspace_page):
     assert (root/'report.html').read_bytes()==source.encode()
     # Reply/resolve/reopen use the same thread controls as Markdown and code.
     thread=page.locator(f'.thread[data-thread="{second["id"]}"]');thread.locator('.jump').click()
-    thread.locator('.reply-form textarea').fill('Same source thread')
+    start_reply(page, thread).fill('Same source thread')
     thread.locator('.reply-form button[type=submit]').click();expect(page.get_by_text('Same source thread',exact=True)).to_be_visible()
     expect(page.locator('#passage-spotlight')).to_be_visible()
     page.locator('#all-discussions').click()

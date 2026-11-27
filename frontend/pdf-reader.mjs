@@ -17,7 +17,7 @@ export async function mountPDF(host,contents,session,{token,api,onPassage,onErro
     for(const page of pages.values()){
       page.marks.replaceChildren();page.links.replaceChildren();
       for(const thread of threads){const anchor=thread.render_anchor;if(anchor.page!==page.number)continue;
-        for(const [x,y,w,h] of anchor.rects){const mark=document.createElement('div');mark.className='pdf-passage'+(thread.resolved?' resolved':'')+(thread.id===active?' active':'');Object.assign(mark.style,{left:x*100+'%',top:y*100+'%',width:w*100+'%',height:h*100+'%'});page.marks.append(mark);}
+        for(const [x,y,w,h] of anchor.rects){const mark=document.createElement('div');mark.className='pdf-passage'+(thread.resolved?' resolved':'')+(thread.id===active?' active':'');mark.dataset.pdfThread=thread.id;Object.assign(mark.style,{left:x*100+'%',top:y*100+'%',width:w*100+'%',height:h*100+'%'});page.marks.append(mark);}
         const link=document.createElement('button');link.className='pdf-thread-link';link.textContent='#'+thread.id;link.setAttribute('aria-label','Open PDF discussion '+thread.id);link.onclick=()=>onPassage([thread.id]);page.links.append(link);
       }
     }

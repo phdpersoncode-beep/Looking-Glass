@@ -7,6 +7,21 @@ let threads=[], active=null, ranges=new Map(), selected=null,reviewChanges=[],re
 let readingPosition=null;
 let readingGesture=null;
 let suspendedPosition=null;
+let measureThreadPreviews=false,previewFrame=0;
+function scheduleThreadPreviews(){
+  if(!measureThreadPreviews||previewFrame)return;
+  previewFrame=requestAnimationFrame(()=>{
+    previewFrame=0;
+    if(!measureThreadPreviews)return;
+    const scroller=document.scrollingElement,scrollTop=scroller.scrollTop,points=[];
+    for(const [id,matches] of ranges){
+      const rect=matches[0].getClientRects()[0];
+      if(rect?.height)points.push([id,scrollTop+(rect.top+rect.bottom)/2]);
+      if(points.length===4096)break;
+    }
+    send('thread-preview-positions',{points,scrollTop,height:scroller.clientHeight,scrollHeight:scroller.scrollHeight});
+  });
+}
 function captureReadingPosition(event){
   const caret=document.caretPositionFromPoint?.(event.clientX,event.clientY),point=!caret&&document.caretRangeFromPoint?.(event.clientX,event.clientY);
   const node=caret?.offsetNode||point?.startContainer,offset=caret?.offset??point?.startOffset;
@@ -168,6 +183,7 @@ function paint(){
   if(window.CSS?.highlights){const resolved=new Highlight(...threads.filter(t=>t.resolved).flatMap(t=>ranges.get(t.id)||[])),open=new Highlight(...threads.filter(t=>!t.resolved).flatMap(t=>ranges.get(t.id)||[]));resolved.priority=-1;CSS.highlights.set('looking-glass-resolved',resolved);CSS.highlights.set('looking-glass-passages',open);CSS.highlights.set('looking-glass-active',new Highlight(...(threads.find(t=>t.id===active&&!t.resolved)?ranges.get(active)||[]:[])));}
   if(window.CSS?.highlights){for(const role of ['human','agent'])CSS.highlights.set('looking-glass-review-'+role,new Highlight(...reviewChanges.filter(s=>s.kind==='insert'&&s.role===role).flatMap(s=>sourceRanges(map,s.from,s.to))));}
   send('anchors',{statuses});
+  scheduleThreadPreviews();
 }
 function rangesOverlap(selected,passage){
   const overlap=selected.cloneRange();
@@ -178,6 +194,10 @@ function rangesOverlap(selected,passage){
 window.addEventListener('message',event=>{
   if(event.source!==parent||event.origin!==config.parentOrigin||event.data?.lookingGlass!==config.channel)return;
   const message=event.data;
+  if(message.type==='measure-thread-previews'){
+    measureThreadPreviews=message.enabled===true;
+    scheduleThreadPreviews();
+  }
   if(message.type==='scroll-top'){
     readingPosition=null;readingGesture=null;
     window.scrollTo({top:0,behavior:'instant'});
@@ -235,6 +255,7 @@ document.addEventListener('click',event=>{
 });
 let mutationTimer=0;
 new MutationObserver(()=>{clearTimeout(mutationTimer);mutationTimer=setTimeout(()=>{paint();capture();},150);}).observe(document.body,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['class','style','hidden']});
-window.addEventListener('scroll',()=>{if(selected)capture();},true);
+window.addEventListener('scroll',()=>{scheduleThreadPreviews();if(selected)capture();},{capture:true,passive:true});
+new ResizeObserver(scheduleThreadPreviews).observe(document.body);
 window.addEventListener('resize',()=>{paint();if(selected)capture();});
 send('ready');

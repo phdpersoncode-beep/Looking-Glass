@@ -1,4 +1,5 @@
 import {foldIcon} from './fold-icon.mjs';
+import {scrollWithin} from './scroll-within.mjs';
 import {python} from '@codemirror/lang-python';
 
 const parser=python().language.parser;
@@ -41,14 +42,22 @@ export function pythonDefinitions(source){
 export function mountPythonOutline(host,{navigate,saveOpen,storageKey='looking-glass-outline-folds'}){
   const list=host.querySelector('nav'),summary=host.querySelector('summary');
   let path=null,doc=null,timer=null,folds={};try{const saved=JSON.parse(localStorage.getItem(storageKey)||'{}');folds=Object.fromEntries(Object.entries(saved||{}).filter(([,v])=>Array.isArray(v)).map(([k,v])=>[k,v.filter(x=>typeof x==='string')]));}catch{}
-  const buttonsByPosition=new Map();
-  let scopes=[],currentButton=null;
+  const buttonsByPosition=new Map(),variablesByLine=new Map();
+  let scopes=[],cursor=null,renderedDoc=null,currentButton=null;
   function highlightCurrent(){
-    const button=scopes.map(scope=>buttonsByPosition.get(scope.from)).find(row=>row&&!row.closest('[hidden]'));
+    if(!host.open||!doc||doc!==renderedDoc)return;
+    let button=scopes.map(scope=>buttonsByPosition.get(scope.from)).find(row=>row&&!row.closest('[hidden]'));
+    if(!scopes.length){
+      const variables=variablesByLine.get(doc.lineAt(cursor).number);
+      button=(variables?.findLast(variable=>variable.from<=cursor)||variables?.[0])?.button;
+    }
     if(button===currentButton)return;
     currentButton?.removeAttribute('aria-current');
-    button?.setAttribute('aria-current','location');
     currentButton=button;
+    if(button){
+      button.setAttribute('aria-current','location');
+      scrollWithin(list,button);
+    }
   }
   const tools=document.createElement('div');tools.className='outline-tools';
   function all(collapsed){folds[path]=collapsed?[...list.querySelectorAll('.outline-node')].map(el=>el.dataset.key):[];save();render();}
@@ -56,7 +65,7 @@ export function mountPythonOutline(host,{navigate,saveOpen,storageKey='looking-g
   const save=()=>localStorage.setItem(storageKey,JSON.stringify(folds));
   function render(){
     clearTimeout(timer);if(!doc||!host.open)return;
-    buttonsByPosition.clear();
+    buttonsByPosition.clear();variablesByLine.clear();
     const fragment=document.createDocumentFragment(),stack=[],counts=new Map();
     for(const item of pythonDefinitions(doc.toString())){
       while(stack.length&&stack.at(-1).depth>=item.depth)stack.pop();
@@ -64,6 +73,10 @@ export function mountPythonOutline(host,{navigate,saveOpen,storageKey='looking-g
       const children=document.createElement('div'),row=document.createElement('div');row.className='outline-row';
       const button=document.createElement('button');button.type='button';button.dataset.kind=item.kind;
       buttonsByPosition.set(item.from,button);
+      if(item.kind==='variable'){
+        if(!variablesByLine.has(item.line))variablesByLine.set(item.line,[]);
+        variablesByLine.get(item.line).push({from:item.from,button});
+      }
       button.title=`${item.kind} ${item.name} · line ${item.line}`;button.setAttribute('aria-label',`${item.kind} ${item.name}, line ${item.line}`);
       const symbol=document.createElement('span');symbol.className='outline-symbol';symbol.setAttribute('aria-hidden','true');symbol.textContent=item.kind==='class'?'C':item.kind==='variable'?'·':'ƒ';
       const name=document.createElement('span');name.textContent=item.name;name.className='outline-name';button.onclick=()=>navigate(item.from);button.append(symbol,name);row.append(button);
@@ -76,16 +89,17 @@ export function mountPythonOutline(host,{navigate,saveOpen,storageKey='looking-g
       stack.push({...item,key,children,row,node});
     }
     if(!fragment.childNodes.length){const empty=document.createElement('p');empty.textContent='No definitions yet';fragment.append(empty);}
-    list.replaceChildren(fragment);
+    list.replaceChildren(fragment);renderedDoc=doc;
     highlightCurrent();
   }
   host.addEventListener('toggle',event=>{if(event.target!==host)return;saveOpen(host.open);if(host.open)render();else clearTimeout(timer);});
   host.addEventListener('keydown',event=>{if(event.key==='Escape'&&host.open){event.preventDefault();event.stopPropagation();host.open=false;summary.focus();}});
-  return {remap(map){folds=Object.fromEntries(Object.entries(folds).map(([key,value])=>[map(key),value]).filter(([key])=>key));save();},setDocument(nextPath,nextDoc,nextScopes){
-    const sameScopes=scopes===nextScopes;scopes=nextScopes;
-    if(path===nextPath&&doc===nextDoc){if(!sameScopes)highlightCurrent();return;}
+  return {remap(map){folds=Object.fromEntries(Object.entries(folds).map(([key,value])=>[map(key),value]).filter(([key])=>key));save();},setDocument(nextPath,nextDoc,nextScopes,nextCursor){
+    const changedCursor=cursor!==nextCursor||scopes!==nextScopes;
+    scopes=nextScopes;cursor=nextCursor;
+    if(path===nextPath&&doc===nextDoc){if(changedCursor)highlightCurrent();return;}
     const changed=path!==nextPath;path=nextPath;doc=nextDoc;host.hidden=!doc;clearTimeout(timer);
-    if(!doc){list.replaceChildren();buttonsByPosition.clear();currentButton=null;return;}
+    if(!doc){list.replaceChildren();buttonsByPosition.clear();variablesByLine.clear();renderedDoc=null;currentButton=null;return;}
     if(changed){list.scrollTop=0;render();}else if(host.open)timer=setTimeout(render,150);
   }};
 }

@@ -76,8 +76,6 @@ class Workspace:
         self.reviews = Reviews(self)
         from .pdfs import PDFs
         self.pdfs = PDFs(self)
-        from .source_markers import SourceMarkers
-        self.source_markers = SourceMarkers(self)
         from .tasks import Tasks
         self.tasks = Tasks(self)
 
@@ -125,7 +123,7 @@ class Workspace:
     def files(self):
         return self.file_listing()['files']
 
-    def file_listing(self):
+    def discovery_rules(self):
         # Reload once per scan so the existing refresh action also reloads rules.
         # Keep this separate from path(): ignore rules control discovery, not
         # access to open tabs, explicit paths, or persistent discussions.
@@ -134,10 +132,12 @@ class Workspace:
             raise Problem('.looking.ignore must not be a symlink.', 403)
         content = self.text('.looking.ignore')[0] if ignore_file.exists() else ''
         try:
-            ignored = GitIgnoreSpec.from_lines(content.splitlines())
+            return GitIgnoreSpec.from_lines(content.splitlines())
         except GitIgnorePatternError as error:
             raise Problem(f'Invalid .looking.ignore pattern: {error}') from error
 
+    def file_listing(self):
+        ignored = self.discovery_rules()
         found = []
         def scan_error(error):
             # A failed scan is not an empty workspace. Let the client retain
@@ -165,10 +165,7 @@ class Workspace:
 
     def folders(self):
         # Empty folders are valid explorer drop targets; use discovery's ignore rules.
-        rules=self.root/'.looking.ignore'
-        if rules.is_symlink():raise Problem('.looking.ignore must not be a symlink.',403)
-        try:ignored=GitIgnoreSpec.from_lines(self.text('.looking.ignore')[0].splitlines() if rules.exists() else [])
-        except GitIgnorePatternError as error:raise Problem(f'Invalid .looking.ignore pattern: {error}') from error
+        ignored = self.discovery_rules()
         result=[]
         def fail(error):raise error
         for directory,dirs,_ in os.walk(self.root,onerror=fail):
@@ -177,6 +174,39 @@ class Workspace:
             result.extend((relative/d).as_posix() for d in dirs)
             if len(result)>10000:raise Problem('Too many folders to display.',413)
         return result
+
+    def children(self, directory):
+        """List one visible workspace folder for the document breadcrumb picker."""
+        if '\\' in directory or any(ord(char) < 32 for char in directory):
+            raise Problem('Choose a workspace folder.')
+        relative = Path(directory)
+        if relative.is_absolute() or '..' in relative.parts or any(part in EXCLUDED for part in relative.parts):
+            raise Problem('Choose a folder inside the workspace.', 403)
+        ignored = self.discovery_rules()
+        folder = self.root
+        for part in relative.parts:
+            folder /= part
+            key = folder.relative_to(self.root).as_posix()
+            if folder.is_symlink() or ignored.match_file(key + '/'):
+                raise Problem('That folder is hidden from the workspace explorer.', 404)
+        if not folder.is_dir():
+            raise Problem('That folder is unavailable.', 404)
+        items = []
+        truncated = False
+        with os.scandir(folder) as entries:
+            for entry in entries:
+                is_dir = entry.is_dir(follow_symlinks=False)
+                if entry.name in EXCLUDED or (not is_dir and not entry.is_file(follow_symlinks=False)):
+                    continue
+                path = (relative / entry.name).as_posix()
+                if path != '.looking.ignore' and ignored.match_file(path + ('/' if is_dir else '')):
+                    continue
+                if len(items) == FILE_LIMIT:
+                    truncated = True
+                    break
+                items.append(dict(name=entry.name, path=path, directory=is_dir))
+        items.sort(key=lambda item: (not item['directory'], item['name'].casefold(), item['name']))
+        return dict(entries=items, truncated=truncated)
 
     def bytes(self, path):
         p = self.path(path)
@@ -200,19 +230,17 @@ class Workspace:
         except UnicodeDecodeError:
             raise Problem('Text editing supports UTF-8 files only.', 415)
 
-    def reconcile(self, db, path, content, *, sync_markers=True):
-        return self.reconciler.reconcile(db, path, content, sync_markers=sync_markers)
+    def reconcile(self, db, path, content):
+        return self.reconciler.reconcile(db, path, content)
 
-    def read(self, path, *, sync_markers=True):
+    def read(self, path):
         with self.lock, self.connection() as db:
             before = self.fingerprint(path)
             content, version = self.text(path)
-            self.reconcile(db, path, content, sync_markers=sync_markers)
+            self.reconcile(db, path, content)
             if before == self.fingerprint(path):
                 self._fingerprints[path] = (before, version)
-            return dict(path=path, content=content, version=version,
-                        track_source_markers=self.source_markers.enabled(db, path),
-                        source_markers_truncated=self.source_markers.truncated(db, path))
+            return dict(path=path, content=content, version=version)
 
     def fingerprint(self, path):
         info = self.path(path).stat()
@@ -223,7 +251,7 @@ class Workspace:
             cached = self._fingerprints.get(path)
             return bool(cached and cached[1] == version and cached[0] == self.fingerprint(path))
 
-    def save(self, path, content, version, *, sync_markers=True):
+    def save(self, path, content, version):
         if not isinstance(content, str) or len(content.encode('utf-8')) > MAX_TEXT or '\x00' in content:
             raise Problem('Invalid or oversized text content.')
         with self.lock, self.connection() as db:
@@ -232,7 +260,7 @@ class Workspace:
             old, current_version = self.text(path)
             if current_version != version:
                 raise Problem('File changed on disk. Reload or merge before saving.', 409)
-            self.reconcile(db, path, old, sync_markers=sync_markers)
+            self.reconcile(db, path, old)
             mode = stat.S_IMODE(p.stat().st_mode)
             fd, temporary = tempfile.mkstemp(dir=p.parent, prefix='.' + p.name + '.lg-')
             try:
@@ -247,9 +275,8 @@ class Workspace:
             finally:
                 if os.path.exists(temporary):
                     os.unlink(temporary)
-            self.reconcile(db, path, content, sync_markers=sync_markers)
-            return dict(path=path, content=content, version=digest(content.encode('utf-8')),
-                        source_markers_truncated=self.source_markers.truncated(db, path))
+            self.reconcile(db, path, content)
+            return dict(path=path, content=content, version=digest(content.encode('utf-8')))
 
     def threads(self, path=None, reconcile=True, review=None):
         return self.discussions.threads(path, reconcile, review)
@@ -480,7 +507,6 @@ class Workspace:
                 if type(start) is not int or type(end) is not int or not 0 <= start < end <= len(content): raise Problem('Select a nonempty passage.')
                 update_anchor("start=?,end=?,quote=?,anchor_status='attached'",(start,end,content[start:end]))
                 if t['anchor_kind']=='review_removed': db.execute("UPDATE threads SET anchor_kind='source',render_anchor=NULL WHERE id=?",(identifier,))
-            self.source_markers.resolve_unattached(db, t['path'], review_id)
         return self.get_thread(identifier,review=review_id)
 
     def delete_thread(self, identifier):

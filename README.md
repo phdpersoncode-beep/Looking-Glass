@@ -45,7 +45,12 @@ The terminal prints the new root, and the API token changes with it.
 `/home/you/.claude/projects/<project>/<session>.jsonl`. Files outside the
 workspace are keyed by their resolved absolute path. Their discussions are stored
 in the current workspace. The file sidebar lists files recursively
-as a collapsible tree and supports filtering. Use **Collapse all folders** or **Alt+Q** to fold
+as a collapsible tree and supports filtering. Open **Marker Tree** above it to
+browse saved TODO, NOTE, and P0–P3 comments in Markdown, source code, and
+Jupyter notebook cells. Filter by text or path, jump to a source marker, or copy a
+notebook path. Drag the divider between the expanded trees to resize them.
+Click a file or folder in the breadcrumb path above the reading
+pane to choose its neighbors. Use **Collapse all folders** or **Alt+Q** to fold
 the tree. Right-click files/folders to rename, delete, or copy paths; drag them
 onto another folder to move them. Python outlines support individual and
 collapse/expand-all controls. Type **@** in a discussion to find and reference a
@@ -135,7 +140,7 @@ and saved discussions remain accessible. Built-in exclusions such as `.git/`,
    new thread is anchored.
 5. Click a highlight or **View thread** beside a selected highlight to open its
    discussion in the sidebar. Reply, resolve/reopen, or use ↑/↓ to move between
-   passages. Reply fields appear for the active thread.
+   passages. Choose **Reply** on a thread to open its composer.
 6. Save with Ctrl+S. The dot on a tab marks an unsaved draft.
 
 Selections in live Markdown and reading preview highlight the text without
@@ -154,14 +159,16 @@ or attachment changes, and resolve or reopen actions. Opening the thread clears
 the dot for the version you opened. The browser remembers this for each workspace.
 Writing or editing your own comment keeps an already-read thread read. Unviewed
 changes from another writer still show the dot.
-The unread count beside the sidebar totals follows the current file scope and
-disappears when every thread in that scope has been viewed.
+Click the amber unread count beneath search or check **Unread only** to filter
+the sidebar and passage navigation to unread threads in the current file scope.
+Click either control again to clear the filter. The count stays available while
+the filter is active, even after you read the last thread.
 Clicking a thread card's general area opens spotlight too; text selection, links,
 and embedded controls keep their normal behavior. Search stays in the same position
 above the spotlight header, with a total thread count for the selected file scope.
 While spotlight is open and the sidebar or a thread has focus, **←/→** moves through
-the scoped, filtered thread list, **↑** focuses search, and **↓** focuses the current
-reply. **Ctrl+Enter** (or **Cmd+Enter**) resolves a focused discussion card. In the
+the scoped, filtered thread list, **↑** focuses search, and **↓** opens and focuses
+the current reply. **Ctrl+Enter** (or **Cmd+Enter**) resolves a focused discussion card. In the
 reply field, the same shortcut posts the reply. Text fields keep their native
 arrow keys. Escape from the reply or search
 field returns keyboard focus to the current thread, keeping spotlight, the search
@@ -188,17 +195,8 @@ In the editor, purple scrollbar markers jump to attached discussions and amber
 markers jump to matches for the selected text. A purple marker with several nearby
 discussions opens a list to choose from. Resolved discussions use a fainter marker.
 
-For `# TODO`, `#TODO`, `# NOTE` and `#NOTE` comments, enable **Track TODO / NOTE**
-using the comment/check icon next to the author pen at the top of the right sidebar
-for each Markdown or source file you want to review. It saves
-an unsaved Edit buffer, creates flagged discussions, and keeps them synchronized
-with later saves and external changes. The icon is highlighted while tracking is on.
-**Markers only**, alongside the other discussion filter toggles, filters discussions,
-search and the existing ↑/↓ passage arrows. Replies and original context persist;
-removed or unattached marker threads resolve automatically. Turning tracking off
-pauses imports and keeps existing discussions. New Review markers import on
-approval. Tracking handles up to 1,000 markers per file and shows when that limit
-is reached in the icon’s tooltip.
+Browse saved TODO and NOTE comments with the **Marker Tree** in the left sidebar.
+Previously imported threads retain their replies and original context.
 
 In Python, **Ctrl+click** (or **Cmd+click**) a name to go to its definition.
 Functions, classes, methods, scoped variables and imports resolve through
@@ -227,7 +225,12 @@ normally. Turn it on to show only threads needing reattachment in the list, sear
 results, and navigation. Changing this filter leaves the current spotlight;
 **Show resolved** and the file scope still apply. The concise summary
 shows total, open, and closed counts for the current file or across-files scope,
-including threads hidden by filters or search.
+including threads hidden by filters or search. Click **Search threads** to open a
+picker ordered by passage position within each file. Type to fuzzy-search thread
+numbers, passages, comments, and replies. Use ↑/↓ and Enter or click a result to
+jump to its passage. The picker floats over the sidebar and follows the current
+scope and filters. Press Tab or click outside the picker to dismiss it and keep
+the search text. **Clear thread search** empties the field and dismisses the picker.
 
 In comments and replies, `#123` becomes a clickable thread reference. It opens
 that thread and its file in spotlight, including resolved or unattached threads
@@ -241,11 +244,15 @@ or threads, and panel icons to hide/show the sidebar itself.
 Sidebar tools share a horizontal centerline with the hide/show control in their
 row. When the right sidebar is narrow, its label moves below the tools.
 Drag the discussions divider to resize it; the width persists. Collapse a thread
-with its chevron and reopen it with its comment icon. The header also has collapse-all
-and expand-all controls. **Zen mode** (top-bar button or **Alt+Z**; the existing
+with its chevron and reopen it from the preview showing its comment icon, thread
+number, and first few words. In the current file, collapsed previews follow
+their passages as you scroll. Threads on the same passage share a stack with
+two previews and a **+N more** control for the rest. The header also has
+collapse-all and expand-all controls. **Zen mode** (top-bar button or **Alt+Z**; the existing
 **Ctrl+Alt+Z** and **Cmd+Alt+Z** shortcuts also work) hides the file explorer and tabs
-and expands only the focused thread. The shortcut also works inside HTML reports.
-Leaving zen restores the normal collapse settings. **Ctrl+Z remains undo.**
+and expands the focused thread by default. Use **Expand all threads** to open
+all visible threads while staying in zen. The shortcut also works inside HTML
+reports. Leaving zen restores the normal collapse settings. **Ctrl+Z remains undo.**
 Resolving a discussion keeps you at the same passage. With focus in the sidebar
 in zen mode or spotlight, use **←/→** to move from that passage through the
 filtered thread list. Deleting a thread or comment in zen mode advances to the
@@ -282,13 +289,14 @@ are not recorded as file visits.
 Python files have a compact **Outline** strip on the right of the reading pane.
 Expand it to browse classes, functions, methods, and module-level assigned
 variables. Click a name to jump to its definition. The outline highlights the
-scope at the cursor. When that definition scrolls above the editor, its
-signature stays pinned in a single row at the top. Click the row to return to
-the definition. The outline follows unsaved edits and the active Edit/Review
+class, function, method, or module variable at the cursor. When a class or
+function definition scrolls above the editor, its signature stays pinned in a
+single row at the top. Click the row to return to the definition. The outline follows unsaved edits and the active Edit/Review
 content. Its expanded/collapsed preference is remembered.
-Live Markdown has a matching **Contents** strip. Click a heading to jump to it
-while keeping the list open. Drag the left edge to set the width or focus the
-separator and use the arrow keys. The browser remembers the width and open state.
+Live Markdown has a matching **Contents** strip. It highlights the heading for
+the section at the cursor. Click a heading to jump to it while keeping the list
+open. Drag the left edge to set the width or focus the separator and use the
+arrow keys. The browser remembers the width and open state.
 
 Use **A− / A+** in the document toolbar to adjust document text size.
 The setting persists. Toolbar, sidebar, and search controls keep their size.
@@ -313,7 +321,10 @@ parent item's text, for example:
 Source bytes, starting numbers, task checkboxes, editing, undo, and passage
 annotations are preserved. Raw source mode shows the original indentation.
 
-Markdown tables render in live mode; click a table to edit its source. Fenced Python,
+Rendered Markdown uses lavender for inline code and the Marker Tree colors for
+monospace P0, P1, P2, P3, and TODO markers.
+Markdown tables use horizontal rules above and below the header and at the
+bottom of the table. Click a live table to edit its source. Fenced Python,
 Bash, JSON, HTML, YAML (`yaml` or `yml`), and TOML blocks have basic syntax
 highlighting in live/source mode and reading preview. Inactive fence markers and
 language labels are hidden in live mode.
@@ -375,7 +386,8 @@ tabs. Unsaved tabs ask before discarding edits. Pinned tabs are protected by
 Open **Tasks** beside **Commit history** for a pinnable Kanban tab with draggable
 cards, fuzzy search, milestone filtering, and bulk selection. Cards have stable
 `#C01` identities and conversations with comments and change updates. The right
-sidebar holds milestones, active tasks, and archived tasks in one hierarchy.
+sidebar shows the active task hierarchy. Use its archive icon to show or hide
+archived tasks.
 Drag a milestone to reorder its branch and update its number. Use the Done
 column's archive icon to archive the completed tasks currently shown.
 Click a row in the sidebar or a card checklist to select it, press Enter or use its pen to open details, double-click

@@ -1,6 +1,6 @@
 import os
 import pytest
-from test_requested_features import workspace_page, open_file
+from test_requested_features import workspace_page, open_file, start_reply
 from test_history import history_repo, git
 pytestmark=[pytest.mark.browser,pytest.mark.skipif(not os.environ.get('LOOKING_GLASS_BROWSER'),reason='Set LOOKING_GLASS_BROWSER for browser checks')]
 
@@ -138,7 +138,7 @@ def test_deleted_file_discussion_opens_original_context_only_on_request(workspac
     expect(page.locator('#document-name')).to_have_text('Original · note.txt')
     expect(page.locator('#threads>.thread.active')).to_have_attribute('data-thread',str(t['id']))
     expect(page.locator('#passage-spotlight')).to_be_visible()
-    page.locator('#reply-'+str(t['id'])).fill('Still discussable');page.locator('.reply-form button[type=submit]').click()
+    start_reply(page).fill('Still discussable');page.locator('.reply-form button[type=submit]').click()
     expect(page.locator('.message p')).to_have_text(['Keep this discussion','Still discussable'])
     page.wait_for_timeout(2400)  # The next active-tab poll must stay quiet.
     expect(page.locator('#notice.error')).not_to_be_visible()
@@ -171,6 +171,7 @@ def test_clipboard_image_new_thread_reply_and_retry(workspace_page):
     page.locator('#comment-submit').click();expect(page.locator('.attachment')).to_have_count(1)
     t=ws.threads()[0];assert t['messages'][0]['body']==''
     assert t['attachments'][0]['message_id']==t['messages'][0]['id']
+    start_reply(page)
     paste_image(page,'#reply-'+str(t['id']))
     expect(page.locator('.reply-form .pending-file')).to_have_count(1)
     # A reply failure must retain both the text and screenshot for a safe retry.
@@ -208,7 +209,7 @@ def test_history_commit_and_branch_discussions(workspace_page):
     expect(page.locator('.thread .message p')).to_have_text('Commit review')
     t=ws.threads()[0];assert t['anchor_kind']=='commit' and t['commit_hash']==sha
     expect(page.locator('.commit-row',has_text='Agent review').locator('.history-discussion-count').first).to_be_visible()
-    page.locator('#reply-'+str(t['id'])).fill('Commit reply');page.locator('.reply-form button[type=submit]').click()
+    start_reply(page).fill('Commit reply');page.locator('.reply-form button[type=submit]').click()
     expect(page.locator('.thread .message p')).to_have_text(['Commit review','Commit reply'])
     page.locator('.original-context').click();expect(page.locator('.cm-content')).to_contain_text('Detailed review message')
     page.locator('#history-open').click()
@@ -231,5 +232,5 @@ def test_history_commit_and_branch_discussions(workspace_page):
     git(root,'branch','-D','agent/review')
     page.locator('.thread[data-thread="'+str(branch['id'])+'"] .original-context').click()
     expect(page.locator('.cm-content')).to_contain_text('Tip when reviewed: '+sha)
-    page.locator('#reply-'+str(branch['id'])).fill('After deletion');page.locator('.thread[data-thread="'+str(branch['id'])+'"] .reply-form button[type=submit]').click()
+    start_reply(page).fill('After deletion');page.locator('.thread[data-thread="'+str(branch['id'])+'"] .reply-form button[type=submit]').click()
     expect(page.locator('.thread[data-thread="'+str(branch['id'])+'"] .message p')).to_have_text(['Branch review','After deletion'])

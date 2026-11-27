@@ -1,7 +1,7 @@
 """Explorer, Markdown contents, and JSONL navigation regressions."""
 import os
 import pytest
-from test_requested_features import workspace_page, open_file
+from test_requested_features import workspace_page, open_file, start_reply
 from test_spotlight_navigation_browser import settle
 
 pytestmark=[pytest.mark.browser,pytest.mark.skipif(not os.environ.get('LOOKING_GLASS_BROWSER'),reason='Set LOOKING_GLASS_BROWSER')]
@@ -55,14 +55,24 @@ def test_live_markdown_contents_tracks_headings_and_navigates(workspace_page):
     bar=page.locator('#markdown-contents');expect(bar).to_be_visible()
     top=bar.bounding_box()['y'];bar.locator('summary').click()
     expect(bar.locator('nav button')).to_have_text(['Report & café','Results','Setext section','Details'])
+    current=bar.locator('[aria-current=location]')
+    expect(current).to_have_text('Report & café')
     bar.get_by_role('button',name='Results',exact=True).click()
     expect(bar).to_have_attribute('open','')
     expect(page.locator('.cm-content')).to_be_focused()
     page.wait_for_function('()=>document.querySelector(".cm-scroller").scrollTop>500')
     assert abs(bar.bounding_box()['y']-top)<1
+    expect(current).to_have_text('Results')
+    page.keyboard.press('ArrowDown')
+    expect(current).to_have_text('Results')
+    bar.get_by_role('button',name='Results',exact=True).click()
     # The selected heading is the actual source position, including CRLF conversion.
     page.keyboard.press('End');page.keyboard.insert_text(' updated')
-    expect(bar.get_by_role('button',name='Results updated',exact=True)).to_be_visible()
+    expect(current).to_have_text('Results updated')
+    page.keyboard.press('Control+End')
+    expect(current).to_have_text('Details')
+    bar.get_by_role('button',name='Setext section',exact=True).click()
+    expect(current).to_have_text('Setext section')
     handle=bar.get_by_role('separator',name='Resize Markdown contents')
     before=bar.bounding_box()['width'];box=handle.bounding_box()
     page.mouse.move(box['x']+2,box['y']+60);page.mouse.down()
@@ -75,7 +85,7 @@ def test_live_markdown_contents_tracks_headings_and_navigates(workspace_page):
     bar.locator('summary').press('Enter')
     page.locator('#mode').select_option('source');expect(bar).not_to_be_visible()
     page.locator('#mode').select_option('preview');expect(bar).not_to_be_visible()
-    open_file(page,'other.md');expect(bar.locator('nav button')).to_have_text(['Other'])
+    open_file(page,'other.md');expect(current).to_have_text('Other')
     open_file(page,'empty.md');expect(bar.locator('nav')).to_have_text('No headings yet')
     page.reload();open_file(page,'other.md')
     expect(bar).to_have_attribute('open','')
@@ -137,7 +147,7 @@ def test_discussions_strip_preserves_control_width_and_reply(workspace_page):
     separator.focus();page.keyboard.press('Home');page.keyboard.press('Shift+ArrowLeft')
     expect(separator).to_have_attribute('aria-valuenow','270')
     page.locator('.thread blockquote').click()
-    reply=page.locator('.reply-form textarea');reply.fill('Unsaved reply')
+    reply=start_reply(page);reply.fill('Unsaved reply')
     page.locator('.cm-content').click();page.keyboard.press('Control+End');page.keyboard.insert_text('Draft')
     toggle=page.locator('#discussions-toggle');arrow_box=toggle.bounding_box()
     width=page.locator('.document-panel').bounding_box()['width']
@@ -192,6 +202,15 @@ def test_markdown_tables_use_available_width_and_scroll_overflow(workspace_page,
     assert .8*body_size<=cell_size<=.9*body_size
     assert small.locator('td').first.evaluate('el=>parseFloat(getComputedStyle(el).paddingTop)')<=4
     assert small.locator('td').first.evaluate('el=>parseFloat(getComputedStyle(el).paddingLeft)')<=6
+    for theme in ('light','dark'):
+        if page.locator('html').get_attribute('data-theme')!=theme:
+            page.locator('#theme').click()
+        table=small.locator('table')
+        expect(table).to_have_css('border-top-width','3px')
+        expect(table.locator('thead')).to_have_css('border-bottom-width','2px')
+        expect(table).to_have_css('border-bottom-width','3px')
+        for cell in table.locator('th,td').all():
+            expect(cell).to_have_css('border-width','0px')
     assert large.evaluate('el=>el.scrollWidth>el.clientWidth')
     # The side outline is outside the reading surface available to tables.
     assert large.bounding_box()['width']>page.locator('#surface').bounding_box()['width']-80
