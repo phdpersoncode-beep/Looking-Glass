@@ -104,7 +104,12 @@ export function createThreadSearchView(sidebar,{onInput,onOpen,onRefresh,loadInd
     if(next&&!searching)listScroll=scroller.scrollTop;
     searching=next;onInput();scroller.scrollTop=next?0:listScroll;
   }
-  function reset(){input.value='';changed();input.focus({preventScroll:true});}
+  function reset(){
+    input.focus({preventScroll:true});
+    closePicker();
+    input.value='';
+    changed();
+  }
   input.addEventListener('input',()=>{changed();openPicker();});
   input.addEventListener('focus',openPicker);
   area.querySelector('.thread-search-bar').addEventListener('click',event=>{
@@ -122,8 +127,9 @@ export function createThreadSearchView(sidebar,{onInput,onOpen,onRefresh,loadInd
     if(event.defaultPrevented||event.isComposing)return;
     if(event.key==='Tab'){closePicker();return;}
     if(event.key==='Escape'&&(!picker.hidden||input.value)){
-      event.preventDefault();event.stopPropagation();closePicker();
+      event.preventDefault();event.stopPropagation();
       if(input.value)reset();
+      else closePicker();
     }
     if(event.key==='ArrowDown'||event.key==='ArrowUp'){
       event.preventDefault();openPicker();

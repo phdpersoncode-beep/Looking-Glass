@@ -133,7 +133,6 @@ def test_horizontal_filters_counts_search_and_copy_keep_thread_state(workspace_p
     expect(lost_card).to_be_visible()
     expect(page.locator('#thread-search-status')).to_contain_text('1 match')
     page.locator('#thread-search-clear').click()
-    page.locator('#thread-search').press('Tab')
     page.locator('#show-resolved').check()
     expect(closed_card).not_to_be_visible()
     only_unattached.uncheck()

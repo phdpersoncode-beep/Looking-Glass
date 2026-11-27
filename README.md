@@ -230,7 +230,7 @@ picker ordered by passage position within each file. Type to fuzzy-search thread
 numbers, passages, comments, and replies. Use ↑/↓ and Enter or click a result to
 jump to its passage. The picker floats over the sidebar and follows the current
 scope and filters. Press Tab or click outside the picker to dismiss it and keep
-the search text.
+the search text. **Clear thread search** empties the field and dismisses the picker.
 
 In comments and replies, `#123` becomes a clickable thread reference. It opens
 that thread and its file in spotlight, including resolved or unattached threads
